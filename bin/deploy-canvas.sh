@@ -125,8 +125,8 @@ else
   if [[ ! -f $site_root/canvas/server/bootstrap.php && ! -f $site_root/public/canvas/index.html ]]; then
     [[ -z $(site_git ls-files --others --exclude-standard) ]] ||
       stop '未完成のCanvas worktreeに未追跡ファイルがあります。自動復旧せず停止します。'
-    [[ $(site_git rev-parse HEAD) == $(site_git rev-parse "origin/$branch") ]] ||
-      stop '未完成のCanvas worktreeのHEADが配布ブランチと違います。自動復旧せず停止します。'
+    site_git merge-base --is-ancestor HEAD "origin/$branch" ||
+      stop '未完成のCanvas worktreeのHEADが配布ブランチ系列ではありません。自動復旧せず停止します。'
     printf '前回失敗した未完成のCanvas worktreeを復旧します。\n'
     ensure_sparse_checkout
     site_git reset --hard "origin/$branch" || stop '未完成Canvas worktreeの復旧に失敗しました。'
