@@ -65,10 +65,14 @@ if ! "${mysql_admin[@]}" --batch --skip-column-names -e 'SELECT 1' >/dev/null 2>
 fi
 "${mysql_admin[@]}" canvas < "$site_root/canvas/sql/migrate-visitors.mysql.sql" || stop '利用者DB更新に失敗しました。'
 
-# Build-only fixes. The original tracked source is restored immediately after the
-# production bundle is generated, so the worktree stays clean.
+# Build-only feature patch. The original tracked source is restored immediately after
+# the production bundle is generated, so the worktree stays clean.
 editor_backup=$(mktemp)
 cp -p -- "$editor" "$editor_backup"
+cd "$site_root/canvas"
+run_as_owner node scripts/apply-raster-layers.mjs || stop 'ラスタライズ・レイヤー結合機能の適用に失敗しました。'
+
+# Small compile-time compatibility fixes for the current V2 source.
 python3 - "$editor" <<'PY'
 from pathlib import Path
 import sys
@@ -83,7 +87,6 @@ p.write_text(s)
 PY
 chown "$(stat -c %U "$editor_backup")":"$(stat -c %G "$editor_backup")" "$editor" 2>/dev/null || true
 
-cd "$site_root/canvas"
 if [[ ! -d node_modules ]]; then
   printf 'Node依存関係を準備します。\n'
   run_as_owner npm install --no-audit --no-fund || stop 'npm install に失敗しました。'
@@ -103,6 +106,7 @@ done
 ls "$site_root/public/canvas/assets"/*.js >/dev/null 2>&1 || stop 'V2 JavaScriptが生成されませんでした。'
 
 printf '\nCanvas V2 ビルド完了。\n'
+printf '機能: ベクター/ペイント、ラスタライズ、下と結合、表示を結合、全て統合、ラスタ消しゴム\n'
 printf '公開URL: https://canvas.uzero.style/\n'
 printf '利用者管理: https://canvas.uzero.style/canvas/admin-visitors.php\n'
 printf 'Git: %s\n' "$(run_git "$site_root" rev-parse --short HEAD)"
