@@ -1,0 +1,15 @@
+{
+  "name": "UZERO キャンバス",
+  "short_name": "キャンバス",
+  "description": "描く・考える・共有する",
+  "start_url": "/canvas/",
+  "scope": "/canvas/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#172337",
+  "icons": [
+    { "src": "/canvas/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" },
+    { "src": "/canvas/icon.php?size=192", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/canvas/icon.php?size=512", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
