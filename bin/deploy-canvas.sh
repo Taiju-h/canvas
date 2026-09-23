@@ -25,7 +25,8 @@ cleanup() {
 trap cleanup EXIT
 
 [[ $# -le 2 && -n $email ]] || stop '使い方: sudo bash /tmp/uzero-canvas-deploy.sh メールアドレス [PHP実行ユーザー]'
-[[ $email != user@example.com && $email != *@example.com ]] || stop 'user@example.com を実際のログイン用メールアドレスに変更してください。'
+[[ $email != user@example.com && $email != your-address@domain.jp && $email != *@example.com ]] ||
+  stop '例示メールアドレスを実際のログイン用に変更してください。'
 [[ $EUID -eq 0 ]] || stop 'root で実行してください（sudo bash ...）。'
 [[ -t 0 && -t 1 ]] || stop 'SSHの対話型ターミナルで実行してください。'
 for tool in git mysql php openssl curl runuser stat install mktemp sed apache2ctl systemctl awk readlink; do
