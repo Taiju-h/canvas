@@ -27,7 +27,7 @@ git show origin/canvas/isolated-deploy-20260923:canvas/bin/deploy-canvas.sh > "$
   sudo bash "$canvas_script" your-address@domain.jp www-data
 ```
 
-スクリプトは最新の取得済み `main` を確認し、Canvas以外の差分が専用ブランチに入っていないことを検査します。Canvasの作業ツリー・専用DB `canvas`・4テーブル・ログインユーザーを用意した後、Apacheのこのサブドメインにある `DocumentRoot /var/www/uzero.style/canvas` の1行だけを `DocumentRoot /var/www/canvas.uzero.style/public` に変更し、構文確認・再読込・公開URLとPHP APIの動作確認を行います。Apache設定が確認時と違えば変更前に止まり、構文確認や再読込に失敗すれば元へ戻します。`nobunaga` DBは触りません。
+スクリプトは最新の取得済み `main` を確認し、Canvas以外の差分が専用ブランチに入っていないことを検査します。Canvasの作業ツリー・専用DB `canvas`・4テーブル・ログインユーザーを用意した後、Apacheのこのサブドメインにある `DocumentRoot /var/www/uzero.style/canvas` を `DocumentRoot /var/www/canvas.uzero.style/public` に変更します。該当する `<Directory>` のパスも更新し、トップページ `/` は `/canvas/` へ転送します。Apache構文確認・再読込・公開URLとPHP APIの動作確認を行います。Apache設定が確認時と違えば変更前に止まり、構文確認や再読込に失敗すれば元へ戻します。`nobunaga` DBは触りません。
 
 以下は自動スクリプトを使わず個別に設定する場合の手順です。自動スクリプトを完了した後に再実行する必要はありません。
 
@@ -62,7 +62,7 @@ DBが未設定の間も `/canvas/` は端末内だけで使用できます。ロ
 
 ## 公開とビルド
 
-`canvas.uzero.style` の HTTPS DocumentRoot は `/var/www/canvas.uzero.style/public`、実際のURLは `https://canvas.uzero.style/canvas/` です。`public/canvas/*.php` をPHPとして実行できることを確認します。`.htaccess` の書き換えには依存していません。
+`canvas.uzero.style` の DocumentRoot は `/var/www/canvas.uzero.style/public`、アプリのURLは `https://canvas.uzero.style/canvas/` です。`/` から `/canvas/` への転送はこのサブドメインのApache設定に置きます。`public/canvas/*.php` をPHPとして実行できること、HTTPS証明書がこのサブドメインで有効なことを確認します。`.htaccess` の書き換えには依存していません。
 
 Gitに含まれる `public/canvas/` の画面とアセットはビルド済みです。後で画面を変更した場合だけ、以下を実行し、生成ファイルもコミットします。
 
