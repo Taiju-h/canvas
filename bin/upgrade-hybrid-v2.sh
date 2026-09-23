@@ -65,8 +65,8 @@ if ! "${mysql_admin[@]}" --batch --skip-column-names -e 'SELECT 1' >/dev/null 2>
 fi
 "${mysql_admin[@]}" canvas < "$site_root/canvas/sql/migrate-visitors.mysql.sql" || stop '利用者DB更新に失敗しました。'
 
-# One-time build hotfix: keep the repository worktree clean while correcting the
-# History API reference during compilation. The source file is restored by trap.
+# Build-only fixes. The original tracked source is restored immediately after the
+# production bundle is generated, so the worktree stays clean.
 editor_backup=$(mktemp)
 cp -p -- "$editor" "$editor_backup"
 python3 - "$editor" <<'PY'
@@ -75,6 +75,10 @@ import sys
 p = Path(sys.argv[1])
 s = p.read_text()
 s = s.replace('history.replaceState(null, "", url)', 'window.history.replaceState(null, "", url)')
+s = s.replace(
+    'dirty.current = docRef.current !== sentDoc || titleRef.current !== sentTitle;',
+    'dirty.current = JSON.stringify(docRef.current) !== JSON.stringify(sentDoc) || titleRef.current !== sentTitle;'
+)
 p.write_text(s)
 PY
 chown "$(stat -c %U "$editor_backup")":"$(stat -c %G "$editor_backup")" "$editor" 2>/dev/null || true
