@@ -58,6 +58,11 @@ if [[ $docroots == "$old_docroot" ]]; then
     esac
   done <<< "$old_ref_lines"
 fi
+[[ $(grep -Ec '^[[:space:]]*ServerName[[:space:]]+canvas[.]uzero[.]style([[:space:]]|$)' "$vhost") == 1 ]] ||
+  stop 'CanvasのServerNameが複数あります。Apache設定を確認してください。'
+redirect_count=$(grep -Fc 'RedirectMatch 302 ^/$ /canvas/' "$vhost" || true)
+[[ $redirect_count == 0 || $redirect_count == 1 ]] ||
+  stop 'トップページ転送が重複しています。'
 web_group=$(id -gn "$web_user")
 repo_owner=$(stat -c %U "$source_repo")
 repo_group=$(stat -c %G "$source_repo")
@@ -219,23 +224,29 @@ else
   php "$app/canvas/bin/create-user.php" "$email" || stop '初期ログイン利用者の作成に失敗しました。'
 fi
 
-if [[ $docroots == "$old_docroot" ]]; then
+if [[ $docroots == "$old_docroot" || $redirect_count == 0 ]]; then
   vhost_backup=$(mktemp)
   temporary_files+=("$vhost_backup")
   cp -p -- "$vhost" "$vhost_backup"
-  sed -i -E "s|^([[:space:]]*DocumentRoot[[:space:]]+)$old_docroot[[:space:]]*$|\1$new_docroot|" "$vhost"
-  sed -i \
-    -e "s|<Directory $old_docroot>|<Directory $new_docroot>|g" \
-    -e "s|<Directory \"$old_docroot\">|<Directory \"$new_docroot\">|g" \
-    "$vhost"
+  if [[ $docroots == "$old_docroot" ]]; then
+    sed -i -E "s|^([[:space:]]*DocumentRoot[[:space:]]+)$old_docroot[[:space:]]*$|\1$new_docroot|" "$vhost"
+    sed -i \
+      -e "s|<Directory $old_docroot>|<Directory $new_docroot>|g" \
+      -e "s|<Directory \"$old_docroot\">|<Directory \"$new_docroot\">|g" \
+      "$vhost"
+  fi
+  if [[ $redirect_count == 0 ]]; then
+    sed -i -E '/^[[:space:]]*ServerName[[:space:]]+canvas[.]uzero[.]style([[:space:]]|$)/a\    RedirectMatch 302 ^/$ /canvas/' "$vhost"
+  fi
   if [[ $(awk '$1 == "DocumentRoot" {print $2}' "$vhost") != "$new_docroot" ]] ||
      grep -Fq -- "$old_docroot" "$vhost" ||
+     [[ $(grep -Fc 'RedirectMatch 302 ^/$ /canvas/' "$vhost") != 1 ]] ||
      ! apache2ctl configtest || ! systemctl reload apache2; then
     cp -p -- "$vhost_backup" "$vhost"
     apache2ctl configtest && systemctl reload apache2 || true
     stop 'Apache設定を元に戻しました。設定または再起動の失敗を確認してください。'
   fi
-  printf 'ApacheのCanvas専用DocumentRootとDirectoryを更新しました。\n'
+  printf 'ApacheのCanvas公開先・Directory・トップページ転送を確認しました。\n'
 fi
 
 page=$(curl -fsSL --max-time 20 "$base_url") ||
