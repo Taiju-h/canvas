@@ -74,9 +74,10 @@ site_git() {
   fi
 }
 ensure_sparse_checkout() {
-  local git_info
-  git_info=$(site_git rev-parse --git-path info) || stop 'Canvas worktreeのGit管理パスを取得できません。'
-  [[ $git_info == /* ]] || git_info="$site_root/$git_info"
+  local git_dir git_info
+  git_dir=$(site_git rev-parse --git-dir) || stop 'Canvas worktreeのGit管理パスを取得できません。'
+  [[ $git_dir == /* ]] || git_dir="$site_root/$git_dir"
+  git_info="$git_dir/info"
   install -d -o "$repo_owner" -g "$repo_group" -m 0755 "$git_info" ||
     stop 'Canvas worktreeのsparse-checkout管理ディレクトリを作成できません。'
   site_git sparse-checkout init --no-cone || stop 'Canvasのsparse-checkout初期化に失敗しました。'
