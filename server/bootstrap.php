@@ -68,6 +68,29 @@ function canvas_current_user(): ?string
     return is_string($id) && preg_match('/^[a-f0-9]{32}$/', $id) ? $id : null;
 }
 
+function canvas_current_visitor(): ?string
+{
+    $id = $_SESSION['canvas_visitor_id'] ?? null;
+    return is_string($id) && preg_match('/^[a-f0-9]{32}$/', $id) ? $id : null;
+}
+
+function canvas_current_actor(): ?string
+{
+    return canvas_current_user() ?? canvas_current_visitor();
+}
+
+function canvas_client_ip(): string
+{
+    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+    return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '';
+}
+
+function canvas_user_agent(): string
+{
+    $agent = trim((string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    return mb_substr($agent, 0, 255);
+}
+
 function canvas_now(): int { return (int)round(microtime(true) * 1000); }
 
 function canvas_valid_content($value): bool
@@ -86,7 +109,7 @@ function canvas_valid_content($value): bool
 function canvas_title($value): string
 {
     $title = is_string($value) ? trim($value) : '';
-    return $title !== '' ? mb_substr($title, 0, 80) : '無題のキャンバス';
+    return $title !== '' ? mb_substr($title, 0, 80) : '新規キャンパス1';
 }
 
 function canvas_body(): array
