@@ -73,6 +73,16 @@ site_git() {
   else runuser -u "$repo_owner" -- git -C "$site_root" "$@"
   fi
 }
+ensure_sparse_checkout() {
+  local git_info
+  git_info=$(site_git rev-parse --git-path info) || stop 'Canvas worktreeのGit管理パスを取得できません。'
+  [[ $git_info == /* ]] || git_info="$site_root/$git_info"
+  install -d -o "$repo_owner" -g "$repo_group" -m 0755 "$git_info" ||
+    stop 'Canvas worktreeのsparse-checkout管理ディレクトリを作成できません。'
+  site_git sparse-checkout init --no-cone || stop 'Canvasのsparse-checkout初期化に失敗しました。'
+  site_git sparse-checkout set --no-cone '/canvas/' '/public/canvas/' '/.gitignore' ||
+    stop 'Canvasだけの展開設定に失敗しました。'
+}
 
 [[ $(repo_git rev-parse --show-toplevel) == "$source_repo" ]] ||
   stop "$source_repo はGit作業ツリーのルートではありません。"
@@ -103,15 +113,29 @@ if [[ ! -e $site_root ]]; then
   install -d -o "$repo_owner" -g "$repo_group" -m 0755 "$site_root"
   repo_git worktree add --no-checkout -b "$branch" "$site_root" "origin/$branch" ||
     stop 'Canvas専用作業ツリーの作成に失敗しました。元サイトの作業ファイルは変更していません。'
-  site_git sparse-checkout set --no-cone '/canvas/' '/public/canvas/' '/.gitignore' ||
-    stop 'Canvasだけの展開に失敗しました。'
+  ensure_sparse_checkout
   site_git checkout "$branch" || stop 'Canvasだけの展開に失敗しました。'
 else
   [[ -f $site_root/.git && $(site_git branch --show-current) == "$branch" ]] ||
     stop '公開先がCanvas専用の作業ツリーではありません。上書きしません。'
-  [[ -z $(site_git status --porcelain --untracked-files=all -- canvas public/canvas) ]] ||
-    stop '公開先のCanvasに未コミット変更があります。上書きしません。'
-  site_git merge --ff-only "origin/$branch" || stop 'Canvasブランチの早送り更新に失敗しました。'
+
+  # A previous run may have created the linked worktree but failed before
+  # sparse-checkout could write its metadata. Recover only when no untracked
+  # files exist and the expected Canvas files are still absent.
+  if [[ ! -f $site_root/canvas/server/bootstrap.php && ! -f $site_root/public/canvas/index.html ]]; then
+    [[ -z $(site_git ls-files --others --exclude-standard) ]] ||
+      stop '未完成のCanvas worktreeに未追跡ファイルがあります。自動復旧せず停止します。'
+    [[ $(site_git rev-parse HEAD) == $(site_git rev-parse "origin/$branch") ]] ||
+      stop '未完成のCanvas worktreeのHEADが配布ブランチと違います。自動復旧せず停止します。'
+    printf '前回失敗した未完成のCanvas worktreeを復旧します。\n'
+    ensure_sparse_checkout
+    site_git reset --hard "origin/$branch" || stop '未完成Canvas worktreeの復旧に失敗しました。'
+  else
+    [[ -z $(site_git status --porcelain --untracked-files=all -- canvas public/canvas) ]] ||
+      stop '公開先のCanvasに未コミット変更があります。上書きしません。'
+    site_git merge --ff-only "origin/$branch" || stop 'Canvasブランチの早送り更新に失敗しました。'
+    ensure_sparse_checkout
+  fi
 fi
 for path in canvas/server/bootstrap.php canvas/bin/create-user.php canvas/sql/create-database.mysql.sql \
             canvas/sql/schema.mysql.sql public/canvas/index.html public/canvas/api.php; do
