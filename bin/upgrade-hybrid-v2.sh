@@ -4,13 +4,22 @@ set -Eeuo pipefail
 source_repo=/var/www/uzero.style
 site_root=/var/www/canvas.uzero.style
 branch=canvas/isolated-deploy-20260923
+editor="$site_root/canvas/src/components/hybrid-canvas-editor.tsx"
+editor_backup=""
 
 stop() { printf '停止: %s\n' "$*" >&2; exit 1; }
+cleanup() {
+  if [[ -n $editor_backup && -f $editor_backup ]]; then
+    cp -p -- "$editor_backup" "$editor" || true
+    rm -f -- "$editor_backup"
+  fi
+}
+trap cleanup EXIT
+
 [[ $EUID -eq 0 ]] || stop 'sudo bash で実行してください。'
 [[ -d $source_repo && -f $site_root/.git ]] || stop 'CanvasのGit worktreeが見つかりません。'
 
 repo_owner=$(stat -c %U "$source_repo")
-repo_group=$(stat -c %G "$source_repo")
 run_git() {
   local root=$1; shift
   if [[ $repo_owner == root ]]; then git -C "$root" "$@"
@@ -45,7 +54,7 @@ done
 run_git "$site_root" merge --ff-only "origin/$branch" || stop 'Canvas公開worktreeを更新できません。'
 printf 'Git更新: %s\n' "$(run_git "$site_root" rev-parse --short HEAD)"
 
-for tool in node npm php mysql; do command -v "$tool" >/dev/null || stop "$tool が見つかりません。"; done
+for tool in node npm php mysql python3; do command -v "$tool" >/dev/null || stop "$tool が見つかりません。"; done
 node_major=$(node -p 'Number(process.versions.node.split(".")[0])')
 [[ $node_major -ge 20 ]] || stop "Node.js 20以上が必要です。現在: $(node -v)"
 
@@ -56,6 +65,20 @@ if ! "${mysql_admin[@]}" --batch --skip-column-names -e 'SELECT 1' >/dev/null 2>
 fi
 "${mysql_admin[@]}" canvas < "$site_root/canvas/sql/migrate-visitors.mysql.sql" || stop '利用者DB更新に失敗しました。'
 
+# One-time build hotfix: keep the repository worktree clean while correcting the
+# History API reference during compilation. The source file is restored by trap.
+editor_backup=$(mktemp)
+cp -p -- "$editor" "$editor_backup"
+python3 - "$editor" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+s = p.read_text()
+s = s.replace('history.replaceState(null, "", url)', 'window.history.replaceState(null, "", url)')
+p.write_text(s)
+PY
+chown "$(stat -c %U "$editor_backup")":"$(stat -c %G "$editor_backup")" "$editor" 2>/dev/null || true
+
 cd "$site_root/canvas"
 if [[ ! -d node_modules ]]; then
   printf 'Node依存関係を準備します。\n'
@@ -63,6 +86,11 @@ if [[ ! -d node_modules ]]; then
 fi
 printf 'TypeScript確認・V2ビルドを実行します。\n'
 run_as_owner npm run build || stop 'Canvas V2のビルドに失敗しました。上のTypeScript/Viteエラーを貼ってください。'
+
+# Restore source immediately; generated output remains in public/canvas.
+cp -p -- "$editor_backup" "$editor"
+rm -f -- "$editor_backup"
+editor_backup=""
 
 for file in "$site_root/public/canvas/api.php" "$site_root/public/canvas/admin-visitors.php" "$site_root/canvas/server/bootstrap.php"; do
   php -l "$file" >/dev/null || stop "PHP構文エラー: $file"
