@@ -45,8 +45,18 @@ docroots=$(awk '$1 == "DocumentRoot" {print $2}' "$vhost")
 [[ $docroots == "$old_docroot" || $docroots == "$new_docroot" ]] ||
   stop 'ApacheのDocumentRootが確認時と違います。内容を確認してください。'
 if [[ $docroots == "$old_docroot" ]]; then
-  [[ $(grep -Fc "$old_docroot" "$vhost") == 1 ]] ||
-    stop 'Apache設定に旧パスの参照が複数あります。自動変更せずに停止します。'
+  # The old path normally appears both in DocumentRoot and in a matching
+  # <Directory ...> block. Allow only those known references; anything else
+  # still stops the deploy instead of rewriting an unknown Apache directive.
+  old_ref_lines=$(grep -Fn -- "$old_docroot" "$vhost" || true)
+  while IFS= read -r ref; do
+    [[ -n $ref ]] || continue
+    line=${ref#*:}
+    case "$line" in
+      *DocumentRoot*"$old_docroot"*|*"<Directory $old_docroot>"*|*"<Directory \"$old_docroot\">"*) ;;
+      *) stop "Apache設定の旧パス参照が想定外です: $ref" ;;
+    esac
+  done <<< "$old_ref_lines"
 fi
 web_group=$(id -gn "$web_user")
 repo_owner=$(stat -c %U "$source_repo")
@@ -189,13 +199,18 @@ if [[ $docroots == "$old_docroot" ]]; then
   temporary_files+=("$vhost_backup")
   cp -p -- "$vhost" "$vhost_backup"
   sed -i -E "s|^([[:space:]]*DocumentRoot[[:space:]]+)$old_docroot[[:space:]]*$|\1$new_docroot|" "$vhost"
+  sed -i \
+    -e "s|<Directory $old_docroot>|<Directory $new_docroot>|g" \
+    -e "s|<Directory \"$old_docroot\">|<Directory \"$new_docroot\">|g" \
+    "$vhost"
   if [[ $(awk '$1 == "DocumentRoot" {print $2}' "$vhost") != "$new_docroot" ]] ||
+     grep -Fq -- "$old_docroot" "$vhost" ||
      ! apache2ctl configtest || ! systemctl reload apache2; then
     cp -p -- "$vhost_backup" "$vhost"
     apache2ctl configtest && systemctl reload apache2 || true
     stop 'Apache設定を元に戻しました。設定または再起動の失敗を確認してください。'
   fi
-  printf 'ApacheのCanvas専用DocumentRootを更新しました。\n'
+  printf 'ApacheのCanvas専用DocumentRootとDirectoryを更新しました。\n'
 fi
 
 page=$(curl -fsSL --max-time 20 "$base_url") ||
