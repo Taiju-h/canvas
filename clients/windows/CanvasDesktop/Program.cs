@@ -16,7 +16,7 @@ internal static class Program
 
 internal sealed class CanvasWindow : Form
 {
-    private const string CanvasUrl = "https://uzero.style/canvas/";
+    private const string CanvasUrl = "https://canvas.uzero.style/canvas/";
     private readonly WebView2 view = new() { Dock = DockStyle.Fill };
     private readonly Panel errorPanel = new() { Dock = DockStyle.Fill, BackColor = Color.FromArgb(248, 250, 253), Visible = false };
     private readonly Button retry = new() { Text = "再読み込み", Width = 150, Height = 44 };
