@@ -36,8 +36,8 @@ import android.widget.Toast;
 import java.io.OutputStream;
 
 public class MainActivity extends Activity {
-    private static final String SITE = "https://uzero.style/canvas/";
-    private static final String SITE_HOST = "uzero.style";
+    private static final String SITE = "https://canvas.uzero.style/canvas/";
+    private static final String SITE_HOST = "canvas.uzero.style";
     private static final int FILE_PICKER = 1001;
     private WebView web;
     private LinearLayout offline;
