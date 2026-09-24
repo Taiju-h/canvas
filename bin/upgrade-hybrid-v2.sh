@@ -35,6 +35,13 @@ run_as_owner() {
 printf 'Canvas V2 更新を開始します。元サイト・nobunagaには触れません。\n'
 run_git "$source_repo" fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || stop 'Canvasブランチを取得できません。'
 
+# npm install may leave an untracked package-lock.json after an interrupted build.
+# It is generated deployment state, not user work, so remove it before the safety check.
+if [[ -f "$site_root/canvas/package-lock.json" ]] && ! run_git "$site_root" ls-files --error-unmatch canvas/package-lock.json >/dev/null 2>&1; then
+  rm -f -- "$site_root/canvas/package-lock.json"
+  printf '生成済み package-lock.json を整理しました。\n'
+fi
+
 # Production builds intentionally change only generated frontend files. Restore those
 # before a fast-forward so source changes can be updated without touching other sites.
 allowed='^( M|M |MM| D|D |A |\?\?) public/canvas/(assets/|index\.html$|offline-assets\.json$|sw\.js$)'
@@ -89,7 +96,7 @@ PY
 chown "$(stat -c %U "$editor_backup")":"$(stat -c %G "$editor_backup")" "$editor" 2>/dev/null || true
 
 printf 'Node依存関係を確認します。\n'
-run_as_owner npm install --no-audit --no-fund || stop 'npm install に失敗しました。'
+run_as_owner npm install --no-audit --no-fund --package-lock=false || stop 'npm install に失敗しました。'
 printf 'TypeScript確認・V2ビルドを実行します。\n'
 run_as_owner npm run build || stop 'Canvas V2のビルドに失敗しました。上のTypeScript/Viteエラーを貼ってください。'
 
