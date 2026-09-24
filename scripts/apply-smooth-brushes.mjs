@@ -11,7 +11,6 @@ function replaceOnce(label, before, after) {
   source = source.slice(0, index) + after + source.slice(index + before.length);
 }
 
-// Wide brushes used butt caps, making every sampled segment visibly discontinuous.
 replaceOnce("round flat brush caps",
   '{ id: "flat-xl", label: "ハケ 極太", width: 30, opacity: 0.78, blend: "normal", pressureWidth: 0.38, pressureOpacity: 0.12, taper: 0.12, lineCap: "butt", vectorPreferred: false },\n  { id: "flat-xxl", label: "ハケ 超極太", width: 52, opacity: 0.72, blend: "normal", pressureWidth: 0.28, pressureOpacity: 0.14, taper: 0.08, lineCap: "butt", vectorPreferred: false },',
   '{ id: "flat-xl", label: "ハケ 極太", width: 30, opacity: 0.78, blend: "normal", pressureWidth: 0.30, pressureOpacity: 0.08, taper: 0.10, lineCap: "round", vectorPreferred: false },\n  { id: "flat-xxl", label: "ハケ 超極太", width: 52, opacity: 0.72, blend: "normal", pressureWidth: 0.22, pressureOpacity: 0.08, taper: 0.06, lineCap: "round", vectorPreferred: false },');
@@ -61,17 +60,17 @@ function strokeOutlinePath(points: Point[], widths: number[]) {
   const endRadius = Math.max(0.25, widths[widths.length - 1] / 2);
   const startRadius = Math.max(0.25, widths[0] / 2);
   return [
-    `M ${left[0].x.toFixed(2)} ${left[0].y.toFixed(2)}`,
-    ...left.slice(1).map(point => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
-    `A ${endRadius.toFixed(2)} ${endRadius.toFixed(2)} 0 0 1 ${right[right.length - 1].x.toFixed(2)} ${right[right.length - 1].y.toFixed(2)}`,
-    ...right.slice(0, -1).reverse().map(point => `L ${point.x.toFixed(2)} ${point.y.toFixed(2)}`),
-    `A ${startRadius.toFixed(2)} ${startRadius.toFixed(2)} 0 0 1 ${left[0].x.toFixed(2)} ${left[0].y.toFixed(2)}`,
+    "M " + left[0].x.toFixed(2) + " " + left[0].y.toFixed(2),
+    ...left.slice(1).map(point => "L " + point.x.toFixed(2) + " " + point.y.toFixed(2)),
+    "A " + endRadius.toFixed(2) + " " + endRadius.toFixed(2) + " 0 0 1 " + right[right.length - 1].x.toFixed(2) + " " + right[right.length - 1].y.toFixed(2),
+    ...right.slice(0, -1).reverse().map(point => "L " + point.x.toFixed(2) + " " + point.y.toFixed(2)),
+    "A " + startRadius.toFixed(2) + " " + startRadius.toFixed(2) + " 0 0 1 " + left[0].x.toFixed(2) + " " + left[0].y.toFixed(2),
     "Z",
   ].join(" ");
 }
 function smoothCenterPath(points: Point[]) {
   if (points.length < 2) return "";
-  return `M ${points.map(point => `${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" L ")}`;
+  return "M " + points.map(point => point.x.toFixed(2) + " " + point.y.toFixed(2)).join(" L ");
 }
 function pressureValue(point: Point) { return point.p && point.p > 0 ? Math.max(0.05, Math.min(1, point.p)) : 0.5; }`);
 
