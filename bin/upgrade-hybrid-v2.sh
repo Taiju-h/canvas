@@ -35,16 +35,20 @@ run_as_owner() {
 printf 'Canvas V2 更新を開始します。元サイト・nobunagaには触れません。\n'
 run_git "$source_repo" fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || stop 'Canvasブランチを取得できません。'
 
-# npm install may leave an untracked package-lock.json after an interrupted build.
-# It is generated deployment state, not user work, so remove it before the safety check.
+# npm/Vite may leave generated files after an interrupted build. They are deployment
+# products, not user work, so remove only untracked generated state before the safety check.
 if [[ -f "$site_root/canvas/package-lock.json" ]] && ! run_git "$site_root" ls-files --error-unmatch canvas/package-lock.json >/dev/null 2>&1; then
   rm -f -- "$site_root/canvas/package-lock.json"
   printf '生成済み package-lock.json を整理しました。\n'
 fi
+if [[ -d "$site_root/public/canvas/.vite" ]] && [[ -z $(run_git "$site_root" ls-files -- public/canvas/.vite) ]]; then
+  rm -rf -- "$site_root/public/canvas/.vite"
+  printf '生成済み Vite manifest を整理しました。\n'
+fi
 
 # Production builds intentionally change only generated frontend files. Restore those
 # before a fast-forward so source changes can be updated without touching other sites.
-allowed='^( M|M |MM| D|D |A |\?\?) public/canvas/(assets/|index\.html$|offline-assets\.json$|sw\.js$)'
+allowed='^( M|M |MM| D|D |A |\?\?) public/canvas/(assets/|\.vite/|index\.html$|offline-assets\.json$|sw\.js$)'
 while IFS= read -r line; do
   [[ -z $line ]] && continue
   if ! grep -Eq "$allowed" <<< "$line"; then
@@ -53,6 +57,7 @@ while IFS= read -r line; do
 done < <(run_git "$site_root" status --porcelain --untracked-files=all -- canvas public/canvas)
 
 run_git "$site_root" restore --worktree --staged -- public/canvas/assets public/canvas/index.html public/canvas/offline-assets.json public/canvas/sw.js 2>/dev/null || true
+rm -rf -- "$site_root/public/canvas/.vite"
 find "$site_root/public/canvas/assets" -maxdepth 1 -type f -print0 2>/dev/null | while IFS= read -r -d '' file; do
   rel=${file#"$site_root/"}
   run_git "$site_root" ls-files --error-unmatch "$rel" >/dev/null 2>&1 || rm -f -- "$file"
