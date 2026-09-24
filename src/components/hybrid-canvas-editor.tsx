@@ -303,7 +303,7 @@ export default function HybridCanvasEditor({ accountId }: { accountId?: string }
       setTitleBoth(record.title); setRevisionBoth(record.revision); setDocBoth(normalized);
       setActiveLayer(normalized.layers[0]?.id || ""); selectedReset();
       dirty.current = false; await saveLocal(normalized); setStatus("同期済み"); setDocsOpen(false);
-      const url = new URL(location.href); url.searchParams.set("d", record.id); window.history.replaceState(null, "", url);
+      const url = new URL(location.href); url.searchParams.set("d", record.id); window.window.history.replaceState(null, "", url);
       await refreshList();
     } catch (error) { setMessage(error instanceof Error ? error.message : "新規作品を作れません"); }
   }
@@ -326,7 +326,7 @@ export default function HybridCanvasEditor({ accountId }: { accountId?: string }
         setDocBoth(normalized); setActiveLayer(normalized.layers[0]?.id || ""); dirty.current = false; await saveLocal(normalized);
       }
       selectedReset(); setDocsOpen(false); setStatus(navigator.onLine ? "同期済み" : "端末に保存済み");
-      const url = new URL(location.href); url.searchParams.set("d", id); window.history.replaceState(null, "", url);
+      const url = new URL(location.href); url.searchParams.set("d", id); window.window.history.replaceState(null, "", url);
     } catch (error) { setMessage(error instanceof Error ? error.message : "作品を開けません"); }
   }
   async function refreshList() {
