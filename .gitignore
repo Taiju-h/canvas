@@ -1,3 +1,15 @@
 node_modules/
 *.tsbuildinfo
 package-lock.json
+
+# Local/private configuration
+CONF/canvas-db.ini
+
+# Generated production bundle; PHP entrypoints in public/canvas remain tracked.
+public/canvas/assets/
+public/canvas/.vite/
+public/canvas/index.html
+public/canvas/offline-assets.json
+public/canvas/sw.js
+public/canvas/favicon.svg
+public/canvas/manifest.webmanifest
