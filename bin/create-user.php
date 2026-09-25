@@ -5,7 +5,7 @@ require_once dirname(__DIR__) . '/server/bootstrap.php';
 
 $email = strtolower(trim($argv[1] ?? ''));
 if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 254) {
-    fwrite(STDERR, "使い方: php canvas/bin/create-user.php you@example.com\n");
+    fwrite(STDERR, "使い方: php bin/create-user.php you@example.com\n");
     exit(1);
 }
 fwrite(STDERR, "新しいパスワード（12文字以上）: ");
