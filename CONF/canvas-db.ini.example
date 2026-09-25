@@ -1,0 +1,11 @@
+[mysql]
+host = localhost
+port = 3306
+database = canvas
+user = CANVAS_DB_USER
+password = REPLACE_WITH_LONG_PRIVATE_PASSWORD
+unix_socket =
+
+[auth]
+; Generate with: php -r 'echo bin2hex(random_bytes(32)), PHP_EOL;'
+pepper = REPLACE_WITH_64_RANDOM_HEX_CHARACTERS
