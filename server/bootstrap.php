@@ -18,7 +18,7 @@ function canvas_config(): array
 {
     static $config = null;
     if ($config !== null) return $config;
-    $path = dirname(__DIR__, 2) . '/CONF/canvas-db.ini';
+    $path = dirname(__DIR__) . '/CONF/canvas-db.ini';
     if (!is_file($path)) throw new RuntimeException('DB未設定: CONF/canvas-db.ini が必要です');
     $parsed = parse_ini_file($path, true, INI_SCANNER_RAW);
     if (!is_array($parsed) || empty($parsed['mysql']['database']) || empty($parsed['mysql']['user']) ||
