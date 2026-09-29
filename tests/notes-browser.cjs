@@ -1,6 +1,7 @@
 const { chromium }=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES ? process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright' : 'playwright');
 const assert=require('node:assert/strict');
 const fs=require('fs');
+async function eventually(check){const deadline=Date.now()+6000;while(!check()){if(Date.now()>deadline)throw new Error('Timed out waiting for persisted state');await new Promise(r=>setTimeout(r,100));}}
 (async()=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
  const context=await browser.newContext({viewport:{width:1440,height:1000}}); const page=await context.newPage();
@@ -54,7 +55,7 @@ const fs=require('fs');
  await page.getByRole('button',{name:/^すべてのメモ/}).click();
  await page.getByRole('button',{name:'メモを削除',exact:true}).click();await page.getByRole('button',{name:'ゴミ箱へ移動',exact:true}).click();await page.waitForTimeout(1000);assert.ok(docs.get('a'.repeat(32)).content.note.trashedAt);assert.equal(await page.locator('.notes-list-item').count(),1);assert.equal(await text.getAttribute('contenteditable'),'false');
  await page.getByRole('button',{name:/^ゴミ箱/}).click();assert.equal(await page.locator('.notes-list-item').count(),1);await page.reload();await text.waitFor();assert.equal(await text.getAttribute('contenteditable'),'false');
- await page.getByRole('button',{name:'メモを復元',exact:true}).click();await page.waitForTimeout(1000);assert.ok(!docs.get('a'.repeat(32)).content.note.trashedAt);assert.equal(await page.locator('.notes-list-item').count(),2);
+ await page.getByRole('button',{name:'メモを復元',exact:true}).click();await eventually(()=>!docs.get('a'.repeat(32)).content.note.trashedAt);assert.ok(!docs.get('a'.repeat(32)).content.note.trashedAt);assert.equal(await page.locator('.notes-list-item').count(),2);
  await page.getByRole('button',{name:'拡大',exact:true}).click();assert.equal(await page.getByRole('combobox',{name:'ズーム倍率'}).inputValue(),'110');await page.getByRole('button',{name:'縮小',exact:true}).click();assert.equal(await page.getByRole('combobox',{name:'ズーム倍率'}).inputValue(),'100');
  await page.getByRole('combobox',{name:'ズーム倍率'}).selectOption('200');assert.match(await page.locator('.notes-plane').getAttribute('style'),/scale\(2\)/);await page.getByRole('button',{name:'画面に合わせる',exact:true}).click();await page.getByRole('button',{name:'100%',exact:true}).click();
  await page.locator('.notes-scroll').evaluate(el=>el.scrollTo(0,0));
@@ -74,6 +75,28 @@ const fs=require('fs');
  assert.deepEqual(errors,[]);
  if(process.env.CANVAS_SCREENSHOT_DIR)await page.screenshot({path:process.env.CANVAS_SCREENSHOT_DIR+'/notes-desktop.png'});
  await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'メモ一覧を閉じる',exact:true}).first().click();if(process.env.CANVAS_SCREENSHOT_DIR)await page.screenshot({path:process.env.CANVAS_SCREENSHOT_DIR+'/notes-mobile.png'});
- console.log('PASS: nested categories, move/tag conversion, rejected batch, cross search, trash/restore, zoom, focus, Japanese multiline, stable save, sidebar persistence, search, pen, move, concurrent save, offline recovery, conflict copy');
+ // Real touch pointer events: finger ink, second-finger isolation, pan, and stable viewport.
+ const mobileId=new URL(page.url()).searchParams.get('d');
+ const inkBefore=docs.get(mobileId).content.paintStrokes.length;
+ await page.getByRole('button',{name:'ペン',exact:true}).click();
+ assert.equal(await text.getAttribute('contenteditable'),'false');
+ const tb=await text.boundingBox();const touch=(id,x,y)=>({id,x,y,radiusX:3,radiusY:3,force:.7});const tx=tb.x+15,ty=tb.y+15;
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch(1,tx,ty)]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[touch(1,tx+40,ty+10)]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch(1,tx+40,ty+10),touch(2,tx+60,ty+30)]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[touch(2,tx+60,ty+30)]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[touch(1,tx+100,ty+20)]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await page.waitForTimeout(1200);assert.equal(docs.get(mobileId).content.paintStrokes.length,inkBefore+1);assert.ok(docs.get(mobileId).content.paintStrokes.at(-1).points.length>=3);
+ await page.getByRole('combobox',{name:'ズーム倍率'}).selectOption('150');await page.setViewportSize({width:390,height:600});await page.waitForTimeout(200);assert.equal(await page.getByRole('combobox',{name:'ズーム倍率'}).inputValue(),'150','Keyboard-sized height change must preserve zoom');
+ await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);assert.equal(await page.getByRole('combobox',{name:'ズーム倍率'}).inputValue(),'150');
+ await page.getByRole('combobox',{name:'ズーム倍率'}).selectOption('50');await page.waitForTimeout(100);
+ assert.ok(await page.locator('.notes-scroll').evaluate(el=>el.scrollWidth<=Math.max(el.clientWidth,el.querySelector('.notes-surface').getBoundingClientRect().width)+1),'Transformed plane must not inflate scroll width');
+ await page.getByRole('button',{name:'文字',exact:true}).click();await page.locator('.notes-scroll').evaluate(el=>el.scrollTo(80,80));
+ const scrollBefore=await page.locator('.notes-scroll').evaluate(el=>({x:el.scrollLeft,y:el.scrollTop}));
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch(3,200,550)]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[touch(3,170,460)]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ const scrollAfter=await page.locator('.notes-scroll').evaluate(el=>({x:el.scrollLeft,y:el.scrollTop}));assert.equal(scrollAfter.x,scrollBefore.x);assert.ok(scrollAfter.y>scrollBefore.y);assert.equal(docs.get(mobileId).content.paintStrokes.length,inkBefore+1);
+ assert.deepEqual(errors,[]);
+ console.log('PASS: finger ink, second touch isolation, keyboard resize, stable scroll bounds, touch pan, nested categories, move/tag conversion, rejected batch, cross search, trash/restore, zoom, focus, Japanese multiline, stable save, sidebar persistence, search, pen, move, concurrent save, offline recovery, conflict copy');
  await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});
