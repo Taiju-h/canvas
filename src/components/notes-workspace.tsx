@@ -20,7 +20,7 @@ function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:numb
   return url?<image href={url} x={x} y={y} width={w} height={h}/>:null;
 }
 
-type Action={kind:'move'|'resize'|'ink'|'pan';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string};
+type Action={pointerId:number;verticalOnly?:boolean;kind:'move'|'resize'|'ink'|'pan';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string};
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId}:{accountId:string}){
   const notes=useNotes(accountId);const {record}=notes;
@@ -37,11 +37,20 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   useEffect(()=>{void api('/api/note-workspace').then(r=>r.json()).then(setWorkspace).catch(()=>{});},[]);
   const [draft,setDraft]=useState<Point[]>([]);const [sizes,setSizes]=useState<Record<string,number>>({});
   const scroll=useRef<HTMLDivElement>(null);const plane=useRef<HTMLDivElement>(null);const action=useRef<Action|null>(null);
+  const fittedViewport=useRef({id:'',width:0});const extent=useRef({id:'',width:1800,height:1400});const suppressClick=useRef(false);
   const current=useRef(record);current.current=record;const cancelImport=useRef(false);const fileInput=useRef<HTMLInputElement>(null);const jexInput=useRef<HTMLInputElement>(null);const organizationInput=useRef<HTMLInputElement>(null);
   const undoStack=useRef<NoteDoc[]>([]);const redoStack=useRef<NoteDoc[]>([]);const typing=useRef<{id:string;at:number}|null>(null);const [,redraw]=useState(0);const lastPen=useRef(0);const previousId=useRef('');
   const doc=record?.content;const meta=doc?.note||{category:'',tags:[]};
   useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setSelected('');setFocus(record.content.blocks?.[0]?.id||'');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool('text');scroll.current?.scrollTo(0,0);},[record?.id]);
-  useEffect(()=>{const fit=()=>{if(innerWidth>760)return;const d=current.current?.content;if(!d)return;const b=d.blocks?.[0];if(b){setScale(Math.max(.2,Math.min(1,(scroll.current?.clientWidth||innerWidth)/(b.x+b.w+36))));}};const frame=requestAnimationFrame(fit);addEventListener('resize',fit);return()=>{cancelAnimationFrame(frame);removeEventListener('resize',fit);};},[record?.id]);
+  useEffect(()=>{const fit=()=>{
+    const d=current.current;if(!d)return;const viewportWidth=scroll.current?.clientWidth||innerWidth;
+    const previous=fittedViewport.current;const promoted=previous.id.startsWith('local-')&&!d.id.startsWith('local-');
+    const changedDocument=previous.id!==d.id&&!promoted;const changedWidth=Math.abs(previous.width-viewportWidth)>1;
+    fittedViewport.current={id:d.id,width:viewportWidth};
+    // A keyboard or browser address bar changes height, not the document's zoom.
+    if(innerWidth>760||(!changedDocument&&!changedWidth)||action.current)return;
+    const b=d.content.blocks?.[0];if(b){const next=Math.max(.2,Math.min(1,viewportWidth/(b.x+b.w+36)));scaleRef.current=next;setScale(next);}
+  };const frame=requestAnimationFrame(fit);addEventListener('resize',fit);return()=>{cancelAnimationFrame(frame);removeEventListener('resize',fit);};},[record?.id]);
   function commit(next:NoteDoc, history=true){if(organizing||current.current?.content.note?.trashedAt||current.current?.content.note?.importState==='pending')return;const before=current.current?.content;if(!before)return;if(history){undoStack.current=[...undoStack.current.slice(-39),before];redoStack.current=[];}const title=current.current?.title==='新しいメモ' ? (next.blocks||[]).map(b=>plainText(b.html)).join(' ').trim().slice(0,60)||undefined : undefined;notes.change(next,title);redraw(v=>v+1);}
   function updateBlock(id:string,html:string,height:number){const d=current.current?.content;if(!d)return;const b=d.blocks?.find(b=>b.id===id);if(!b||b.html===html)return;
     const newGroup=!typing.current||typing.current.id!==id||Date.now()-typing.current.at>1200;
@@ -52,24 +61,30 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:e.pressure||.5};}
   function addBlock(html='',background?:string){const d=current.current?.content;if(!d)return;const x=80+(scroll.current?.scrollLeft||0)/scale;const y=80+(scroll.current?.scrollTop||0)/scale;
     const b={...block(x,y,html),background};commit({...d,blocks:[...(d.blocks||[]),b]});setSelected(b.id);setFocus(b.id);setTool('text');}
-  function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc)return;setSelected(id);setFocus('');typing.current=null;
-    action.current={kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
+  function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc||action.current||(!e.isPrimary&&e.pointerType==='touch'))return;setSelected(id);setFocus('');typing.current=null;
+    action.current={pointerId:e.pointerId,kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
   function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
+    if(action.current||(!e.isPrimary&&e.pointerType==='touch')){e.preventDefault();return;}
+    suppressClick.current=false;
     const target=e.target as Element;
     if(target.closest('button'))return;
     if(e.pointerType==='touch'&&Date.now()-lastPen.current<700){e.preventDefault();return;}
     const pen=e.pointerType==='pen';if(pen)lastPen.current=Date.now();
     const effective=pen?(e.button===5||tool==='eraser'?'eraser':'pen'):tool;
-    if(e.pointerType==='touch'&&!pen){if(!e.isPrimary)return;action.current={kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};return;} // A tap still focuses text; dragging pans the page.
+    if(e.pointerType==='touch'&&(effective==='text'||effective==='hand')){
+      if(effective==='hand'){e.preventDefault();e.stopPropagation();}
+      action.current={pointerId:e.pointerId,kind:'pan',verticalOnly:effective==='text',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};
+      if(effective==='hand')e.currentTarget.setPointerCapture(e.pointerId);return;
+    }
     if(effective==='pen'){
       e.preventDefault();e.stopPropagation();(document.activeElement as HTMLElement)?.blur();setFocus('');typing.current=null;
-      action.current={kind:'ink',start:position(e),original:doc,points:[position(e)],pen,blockId:target.closest('[data-note-block]')?.getAttribute('data-note-block')||undefined};e.currentTarget.setPointerCapture(e.pointerId);setDraft([position(e)]);return;
+      action.current={pointerId:e.pointerId,kind:'ink',start:position(e),original:doc,points:[position(e)],pen,blockId:target.closest('[data-note-block]')?.getAttribute('data-note-block')||undefined};e.currentTarget.setPointerCapture(e.pointerId);setDraft([position(e)]);return;
     }
     if(effective==='eraser'){
       e.preventDefault();e.stopPropagation();const id=target.closest('[data-stroke]')?.getAttribute('data-stroke');
       if(id)commit({...doc,items:doc.items.filter(i=>i.id!==id),paintStrokes:doc.paintStrokes?.filter(s=>s.id!==id)});return;
     }
-    if(effective==='hand'||e.button===1){e.preventDefault();e.stopPropagation();action.current={kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};e.currentTarget.setPointerCapture(e.pointerId);return;}
+    if(effective==='hand'||e.button===1){e.preventDefault();e.stopPropagation();action.current={pointerId:e.pointerId,kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};e.currentTarget.setPointerCapture(e.pointerId);return;}
     if(effective==='select'){
       const id=target.closest('[data-note-block]')?.getAttribute('data-note-block')||target.closest('[data-stroke]')?.getAttribute('data-stroke');
       if(id)drag(e,id);else setSelected('');return;
@@ -78,9 +93,9 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       e.preventDefault();const p=position(e);const b=block(p.x,p.y);commit({...doc,blocks:[...(doc.blocks||[]),b]});setFocus(b.id);setSelected(b.id);
     }
   }
-  function move(e:ReactPointerEvent<HTMLDivElement>){const a=action.current;if(!a)return;e.preventDefault();
+  function move(e:ReactPointerEvent<HTMLDivElement>){const a=action.current;if(!a||a.pointerId!==e.pointerId)return;e.preventDefault();
     if(a.pen)lastPen.current=Date.now();
-    if(a.kind==='pan'){scroll.current!.scrollTo(a.scroll!.left-(e.clientX-a.start.x),a.scroll!.top-(e.clientY-a.start.y));return;}
+    if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
     const p=position(e);if(a.kind==='ink'){const last=a.points!.at(-1)!;if(Math.hypot(p.x-last.x,p.y-last.y)>.7){a.points!.push(p);setDraft([...a.points!]);}return;}
     const dx=p.x-a.start.x,dy=p.y-a.start.y;
     const next={...a.original,blocks:a.original.blocks?.map(b=>b.id===a.id?a.kind==='resize'?{...b,w:Math.max(220,Math.min(1800,b.w+dx))}:{...b,x:Math.max(0,b.x+dx),y:Math.max(0,b.y+dy)}:b),
@@ -88,7 +103,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       paintStrokes:a.original.paintStrokes?.map(s=>(s.id===a.id || (s.blockId===a.id && a.kind==='move'))?{...s,points:s.points.map(p=>({...p,x:p.x+dx,y:p.y+dy}))}:s)};
     notes.change(next);
   }
-  function up(e:ReactPointerEvent<HTMLDivElement>,cancel=false){const a=action.current;if(!a)return;action.current=null;
+  function up(e:ReactPointerEvent<HTMLDivElement>,cancel=false){const a=action.current;if(!a||a.pointerId!==e.pointerId)return;action.current=null;
     if(plane.current?.hasPointerCapture(e.pointerId))plane.current.releasePointerCapture(e.pointerId);
     if(a.kind==='ink'){
       if(!cancel){const points=a.points!;if(points.length===1)points.push({...points[0],x:points[0].x+.2});
@@ -199,6 +214,11 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   for(const i of doc?.items||[]){width=Math.max(width,i.x+Math.abs(i.w)+160);height=Math.max(height,i.y+Math.abs(i.h)+300);}
   for(const s of doc?.paintStrokes||[])for(const p of s.points){width=Math.max(width,p.x+160);height=Math.max(height,p.y+300);}
   for(const l of doc?.layers||[])if(l.rasterBounds){const b=l.rasterBounds;width=Math.max(width,b.x+b.w+160);height=Math.max(height,b.y+b.h+300);}
+  // Grow the scroll surface in steps; measuring text or erasing must not shrink it under the finger.
+  const extentId=record?.id||'';const promotedExtent=extent.current.id.startsWith('local-')&&!extentId.startsWith('local-');
+  if(extent.current.id!==extentId&&!promotedExtent)extent.current={id:extentId,width:1800,height:1400};
+  extent.current={id:extentId,width:Math.max(extent.current.width,Math.ceil(width/256)*256),height:Math.max(extent.current.height,Math.ceil(height/256)*256)};
+  width=extent.current.width;height=extent.current.height;
   function stroke(points:Point[]){return points.map(p=>`${p.x},${p.y}`).join(' ');}
   return <main className={`notes-app ${sidebar?'sidebar-open':''}`}>
     <header className="notes-header">
@@ -226,7 +246,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       </aside></>}
       <section className="notes-editor">
         <div inert={!!meta.trashedAt||organizing||meta.importState==='pending'} className={`notes-toolbar ${meta.importState==='pending'||meta.trashedAt||organizing?'notes-disabled':''}`} role="toolbar" aria-label="編集ツール">
-          <div className="notes-tool-group">{([['text',Type,'文字'],['pen',Pencil,'ペン'],['select',MousePointer2,'選択'],['hand',Hand,'移動'],['eraser',Eraser,'線を消す']] as const).map(([id,Icon,label])=><button key={id} className={tool===id?'active':''} onClick={()=>{setTool(id);if(id==='text')setFocus(selected||doc?.blocks?.[0]?.id||'');}} title={label} aria-label={label}><Icon size={18}/><span>{label}</span></button>)}</div>
+          <div className="notes-tool-group">{([['text',Type,'文字'],['pen',Pencil,'ペン'],['select',MousePointer2,'選択'],['hand',Hand,'移動'],['eraser',Eraser,'線を消す']] as const).map(([id,Icon,label])=><button key={id} className={tool===id?'active':''} onClick={()=>{setTool(id);if(id==='text')setFocus(selected||doc?.blocks?.[0]?.id||'');else{setFocus('');(document.activeElement as HTMLElement)?.blur();}}} title={label} aria-label={label}><Icon size={18}/><span>{label}</span></button>)}</div>
           <div className="notes-tool-group"><button onClick={()=>addBlock()} title="文章ブロックを追加" aria-label="文章ブロックを追加"><Plus size={18}/></button><button onClick={()=>addBlock('', '#fff6cc')} title="付箋を追加">付箋</button><button onClick={()=>fileInput.current?.click()} title="画像・ファイルを添付" aria-label="画像・ファイルを添付"><ImagePlus size={18}/></button></div>
           <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length} aria-label="元に戻す"><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length} aria-label="やり直す"><Redo2 size={18}/></button></div>
           <div className="notes-tool-group notes-format" onMouseDown={e=>e.preventDefault()}>
@@ -237,7 +257,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
             <button title="文字を大きく" onClick={()=>format('fontSize','5')}>A+</button><button title="文字色を青に" onClick={()=>format('foreColor','#2563eb')}><span style={{color:'#2563eb'}}>A</span></button>
           </div>
         </div>
-        <div className="notes-context"><span>{tool==='pen'||tool==='eraser'?<><input aria-label="ペンの色" type="color" value={inkColor} onChange={e=>setInkColor(e.target.value)}/><input aria-label="ペンの太さ" type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/></>:<>文字を入力 · ペンを当てると手書き · つまみでブロックを移動</>}</span>
+        <div className="notes-context"><span>{tool==='pen'||tool==='eraser'?<><span className="notes-touch-hint">{tool==='pen'?'指で描けます':'指で線を消せます'}</span><input aria-label="ペンの色" type="color" value={inkColor} onChange={e=>setInkColor(e.target.value)}/><input aria-label="ペンの太さ" type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/></>:<>文字はタップして入力 · 指で書くときは「ペン」 · 移動は「移動」</>}</span>
           {selected&&<div><button title="ブロックを複製" onClick={()=>{const b=doc?.blocks?.find(b=>b.id===selected);if(b&&doc)commit({...doc,blocks:[...(doc.blocks||[]),{...b,id:id32(),x:b.x+35,y:b.y+(sizes[b.id]||b.h)+24}]});}}><Copy size={15}/></button><button title="選択を削除" onClick={()=>{if(doc)commit({...doc,blocks:doc.blocks?.filter(b=>b.id!==selected),items:doc.items.filter(i=>i.id!==selected),paintStrokes:doc.paintStrokes?.filter(s=>s.id!==selected)});setSelected('');}}><Trash2 size={15}/></button></div>}
         </div>
         <div className="notes-viewbar" role="toolbar" aria-label="表示倍率"><strong>ズーム</strong><button aria-label="縮小" onClick={()=>zoomTo(scale-.1)} disabled={scale<=.2}><ZoomOut size={19}/>−</button><select aria-label="ズーム倍率" value={Math.round(scale*100)} onChange={e=>zoomTo(Number(e.target.value)/100)}>{[...new Set([20,25,50,75,100,125,150,200,300,400,Math.round(scale*100)])].sort((a,b)=>a-b).map(p=><option key={p} value={p}>{p}%</option>)}</select><button aria-label="拡大" onClick={()=>zoomTo(scale+.1)} disabled={scale>=4}><ZoomIn size={19}/>＋</button><button onClick={()=>zoomTo(1)}>100%</button><button onClick={fitContent}>画面に合わせる</button><small>Ctrl＋ホイール</small><div className="notes-viewbar-spacer"/><button className="notes-delete" disabled={!record||organizing||attaching||importing||notes.busy||meta.importState==='pending'} onClick={()=>meta.trashedAt?setTrashed(false):setDeleteOpen(true)}><Trash2 size={16}/>{meta.trashedAt?'メモを復元':'メモを削除'}</button></div>
@@ -246,9 +266,9 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         {notes.conflict&&<div className="notes-warning">他端末の更新と競合しています。今の内容は端末に保持しています。<button onClick={()=>void notes.recover()}>今の内容を別メモに保存</button></div>}
         {notes.error&&<div className="notes-warning" role="alert">{notes.error}<button onClick={()=>notes.setError('')} aria-label="通知を閉じる"><X size={15}/></button></div>}
         <div ref={scroll} className="notes-scroll" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void attach(Array.from(e.dataTransfer.files));}}>
-          {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div style={{width:width*scale,height:height*scale}}>
+          {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div className="notes-surface" style={{width:width*scale,height:height*scale}}>
             <div ref={plane} className={`notes-plane tool-${tool}`} style={{width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
-              onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
+              onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
               <svg className="notes-ink" width={width} height={height}>
                 {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><LegacyImage key={l.id} docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/>)}
                 {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={i.opacity??1} fill={i.fill||'none'}>
@@ -257,7 +277,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                 {doc?.paintStrokes?.filter(s=>doc.layers.find(l=>l.id===s.layerId)?.visible!==false).map(s=><polyline key={s.id} data-stroke={s.id} points={stroke(s.points)} stroke={s.color} strokeWidth={s.width} opacity={s.opacity} strokeLinecap="round" strokeLinejoin="round" fill="none"/>)}
                 {draft.length>0&&<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} strokeLinecap="round" fill="none" pointerEvents="none"/>}
               </svg>
-              {doc?.blocks?.map(b=><EditableBlock key={b.id} block={b} readOnly={!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===b.id} focused={focus===b.id} onFocus={()=>{setSelected(b.id);setFocus(b.id);}}
+              {doc?.blocks?.map(b=><EditableBlock key={b.id} block={b} readOnly={tool!=='text'||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===b.id} focused={focus===b.id} onFocus={()=>{setSelected(b.id);setFocus(b.id);}}
                 onChange={(html,h)=>updateBlock(b.id,html,h)} onDrag={(e,resize)=>drag(e,b.id,resize)} onSize={h=>setSizes(old=>old[b.id]===h?old:{...old,[b.id]:h})}
                 onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
             </div>
