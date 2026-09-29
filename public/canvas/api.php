@@ -128,6 +128,14 @@ if ($path === '/api/next-title') {
     }
 }
 
+if ($path === '/api/note-workspace') {
+    $actor = canvas_current_actor();
+    if (!$actor) canvas_json(['error' => '利用者情報を入力してください'], 401);
+    if ($method !== 'GET' && !canvas_csrf_valid()) canvas_json(['error' => '操作を再読み込みしてください'], 403);
+    try { canvas_note_workspace(canvas_db(), $actor, $method); }
+    catch (Throwable $error) { error_log('Canvas workspace: ' . $error->getMessage()); canvas_json(['error' => 'カテゴリを読み込めません。最新版をデプロイしてDBスキーマを更新してください'], 503); }
+}
+
 if ($path === '/api/notes-index') {
     if ($method !== 'GET') canvas_json(['error' => '操作が不正です'], 405);
     $actor = canvas_current_actor();

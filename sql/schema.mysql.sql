@@ -50,3 +50,11 @@ CREATE TABLE IF NOT EXISTS canvas_login_attempts (
   last_attempt_at BIGINT UNSIGNED NOT NULL,
   INDEX idx_canvas_login_attempts_time (last_attempt_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Empty folders and hierarchy are account-scoped and synchronized between devices.
+CREATE TABLE IF NOT EXISTS canvas_note_workspace (
+  owner_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
+  categories_json LONGTEXT NOT NULL,
+  revision INT UNSIGNED NOT NULL DEFAULT 0,
+  CONSTRAINT fk_canvas_note_workspace_owner FOREIGN KEY (owner_id) REFERENCES canvas_users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

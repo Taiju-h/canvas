@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { PanelLeft, Plus, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut } from 'lucide-react';
 import EditableBlock from './note-block';
+import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
+import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
 import { useNotes } from '@/lib/use-notes';
-import { api, block, cleanHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
+import { api, blankNote, block, cleanHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
 import { readJex, type JexArchive } from '@/lib/jex';
 import { importJex } from '@/lib/import-jex';
 import type { Point } from '@/lib/canvas';
@@ -27,6 +29,12 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const [selected,setSelected]=useState('');const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
   const [archive,setArchive]=useState<JexArchive|null>(null);const [importOpen,setImportOpen]=useState(false);const [importMessage,setImportMessage]=useState('');const [importing,setImporting]=useState(false);
   const [attaching,setAttaching]=useState(false);
+  const [trash,setTrash]=useState(false);const [searchScope,setSearchScope]=useState<'all'|'filtered'>('all');
+  const [categoryManager,setCategoryManager]=useState(false);const [organizing,setOrganizing]=useState(false);
+  const [workspace,setWorkspace]=useState<{categories:string[];revision:number}|null>(null);
+  const searchInput=useRef<HTMLInputElement>(null);const scaleRef=useRef(scale);scaleRef.current=scale;
+  const [deleteOpen,setDeleteOpen]=useState(false);
+  useEffect(()=>{void api('/api/note-workspace').then(r=>r.json()).then(setWorkspace).catch(()=>{});},[]);
   const [draft,setDraft]=useState<Point[]>([]);const [sizes,setSizes]=useState<Record<string,number>>({});
   const scroll=useRef<HTMLDivElement>(null);const plane=useRef<HTMLDivElement>(null);const action=useRef<Action|null>(null);
   const current=useRef(record);current.current=record;const cancelImport=useRef(false);const fileInput=useRef<HTMLInputElement>(null);const jexInput=useRef<HTMLInputElement>(null);const organizationInput=useRef<HTMLInputElement>(null);
@@ -34,19 +42,19 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const doc=record?.content;const meta=doc?.note||{category:'',tags:[]};
   useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setSelected('');setFocus(record.content.blocks?.[0]?.id||'');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool('text');scroll.current?.scrollTo(0,0);},[record?.id]);
   useEffect(()=>{const fit=()=>{if(innerWidth>760)return;const d=current.current?.content;if(!d)return;const b=d.blocks?.[0];if(b){setScale(Math.max(.2,Math.min(1,(scroll.current?.clientWidth||innerWidth)/(b.x+b.w+36))));}};const frame=requestAnimationFrame(fit);addEventListener('resize',fit);return()=>{cancelAnimationFrame(frame);removeEventListener('resize',fit);};},[record?.id]);
-  function commit(next:NoteDoc, history=true){if(current.current?.content.note?.importState==='pending')return;const before=current.current?.content;if(!before)return;if(history){undoStack.current=[...undoStack.current.slice(-39),before];redoStack.current=[];}const title=current.current?.title==='新しいメモ' ? (next.blocks||[]).map(b=>plainText(b.html)).join(' ').trim().slice(0,60)||undefined : undefined;notes.change(next,title);redraw(v=>v+1);}
+  function commit(next:NoteDoc, history=true){if(organizing||current.current?.content.note?.trashedAt||current.current?.content.note?.importState==='pending')return;const before=current.current?.content;if(!before)return;if(history){undoStack.current=[...undoStack.current.slice(-39),before];redoStack.current=[];}const title=current.current?.title==='新しいメモ' ? (next.blocks||[]).map(b=>plainText(b.html)).join(' ').trim().slice(0,60)||undefined : undefined;notes.change(next,title);redraw(v=>v+1);}
   function updateBlock(id:string,html:string,height:number){const d=current.current?.content;if(!d)return;const b=d.blocks?.find(b=>b.id===id);if(!b||b.html===html)return;
     const newGroup=!typing.current||typing.current.id!==id||Date.now()-typing.current.at>1200;
     typing.current={id,at:Date.now()};commit({...d,blocks:d.blocks?.map(b=>b.id===id?{...b,html,h:height}:b)},newGroup);}
-  function undo(){const d=current.current?.content;const previous=undoStack.current.pop();if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
-  function redo(){const d=current.current?.content;const next=redoStack.current.pop();if(!d||!next)return;undoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(next);redraw(v=>v+1);}
+  function undo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const previous=undoStack.current.pop();if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
+  function redo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const next=redoStack.current.pop();if(!d||!next)return;undoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(next);redraw(v=>v+1);}
   function toggleSidebar(){setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
   function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:e.pressure||.5};}
   function addBlock(html='',background?:string){const d=current.current?.content;if(!d)return;const x=80+(scroll.current?.scrollLeft||0)/scale;const y=80+(scroll.current?.scrollTop||0)/scale;
     const b={...block(x,y,html),background};commit({...d,blocks:[...(d.blocks||[]),b]});setSelected(b.id);setFocus(b.id);setTool('text');}
   function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc)return;setSelected(id);setFocus('');typing.current=null;
     action.current={kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
-  function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing)return;
+  function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
     const target=e.target as Element;
     if(target.closest('button'))return;
     if(e.pointerType==='touch'&&Date.now()-lastPen.current<700){e.preventDefault();return;}
@@ -92,7 +100,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   }
   function format(command:string,value?:string){typing.current=null;document.execCommand(command,false,value);const el=document.activeElement as HTMLElement;
     const id=el.closest('[data-note-block]')?.getAttribute('data-note-block');if(id)updateBlock(id,el.innerHTML,el.scrollHeight+54);}
-  async function attach(files:File[]){const initial=current.current;if(!initial||initial.content.note?.importState==='pending'||attaching)return;setAttaching(true);
+  async function attach(files:File[]){const initial=current.current;if(!initial||initial.content.note?.importState==='pending'||initial.content.note?.trashedAt||organizing||attaching)return;setAttaching(true);
     try{await notes.save();const r=current.current;if(!r||r.id.startsWith('local-'))throw new Error('添付にはサーバーへの接続が必要です');
       const targetId=r.id;
       for(const file of files){if(file.size===0||file.size>512*1024*1024)throw new Error('添付は1バイト～512MBです');
@@ -105,7 +113,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       }
     }catch(err){notes.setError(err instanceof Error?err.message:'添付できません');}finally{setAttaching(false);}
   }
-  function changeMeta(patch:Partial<NoteMeta>){if(!doc)return;const next={...meta,...patch};
+  function changeMeta(patch:Partial<NoteMeta>){if(!doc||meta.trashedAt||organizing)return;const next={...meta,...patch};
     next.organizationLog=[...(meta.organizationLog||[]).slice(-99),{at:new Date().toISOString(),category:next.category,tags:next.tags}];commit({...doc,note:next});}
   async function loadJex(file:File){setImportMessage('JEXを確認しています…');try{const value=await readJex(file);setArchive(value);setImportMessage('');}catch(err){setImportMessage(String(err));}}
   async function runImport(){if(!archive)return;cancelImport.current=false;setImporting(true);
@@ -124,16 +132,68 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     await notes.refresh();if(record)await notes.open(record.id);notes.setError(`分類を${changed}件反映しました`);
   }catch(err){notes.setError(String(err));}}
   async function exportAll(){try{await notes.save();const rows=await notes.refresh();const texts:string[]=[];const entries:{id:string;category:string;tags:string[];revision:number}[]=[];
-    for(const n of rows){const cached=await getLocalDoc(n.id);let r:NoteRecord;
+    for(const n of rows.filter(n=>!n.note?.trashedAt)){const cached=await getLocalDoc(n.id);let r:NoteRecord;
       if(cached?.accountId===accountId&&(cached.dirty||!navigator.onLine))r={...cached,content:cached.content as NoteDoc};
       else r=await(await api('/api/documents/'+n.id)).json() as NoteRecord;
       texts.push(exportMarkdown(r));if(!n.id.startsWith('local-'))entries.push({id:r.id,category:r.content.note?.category||'',tags:r.content.note?.tags||[],revision:r.revision});}
     download('Canvas-メモ整理.md',texts.join('\n\n<!-- 次のメモ -->\n\n'));download('Canvas-分類.json',JSON.stringify({version:1,notes:entries},null,2),'application/json');
   }catch(err){notes.setError(String(err));}}
-  const categories=[...new Set(notes.list.map(n=>n.note?.category).filter((v):v is string=>!!v))].sort();
-  const tags=[...new Set(notes.list.flatMap(n=>n.note?.tags||[]))].sort();
-  const filtered=notes.list.filter(n=>(!category||n.note?.category===category)&&(!tag||n.note?.tags?.includes(tag))&&`${n.title} ${n.searchText||''} ${n.note?.category||''} ${(n.note?.tags||[]).join(' ')}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+  const categories=categoryPaths([...(workspace?.categories||[]),...notes.list.map(n=>n.note?.category||'')]);
+  const tags=[...new Set(notes.list.filter(n=>!n.note?.trashedAt).flatMap(n=>n.note?.tags||[]))].sort();
+  const searching=query.trim().length>0;
+  const filtered=notes.list.filter(n=>Boolean(n.note?.trashedAt)===trash &&
+    ((searching&&searchScope==='all')||((!category||inCategory(n.note?.category||'',category))&&(!tag||n.note?.tags?.includes(tag)))) &&
+    matchesSearch(`${n.title} ${n.searchText||''} ${n.note?.category||''} ${(n.note?.tags||[]).join(' ')}`,query))
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
+  function navigateCategory(path:string){setCategory(path);setTrash(false);setQuery('');}
+  async function createNote(){setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);}
+  function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
+  function setTrashed(value:boolean){if(!doc||organizing||attaching||importing||notes.busy)return;
+    (document.activeElement as HTMLElement)?.blur();
+    const latest=current.current?.content;if(!latest)return;
+    notes.change({...latest,note:{category:'',tags:[],...latest.note,trashedAt:value?new Date().toISOString():undefined}});
+    setDeleteOpen(false);setFocus('');undoStack.current=[];redoStack.current=[];
+  }
+  async function organize(op:CategoryOperation){
+    setOrganizing(true);try{
+      await notes.flushAll();
+      const ws=await(await api('/api/note-workspace')).json() as {categories:string[];revision:number};
+      const rows=await notes.refresh(true);const paths=categoryPaths([...ws.categories,...rows.map(n=>n.note?.category||'')]);
+      let next=paths;const updates:{id:string;revision:number;category:string;tags:string[]}[]=[];
+      if(op.kind==='create'){if(paths.includes(op.target))throw new Error('カテゴリが既にあります');next=categoryPaths([...paths,op.target]);}
+      else {
+        if(!paths.includes(op.source))throw new Error('カテゴリが変更されています。再読み込みしてください');
+        if(op.kind==='move'&&(paths.includes(op.target)||inCategory(op.target,op.source)))throw new Error('移動先が重複しているか、子カテゴリ内です');
+        next=op.kind==='move'?categoryPaths(paths.map(p=>movedCategory(p,op.source,op.target))):op.remove?paths.filter(p=>!inCategory(p,op.source)):paths;
+        for(const n of rows.filter(n=>inCategory(n.note?.category||'',op.source))){
+          if(n.id.startsWith('local-'))throw new Error('メモの同期が終わってから操作してください');
+          const nextTags=op.kind==='tag'?[...new Set([...(n.note?.tags||[]),op.target])]:n.note?.tags||[];
+          if(nextTags.length>50)throw new Error('タグが50個を超えるメモがあります');
+          updates.push({id:n.id,revision:n.revision,category:op.kind==='move'?movedCategory(n.note?.category||'',op.source,op.target):op.remove?'':n.note?.category||'',tags:nextTags});
+        }
+      }
+      if(next.some(p=>p.length>200))throw new Error('移動後の子カテゴリが200文字を超えます');
+      const result=await(await api('/api/note-workspace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:ws.revision,categories:next,updates})})).json();
+      setWorkspace({categories:result.categories,revision:result.revision});await notes.acceptMetadata(result.changed);
+      setCategory(op.kind==='tag'?'':op.target);if(op.kind==='tag')setTag(op.target);setQuery('');
+    }finally{setOrganizing(false);}
+  }
+  function zoomTo(value:number,anchor?:{x:number;y:number}){
+    const el=scroll.current;if(!el||action.current)return;const previous=scaleRef.current;const next=Math.max(.2,Math.min(4,Math.round(value*100)/100));
+    const x=anchor?.x??el.clientWidth/2,y=anchor?.y??el.clientHeight/2;const left=(el.scrollLeft+x)/previous*next-x,top=(el.scrollTop+y)/previous*next-y;
+    scaleRef.current=next;setScale(next);requestAnimationFrame(()=>el.scrollTo(Math.max(0,left),Math.max(0,top)));
+  }
+  function fitContent(){const el=scroll.current;const d=current.current?.content;if(!el||!d)return;
+    const boxes=[...(d.blocks||[]).map(b=>({...b,h:sizes[b.id]||b.h})),...d.items,...d.layers.flatMap(l=>l.rasterBounds?[l.rasterBounds]:[])];
+    let left=Infinity,top=Infinity,right=0,bottom=0;
+    for(const b of boxes){left=Math.min(left,b.x,b.x+b.w);top=Math.min(top,b.y,b.y+b.h);right=Math.max(right,b.x,b.x+b.w);bottom=Math.max(bottom,b.y,b.y+b.h);}
+    for(const s of d.paintStrokes||[])for(const p of s.points){left=Math.min(left,p.x);top=Math.min(top,p.y);right=Math.max(right,p.x);bottom=Math.max(bottom,p.y);}
+    if(!Number.isFinite(left)){zoomTo(1);return;}
+    const next=Math.max(.2,Math.min(2,(el.clientWidth-48)/Math.max(1,right-left),(el.clientHeight-48)/Math.max(1,bottom-top)));
+    scaleRef.current=next;setScale(next);requestAnimationFrame(()=>el.scrollTo(Math.max(0,left*next-24),Math.max(0,top*next-24)));
+  }
+  useEffect(()=>{const el=scroll.current;if(!el)return;const wheel=(e:WheelEvent)=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();const r=el.getBoundingClientRect();zoomTo(scaleRef.current*Math.exp(-e.deltaY*.005),{x:e.clientX-r.left,y:e.clientY-r.top});};el.addEventListener('wheel',wheel,{passive:false});return()=>el.removeEventListener('wheel',wheel);},[]);
+  useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='f'){e.preventDefault();setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}};addEventListener('keydown',key);return()=>removeEventListener('keydown',key);},[]);
   let width=1800,height=1400;
   for(const b of doc?.blocks||[]){width=Math.max(width,b.x+b.w+160);height=Math.max(height,b.y+(sizes[b.id]||b.h)+300);}
   for(const i of doc?.items||[]){width=Math.max(width,i.x+Math.abs(i.w)+160);height=Math.max(height,i.y+Math.abs(i.h)+300);}
@@ -144,25 +204,28 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     <header className="notes-header">
       <button onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={21}/></button>
       <strong className="notes-brand">Canvas <span>Notes</span></strong><span className="notes-header-divider"/>
-      <input aria-label="メモのタイトル" placeholder="新しいメモ" value={record?.title||''} maxLength={80} disabled={!record||notes.busy||importing||meta.importState==='pending'} onChange={e=>doc&&notes.change(doc,e.target.value)}/>
+      <input aria-label="メモのタイトル" placeholder="新しいメモ" value={record?.title||''} maxLength={80} disabled={!record||notes.busy||importing||organizing||!!meta.trashedAt||meta.importState==='pending'} onChange={e=>doc&&notes.change(doc,e.target.value)}/>
+      <button onClick={()=>{setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}} aria-label="全メモを横断検索" title="横断検索（Ctrl+Shift+F）"><Search size={19}/></button>
       <span className="notes-save-status" role="status">{attaching?'添付を送信中…':notes.status}</span>
       <button onClick={()=>void notes.save()} disabled={!record} title="保存">保存</button>
       <button onClick={()=>setSettings(!settings)} aria-label="メモ設定と書き出し" aria-expanded={settings}><Settings2 size={19}/></button>
     </header>
     <div className="notes-layout">
       {sidebar&&<><button className="notes-sidebar-backdrop" aria-label="メモ一覧を閉じる" onClick={toggleSidebar}/><aside className="notes-sidebar">
-        <div className="notes-sidebar-head"><div><small>MY WORKSPACE</small><h1>メモ</h1></div><button className="notes-new" onClick={()=>void notes.create()} disabled={importing||attaching||notes.busy} aria-label="新しいメモ"><Plus size={22}/></button></div>
-        <label className="notes-search"><Search size={17}/><input placeholder="メモを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
-        <div className="notes-filters"><label><Folder size={15}/><select aria-label="カテゴリで絞り込み" value={category} onChange={e=>setCategory(e.target.value)}><option value="">すべてのカテゴリ</option>{categories.map(c=><option key={c}>{c}</option>)}</select></label>
-          <label><Tag size={15}/><select aria-label="タグで絞り込み" value={tag} onChange={e=>setTag(e.target.value)}><option value="">すべてのタグ</option>{tags.map(t=><option key={t}>{t}</option>)}</select></label></div>
-        <div className="notes-count">{filtered.length} 件のメモ</div>
-        <div className="notes-list">{filtered.map(n=><button key={n.id} className={`notes-list-item ${n.id===record?.id?'active':''}`} disabled={importing||attaching||notes.busy} onClick={()=>{void notes.open(n.id);if(innerWidth<=760)setSidebar(false);}}>
-          <strong>{n.note?.pinned&&<Pin size={13}/>} {n.title||'新しいメモ'}</strong><p>{n.excerpt||'テキストのないメモ'}</p><footer><time>{new Date(n.updated_at).toLocaleDateString('ja-JP',{month:'short',day:'numeric'})}</time><span>{n.note?.category?.split(' / ').at(-1)||'未分類'}</span>{n.note?.importState==='pending'&&<em>取込途中</em>}</footer></button>)}
+        <div className="notes-sidebar-head"><div><small>MY WORKSPACE</small><h1>メモ</h1></div><button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button></div>
+        <label className="notes-search"><Search size={17}/><input ref={searchInput} placeholder="全メモの本文・タグを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
+        <div className="notes-search-options"><label>検索範囲<select aria-label="検索範囲" value={searchScope} onChange={e=>setSearchScope(e.target.value as 'all'|'filtered')}><option value="all">全カテゴリ横断</option><option value="filtered">選択中のカテゴリ・タグ</option></select></label><small>{trash?'ゴミ箱内を検索':'タイトル・本文・タグ・添付名'} · 空白でAND検索</small></div>
+        <div className="notes-navigation"><button className={!trash&&!category?'active':''} onClick={()=>{setTrash(false);setCategory('');setTag('');setQuery('');}}>すべてのメモ <small>{notes.list.filter(n=>!n.note?.trashedAt).length}</small></button><button className={trash?'active':''} onClick={()=>{setTrash(true);setQuery('');setCategory('');setTag('');}}><Trash2 size={15}/>ゴミ箱 <small>{notes.list.filter(n=>n.note?.trashedAt).length}</small></button></div>
+        <CategoryTree paths={categories} notes={notes.list} selected={category} onSelect={navigateCategory} disabled={organizing||importing||attaching} onManage={()=>setCategoryManager(true)}/>
+        <div className="notes-filters"><label><Tag size={15}/><select aria-label="タグで絞り込み" value={tag} onChange={e=>{setTag(e.target.value);setQuery('');}}><option value="">すべてのタグ</option>{tags.map(t=><option key={t}>{t}</option>)}</select></label></div>
+        <div className="notes-count" role="status">{searching?(searchScope==='all'?'横断検索':'絞り込み検索'):trash?'ゴミ箱':category||'すべてのメモ'} · {filtered.length} 件</div>
+        <div className="notes-list">{filtered.map(n=><button key={n.id} className={`notes-list-item ${n.id===record?.id?'active':''}`} disabled={importing||attaching||notes.busy||organizing} onClick={()=>{void notes.open(n.id);if(innerWidth<=760)setSidebar(false);}}>
+          <strong>{n.note?.pinned&&<Pin size={13}/>} {n.title||'新しいメモ'}</strong><p>{searching?searchExcerpt(n.searchText||n.excerpt||'',query):n.excerpt||'テキストのないメモ'}</p><footer><time>{new Date(n.updated_at).toLocaleDateString('ja-JP',{month:'short',day:'numeric'})}</time><span title={n.note?.category}>{n.note?.category||'未分類'}</span>{n.note?.importState==='pending'&&<em>取込途中</em>}</footer></button>)}
           {!filtered.length&&<p className="notes-empty">該当するメモはありません</p>}</div>
-        <button className="notes-import-button" onClick={()=>setImportOpen(true)}><Upload size={16}/> Joplinから取り込む</button>
+        <button disabled={organizing||attaching} className="notes-import-button" onClick={()=>setImportOpen(true)}><Upload size={16}/> Joplinから取り込む</button>
       </aside></>}
       <section className="notes-editor">
-        <div className={`notes-toolbar ${meta.importState==='pending'?'notes-disabled':''}`} role="toolbar" aria-label="編集ツール">
+        <div inert={!!meta.trashedAt||organizing||meta.importState==='pending'} className={`notes-toolbar ${meta.importState==='pending'||meta.trashedAt||organizing?'notes-disabled':''}`} role="toolbar" aria-label="編集ツール">
           <div className="notes-tool-group">{([['text',Type,'文字'],['pen',Pencil,'ペン'],['select',MousePointer2,'選択'],['hand',Hand,'移動'],['eraser',Eraser,'線を消す']] as const).map(([id,Icon,label])=><button key={id} className={tool===id?'active':''} onClick={()=>{setTool(id);if(id==='text')setFocus(selected||doc?.blocks?.[0]?.id||'');}} title={label} aria-label={label}><Icon size={18}/><span>{label}</span></button>)}</div>
           <div className="notes-tool-group"><button onClick={()=>addBlock()} title="文章ブロックを追加" aria-label="文章ブロックを追加"><Plus size={18}/></button><button onClick={()=>addBlock('', '#fff6cc')} title="付箋を追加">付箋</button><button onClick={()=>fileInput.current?.click()} title="画像・ファイルを添付" aria-label="画像・ファイルを添付"><ImagePlus size={18}/></button></div>
           <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length} aria-label="元に戻す"><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length} aria-label="やり直す"><Redo2 size={18}/></button></div>
@@ -176,14 +239,15 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         </div>
         <div className="notes-context"><span>{tool==='pen'||tool==='eraser'?<><input aria-label="ペンの色" type="color" value={inkColor} onChange={e=>setInkColor(e.target.value)}/><input aria-label="ペンの太さ" type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/></>:<>文字を入力 · ペンを当てると手書き · つまみでブロックを移動</>}</span>
           {selected&&<div><button title="ブロックを複製" onClick={()=>{const b=doc?.blocks?.find(b=>b.id===selected);if(b&&doc)commit({...doc,blocks:[...(doc.blocks||[]),{...b,id:id32(),x:b.x+35,y:b.y+(sizes[b.id]||b.h)+24}]});}}><Copy size={15}/></button><button title="選択を削除" onClick={()=>{if(doc)commit({...doc,blocks:doc.blocks?.filter(b=>b.id!==selected),items:doc.items.filter(i=>i.id!==selected),paintStrokes:doc.paintStrokes?.filter(s=>s.id!==selected)});setSelected('');}}><Trash2 size={15}/></button></div>}
-          <div className="notes-zoom"><button aria-label="縮小" onClick={()=>setScale(s=>Math.max(.2,s-.1))}><ZoomOut size={16}/></button>{Math.round(scale*100)}%<button aria-label="拡大" onClick={()=>setScale(s=>Math.min(2,s+.1))}><ZoomIn size={16}/></button></div>
         </div>
+        <div className="notes-viewbar" role="toolbar" aria-label="表示倍率"><strong>ズーム</strong><button aria-label="縮小" onClick={()=>zoomTo(scale-.1)} disabled={scale<=.2}><ZoomOut size={19}/>−</button><select aria-label="ズーム倍率" value={Math.round(scale*100)} onChange={e=>zoomTo(Number(e.target.value)/100)}>{[...new Set([20,25,50,75,100,125,150,200,300,400,Math.round(scale*100)])].sort((a,b)=>a-b).map(p=><option key={p} value={p}>{p}%</option>)}</select><button aria-label="拡大" onClick={()=>zoomTo(scale+.1)} disabled={scale>=4}><ZoomIn size={19}/>＋</button><button onClick={()=>zoomTo(1)}>100%</button><button onClick={fitContent}>画面に合わせる</button><small>Ctrl＋ホイール</small><div className="notes-viewbar-spacer"/><button className="notes-delete" disabled={!record||organizing||attaching||importing||notes.busy||meta.importState==='pending'} onClick={()=>meta.trashedAt?setTrashed(false):setDeleteOpen(true)}><Trash2 size={16}/>{meta.trashedAt?'メモを復元':'メモを削除'}</button></div>
+        {meta.trashedAt&&<div className="notes-warning">このメモはゴミ箱にあります。本文・添付は保持されています。<button onClick={()=>setTrashed(false)}>元に戻す</button></div>}
         {meta.importState==='pending'&&<div className="notes-warning">取り込み途中のメモです。同じJEXを選んで取り込みを再開してください。</div>}
         {notes.conflict&&<div className="notes-warning">他端末の更新と競合しています。今の内容は端末に保持しています。<button onClick={()=>void notes.recover()}>今の内容を別メモに保存</button></div>}
         {notes.error&&<div className="notes-warning" role="alert">{notes.error}<button onClick={()=>notes.setError('')} aria-label="通知を閉じる"><X size={15}/></button></div>}
         <div ref={scroll} className="notes-scroll" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void attach(Array.from(e.dataTransfer.files));}}>
-          {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void notes.create()}>新しいメモを作る</button></div>:<div style={{width:width*scale,height:height*scale}}>
-            <div ref={plane} className={`notes-plane tool-${tool}`} style={{width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||meta.importState==='pending'?'none':undefined}}
+          {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div style={{width:width*scale,height:height*scale}}>
+            <div ref={plane} className={`notes-plane tool-${tool}`} style={{width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
               onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
               <svg className="notes-ink" width={width} height={height}>
                 {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><LegacyImage key={l.id} docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/>)}
@@ -193,7 +257,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                 {doc?.paintStrokes?.filter(s=>doc.layers.find(l=>l.id===s.layerId)?.visible!==false).map(s=><polyline key={s.id} data-stroke={s.id} points={stroke(s.points)} stroke={s.color} strokeWidth={s.width} opacity={s.opacity} strokeLinecap="round" strokeLinejoin="round" fill="none"/>)}
                 {draft.length>0&&<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} strokeLinecap="round" fill="none" pointerEvents="none"/>}
               </svg>
-              {doc?.blocks?.map(b=><EditableBlock key={b.id} block={b} selected={selected===b.id} focused={focus===b.id} onFocus={()=>{setSelected(b.id);setFocus(b.id);}}
+              {doc?.blocks?.map(b=><EditableBlock key={b.id} block={b} readOnly={!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===b.id} focused={focus===b.id} onFocus={()=>{setSelected(b.id);setFocus(b.id);}}
                 onChange={(html,h)=>updateBlock(b.id,html,h)} onDrag={(e,resize)=>drag(e,b.id,resize)} onSize={h=>setSizes(old=>old[b.id]===h?old:{...old,[b.id]:h})}
                 onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
             </div>
@@ -202,19 +266,22 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
       {settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
-        <label>カテゴリ<input value={meta.category} maxLength={200} onChange={e=>changeMeta({category:e.target.value})} list="note-categories"/></label><datalist id="note-categories">{categories.map(c=><option key={c} value={c}/>)}</datalist>
-        <label>タグ（カンマ区切り）<input key={record?.id} defaultValue={meta.tags.join(', ')} onBlur={e=>changeMeta({tags:[...new Set(e.target.value.split(/[,、]/).map(t=>t.trim()).filter(Boolean))].slice(0,50)})}/></label>
+        <label>カテゴリ（ / で入れ子）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':category:'+meta.category} defaultValue={meta.category} maxLength={200} onBlur={e=>{e.target.value=categoryPath(e.target.value);changeMeta({category:e.target.value});}} list="note-categories"/></label><datalist id="note-categories">{categories.map(c=><option key={c} value={c}/>)}</datalist>
+        <button disabled={organizing||importing||attaching} onClick={()=>setCategoryManager(true)}>カテゴリの追加・移動・タグ化</button>
+        <label>タグ（カンマ区切り）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':tags:'+meta.tags.join(',')} defaultValue={meta.tags.join(', ')} onBlur={e=>changeMeta({tags:[...new Set(e.target.value.split(/[,、]/).map(t=>t.trim()).filter(Boolean))].slice(0,50)})}/></label>
         <button onClick={()=>changeMeta({pinned:!meta.pinned})}><Pin size={16}/>{meta.pinned?'ピン留めを解除':'一覧の上にピン留め'}</button>
         {meta.isTodo&&<label className="notes-todo"><input type="checkbox" checked={!!meta.completed} onChange={e=>changeMeta({completed:e.target.checked})}/>このToDoを完了</label>}
         <hr/><button onClick={()=>record&&download(record.title+'.md',exportMarkdown(record))}><FileDown size={16}/>このメモをMDに書き出す</button>
         <button onClick={()=>record&&download(record.title+'.txt',(doc?.blocks||[]).map(b=>{const el=document.createElement('div');el.innerHTML=cleanHTML(b.html);return el.innerText;}).join('\n\n'),'text/plain')}>テキストで書き出す</button>
         <button onClick={()=>void exportAll()}><FileDown size={16}/>全メモを整理用に書き出す</button>
         <p>書き出したMDと分類ファイルをChatGPTに渡して「整理して」と依頼できます。整理後の分類ファイルを読み込むと、カテゴリとタグを反映します。</p>
-        <button onClick={()=>organizationInput.current?.click()}><Upload size={16}/>整理した分類を読み込む</button>
+        <button disabled={organizing||!!meta.trashedAt} onClick={()=>organizationInput.current?.click()}><Upload size={16}/>整理した分類を読み込む</button>
         <button onClick={()=>{setImportOpen(true);setSettings(false);}}><Upload size={16}/>JoplinのJEXを取り込む</button>
         {meta.sourceNotebook&&<p>元のノートブック<br/>{meta.sourceNotebook}</p>}
       </aside>}
     </div>
+    {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
+    {deleteOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">メモをゴミ箱へ移動</h2><p>「{record?.title}」をゴミ箱へ移動します。あとから復元できます。</p><button onClick={()=>setDeleteOpen(false)}>キャンセル</button><button className="notes-primary" onClick={()=>setTrashed(true)}>ゴミ箱へ移動</button></section></div>}
     <input ref={fileInput} hidden type="file" multiple onChange={e=>{void attach(Array.from(e.target.files||[]));e.target.value='';}}/>
     <input ref={organizationInput} hidden type="file" accept=".json" onChange={e=>{if(e.target.files?.[0])void applyOrganization(e.target.files[0]);e.target.value='';}}/>
     {importOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="jex-title"><div className="notes-settings-title"><h2 id="jex-title">Joplinから取り込む</h2><button disabled={importing} onClick={()=>setImportOpen(false)} aria-label="取り込み画面を閉じる"><X size={20}/></button></div>
