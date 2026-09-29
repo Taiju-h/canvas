@@ -17,6 +17,7 @@ function canvas_notes_index(PDO $db, string $actor): array
         $texts = [];
         foreach ($content['blocks'] ?? [] as $block) $texts[] = html_entity_decode(strip_tags((string)($block['html'] ?? $block['text'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         foreach ($content['items'] ?? [] as $item) if (($item['kind'] ?? '') === 'text') $texts[] = (string)($item['text'] ?? '');
+        foreach ($content['attachments'] ?? [] as $attachment) $texts[] = (string)($attachment['name'] ?? '');
         $text = implode("\n", $texts);
         $result[] = ['id' => $row['id'], 'title' => $row['title'], 'revision' => (int)$row['revision'],
             'updated_at' => (int)$row['updated_at'], 'note' => $meta,
@@ -84,4 +85,61 @@ function canvas_note_file(string $docId, string $fileId, string $method): void
     }
     fclose($handle);
     canvas_json(['nextOffset' => $next, 'complete' => $next === $total]);
+}
+
+/** Atomic category operations: preserve body/files and reject stale revisions. */
+function canvas_note_workspace(PDO $db, string $actor, string $method): void
+{
+    if ($method === 'GET') {
+        $q = $db->prepare('SELECT categories_json, revision FROM canvas_note_workspace WHERE owner_id = ?');
+        $q->execute([$actor]);
+        $row = $q->fetch();
+        canvas_json(['categories' => $row ? json_decode($row['categories_json'], true) : [], 'revision' => $row ? (int)$row['revision'] : 0]);
+    }
+    if ($method !== 'POST') canvas_json(['error' => '操作が不正です'], 405);
+    $body = canvas_body();
+    $categories = $body['categories'] ?? null;
+    $updates = $body['updates'] ?? null;
+    if (!is_int($body['revision'] ?? null) || !is_array($categories) || count($categories) > 2000 || !is_array($updates) || count($updates) > 5000) canvas_json(['error' => 'カテゴリ操作の形式が不正です'], 400);
+    foreach ($categories as $path) if (!is_string($path) || mb_strlen($path) < 1 || mb_strlen($path) > 200) canvas_json(['error' => 'カテゴリ名は1〜200文字です'], 400);
+    $seen = [];
+    foreach ($updates as $u) {
+        if (!is_array($u) || !preg_match('/^[a-f0-9]{32}$/D', (string)($u['id'] ?? '')) || isset($seen[$u['id']]) || !is_int($u['revision'] ?? null) ||
+            !is_string($u['category'] ?? null) || mb_strlen($u['category']) > 200 || !is_array($u['tags'] ?? null) || count($u['tags']) > 50) canvas_json(['error' => '分類の形式が不正です'], 400);
+        foreach ($u['tags'] as $tag) if (!is_string($tag) || mb_strlen($tag) < 1 || mb_strlen($tag) > 80) canvas_json(['error' => 'タグは1〜80文字です'], 400);
+        $seen[$u['id']] = true;
+    }
+    $db->beginTransaction();
+    try {
+        $db->prepare("INSERT IGNORE INTO canvas_note_workspace (owner_id, categories_json, revision) VALUES (?, '[]', 0)")->execute([$actor]);
+        $q = $db->prepare('SELECT revision FROM canvas_note_workspace WHERE owner_id = ? FOR UPDATE');
+        $q->execute([$actor]);
+        if ((int)$q->fetchColumn() !== $body['revision']) { $db->rollBack(); canvas_json(['error' => 'カテゴリが他端末で更新されました。画面を再読み込みしてください'], 409); }
+        $changed = [];
+        // Stable lock order prevents simultaneous bulk changes from deadlocking.
+        usort($updates, static fn($a, $b) => strcmp($a['id'], $b['id']));
+        foreach ($updates as $u) {
+            $q = $db->prepare('SELECT content_json, revision FROM canvas_documents WHERE id = ? AND owner_id = ? FOR UPDATE');
+            $q->execute([$u['id'], $actor]);
+            $row = $q->fetch();
+            if (!$row || (int)$row['revision'] !== $u['revision']) { $db->rollBack(); canvas_json(['error' => '更新されたメモがあります。分類は変更していません。再読み込みしてやり直してください'], 409); }
+            $content = json_decode($row['content_json'], true);
+            $meta = $content['note'] ?? [];
+            if (($meta['importState'] ?? '') === 'pending') { $db->rollBack(); canvas_json(['error' => '取り込み途中のメモがあります。JEX取り込みを完了してください'], 409); }
+            $meta['category'] = $u['category'];
+            $meta['tags'] = array_values(array_unique($u['tags']));
+            $log = $meta['organizationLog'] ?? [];
+            $log[] = ['at' => gmdate('c'), 'category' => $meta['category'], 'tags' => $meta['tags']];
+            $meta['organizationLog'] = array_slice($log, -100);
+            $content['note'] = $meta;
+            $now = canvas_now();
+            $json = json_encode($content, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+            if ($json === false || strlen($json) > 8000000) { $db->rollBack(); canvas_json(['error' => 'メモのサイズ上限を超えました。分類は変更していません'], 413); }
+            $db->prepare('UPDATE canvas_documents SET content_json = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND owner_id = ?')->execute([$json, $now, $u['id'], $actor]);
+            $changed[] = ['id' => $u['id'], 'revision' => $u['revision'] + 1, 'updated_at' => $now, 'note' => $meta];
+        }
+        $db->prepare('UPDATE canvas_note_workspace SET categories_json = ?, revision = revision + 1 WHERE owner_id = ?')->execute([json_encode(array_values(array_unique($categories)), JSON_UNESCAPED_UNICODE), $actor]);
+        $db->commit();
+        canvas_json(['revision' => $body['revision'] + 1, 'categories' => array_values(array_unique($categories)), 'changed' => $changed]);
+    } catch (Throwable $e) { if ($db->inTransaction()) $db->rollBack(); throw $e; }
 }

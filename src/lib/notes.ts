@@ -7,7 +7,7 @@ export type NoteBlock = { id: string; x: number; y: number; w: number; h: number
 export type Attachment = { id: string; name: string; mime: string; size: number; sourceId?: string };
 export type NoteMeta = { category: string; tags: string[]; pinned?: boolean; sourceId?: string; sourceNotebook?: string;
   sourceCreated?: string; sourceUpdated?: string; sourceMarkdown?: string; sourceFormat?: string; sourceTitle?: string;
-  importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
+  trashedAt?: string; importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
   organizationLog?: { at: string; category: string; tags: string[] }[] };
 export type NoteDoc = Omit<CanvasDoc, 'layers'> & { layers: (Layer & { rasterImageId?: string; rasterBounds?: {x:number;y:number;w:number;h:number} })[]; blocks?: NoteBlock[]; note?: NoteMeta; attachments?: Attachment[];
   paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string }[] };
@@ -45,7 +45,7 @@ export function normalizeNote(input: NoteDoc): NoteDoc {
 }
 export function escapeHTML(value: string) { return value.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]!)); }
 export function indexOf(record: NoteRecord): NoteIndex {
-  const text = (record.content.blocks || []).map(b => plainText(b.html)).join('\n');
+  const text = (record.content.blocks || []).map(b => plainText(b.html)).join('\n') + '\n' + (record.content.attachments || []).map(a=>a.name).join(' ');
   const { sourceMarkdown: _, organizationLog: __, ...note } = record.content.note || { category: '', tags: [] };
   return { id: record.id, title: record.title, revision: record.revision, updated_at: record.updated_at, note, excerpt: text.slice(0,160), searchText: text };
 }

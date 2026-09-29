@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage } from './local-docs';
-import { api, blankNote, id32, indexOf, normalizeNote, type NoteRecord, type NoteIndex, type NoteDoc } from './notes';
+import { api, blankNote, id32, indexOf, normalizeNote, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
 
 export function useNotes(accountId: string) {
   const [record,setRecord] = useState<NoteRecord | null>(null);
@@ -20,7 +20,7 @@ export function useNotes(accountId: string) {
     return localJobs.current;
   }
   function report(message: string, id: string) { if (active.current === id) setStatus(message); }
-  async function refresh() {
+  async function refresh(strict=false) {
     const local = (await listLocalDocs()).filter(n=>n.accountId===accountId);
     const merged = new Map<string,NoteIndex>();
     if (navigator.onLine) {
@@ -34,7 +34,7 @@ export function useNotes(accountId: string) {
         if (!page.hasMore) break;
         offset=page.nextOffset;
       }
-      } catch (err) { if (!local.length && !records.current.size) throw err; setError('一覧を同期できないため端末のメモを表示しています'); }
+      } catch (err) { if (strict || (!local.length && !records.current.size)) throw err; setError('一覧を同期できないため端末のメモを表示しています'); }
     }
     for (const n of local) if (!merged.has(n.id) || n.dirty) merged.set(n.id,indexOf({ ...n,content:normalizeNote(n.content) }));
     for (const n of records.current.values()) if (n.dirty) merged.set(n.id,indexOf(n));
@@ -115,15 +115,33 @@ export function useNotes(accountId: string) {
     active.current=next.id;show(next);setURL(next.id);setConflict(false);setBusy(false);
     await persist(next);setStatus('端末に保存済み');await save(next.id);
   }
+  async function flushAll() {
+    await localJobs.current;
+    for(const [id,timer] of timers.current){clearTimeout(timer);timers.current.delete(id);}
+    await Promise.all([...jobs.current.values()]);
+    for(const n of records.current.values())if(n.dirty)await save(n.id);
+    await localJobs.current;
+    if((await listLocalDocs()).some(n=>n.accountId===accountId&&n.dirty))throw new Error('未同期または競合中のメモがあります。同期・復元してから一括操作してください');
+  }
+  async function acceptMetadata(changed:{id:string;revision:number;updated_at:number;note:NoteMeta}[]) {
+    for(const update of changed){
+      const cached=records.current.get(update.id)||await getLocalDoc(update.id);
+      if(cached&&cached.accountId===accountId&&!cached.dirty){
+        const next:NoteRecord=cached.revision===update.revision-1?{...cached,content:{...cached.content,note:update.note},revision:update.revision,updated_at:update.updated_at,dirty:false}:{...await(await api('/api/documents/'+update.id)).json(),accountId,dirty:false};
+        show(next);await persist(next);
+      }
+    }
+    await refresh();
+  }
   useEffect(()=>{
     let live=true;
     void refresh().then(async rows=>{if(!live)return;const wanted=new URLSearchParams(location.search).get('d');
-      const target=rows.find(n=>n.id===wanted)||rows[0];if(target)await open(target.id);else await create();}).catch(err=>setError(String(err)));
+      const target=rows.find(n=>n.id===wanted)||rows.find(n=>!n.note?.trashedAt);if(target)await open(target.id);else await create();}).catch(err=>setError(String(err)));
     const online=()=>{for(const n of records.current.values())if(n.dirty)void save(n.id);};
     const before=(e:BeforeUnloadEvent)=>{if([...records.current.values()].some(n=>n.dirty)){e.preventDefault();e.returnValue='';}};
     addEventListener('online',online);addEventListener('beforeunload',before);
     return()=>{live=false;removeEventListener('online',online);removeEventListener('beforeunload',before);};
   },[]);
-  return {record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,
+  return {record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }
