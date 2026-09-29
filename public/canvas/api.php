@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/server/bootstrap.php';
 canvas_session();
+require_once dirname(__DIR__, 2) . '/server/notes.php';
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = $_GET['path'] ?? '';
@@ -127,7 +128,15 @@ if ($path === '/api/next-title') {
     }
 }
 
-if (!preg_match('~^/api/documents(?:/([a-f0-9]{32}))?(?:/(share|images)(?:/([a-f0-9]{32}))?)?$~D', $path, $match)) {
+if ($path === '/api/notes-index') {
+    if ($method !== 'GET') canvas_json(['error' => '操作が不正です'], 405);
+    $actor = canvas_current_actor();
+    if (!$actor) canvas_json(['error' => '利用者情報を入力してください'], 401);
+    try { canvas_json(canvas_notes_index(canvas_db(), $actor)); }
+    catch (Throwable $error) { error_log('Canvas index: ' . $error->getMessage()); canvas_json(['error' => 'メモ一覧を取得できません'], 503); }
+}
+
+if (!preg_match('~^/api/documents(?:/([a-f0-9]{32}))?(?:/(share|images|files)(?:/([a-f0-9]{32}))?)?$~D', $path, $match)) {
     canvas_json(['error' => '操作が見つかりません'], 404);
 }
 if (!in_array($method, ['GET', 'HEAD'], true) && !canvas_csrf_valid()) {
@@ -175,6 +184,11 @@ try {
     $guest = !$owner && preg_match('/^[a-f0-9]{64}$/D', $token) &&
         is_string($doc['share_hash']) && hash_equals($doc['share_hash'], hash('sha256', $token));
     if (!$owner && !$guest) canvas_json(['error' => 'この作品を開く権限がありません'], 403);
+
+    if ($operation === 'files') {
+        if (!$owner) canvas_json(['error' => '添付を開く権限がありません'], 403);
+        canvas_note_file($id, $imageId, $method);
+    }
 
     if ($operation === 'share') {
         if ($method !== 'POST' || !$owner) canvas_json(['error' => '権限がありません'], 403);

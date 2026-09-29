@@ -13,3 +13,6 @@ public/canvas/offline-assets.json
 public/canvas/sw.js
 public/canvas/favicon.svg
 public/canvas/manifest.webmanifest
+
+# Private note attachments and incomplete uploads
+var/
