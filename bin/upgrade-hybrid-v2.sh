@@ -83,9 +83,13 @@ PY
   restore_editor
   trap cleanup EXIT
 
-  for file in "$root/public/canvas/api.php" "$root/public/canvas/admin-visitors.php" "$root/public/canvas/login.php" "$root/server/bootstrap.php"; do
+  for file in "$root/public/canvas/api.php" "$root/public/canvas/admin-visitors.php" "$root/public/canvas/login.php" "$root/server/bootstrap.php" "$root/server/notes.php"; do
     php -l "$file" >/dev/null || stop "PHP構文エラー: $file"
   done
+  # Attachments are private and writable only by the PHP runtime account.
+  local web_user="${CANVAS_PHP_USER:-www-data}"
+  id "$web_user" >/dev/null 2>&1 || stop 'PHP実行ユーザーをCANVAS_PHP_USERで指定してください。'
+  install -d -m 0700 -o "$web_user" "$root/var/attachments"
   [[ -s "$root/public/canvas/index.html" ]] || stop '公開index.htmlが生成されませんでした。'
   ls "$root/public/canvas/assets"/*.js >/dev/null 2>&1 || stop 'JavaScriptが生成されませんでした。'
 }

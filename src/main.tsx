@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import HybridCanvasEditor from "@/components/hybrid-canvas-editor";
+import NotesWorkspace from "@/components/notes-workspace";
 import "./styles.css";
 import "./visitor.css";
 
@@ -75,7 +75,7 @@ function App() {
   if (fatal) return <main className="visitor-gate"><section className="visitor-card"><h1>接続できません</h1><p>{fatal}</p></section></main>;
   if (!session) return <main className="hybrid-loading"><div className="hybrid-spinner" />起動しています…</main>;
   if (!session.authenticated) return <VisitorGate session={session} onReady={setSession} />;
-  return <HybridCanvasEditor accountId={session.accountId} />;
+  return <NotesWorkspace accountId={session.accountId || ""} />;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
