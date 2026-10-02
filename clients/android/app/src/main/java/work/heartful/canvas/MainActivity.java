@@ -1,82 +1,69 @@
 package work.heartful.canvas;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.DownloadManager;
-import android.content.ContentValues;
-import android.content.Intent;
 import android.graphics.Color;
-import android.net.Uri;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.provider.MediaStore;
-import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.view.WindowInsets;
-import android.webkit.CookieManager;
-import android.webkit.JavascriptInterface;
-import android.webkit.JsPromptResult;
-import android.webkit.JsResult;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
+import android.view.WindowInsetsController;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import java.io.OutputStream;
+import java.io.File;
 
 public class MainActivity extends Activity {
-    private static final String SITE = "https://canvas.uzero.style/canvas/";
-    private static final String SITE_HOST = "canvas.uzero.style";
-    private static final int FILE_PICKER = 1001;
-    private WebView web;
-    private LinearLayout offline;
-    private android.webkit.ValueCallback<Uri[]> fileCallback;
-    private volatile boolean onCanvasSite = false;
-    private boolean loadFailed = false;
+    private NativeCanvasView canvas;
+    private Button penButton;
+    private Button eraserButton;
+    private Button gridButton;
+    private File autosave;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(Color.rgb(23, 35, 55));
-        getWindow().setNavigationBarColor(Color.rgb(248, 250, 252));
+        configureWindow();
 
+        autosave = new File(getFilesDir(), "native-canvas-v1.bin");
         FrameLayout root = new FrameLayout(this);
-        web = new WebView(this);
-        root.addView(web, new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.setBackgroundColor(Color.rgb(250, 250, 248));
 
-        offline = new LinearLayout(this);
-        offline.setOrientation(LinearLayout.VERTICAL);
-        offline.setGravity(Gravity.CENTER);
-        offline.setBackgroundColor(Color.WHITE);
-        offline.setPadding(24, 24, 24, 24);
-        TextView message = new TextView(this);
-        message.setText("最初の起動はネット接続が必要です\n一度開いたあとは端末の作品をオフラインでも編集できます");
-        message.setTextColor(Color.rgb(31, 46, 65));
-        message.setTextSize(17);
-        message.setGravity(Gravity.CENTER);
-        Button retry = new Button(this);
-        retry.setText("再読み込み");
-        retry.setOnClickListener(view -> {
-            offline.setVisibility(View.GONE);
-            web.loadUrl(SITE);
-        });
-        offline.addView(message);
-        offline.addView(retry);
-        offline.setVisibility(View.GONE);
-        root.addView(offline, new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        canvas = new NativeCanvasView(this);
+        root.addView(canvas, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT));
+
+        LinearLayout toolbar = buildToolbar();
+        FrameLayout.LayoutParams toolsLayout = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        toolsLayout.bottomMargin = dp(18);
+        root.addView(toolbar, toolsLayout);
+
+        TextView hint = new TextView(this);
+        hint.setText("1本指/ペン: 描画    2本指: 移動・拡大縮小");
+        hint.setTextSize(11);
+        hint.setTextColor(Color.rgb(98, 105, 114));
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(dp(10), dp(6), dp(10), dp(6));
+        GradientDrawable hintBg = new GradientDrawable();
+        hintBg.setColor(Color.argb(220, 255, 255, 255));
+        hintBg.setCornerRadius(dp(12));
+        hint.setBackground(hintBg);
+        FrameLayout.LayoutParams hintLayout = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        hintLayout.topMargin = dp(12);
+        root.addView(hint, hintLayout);
+
         if (Build.VERSION.SDK_INT >= 30) {
             root.setOnApplyWindowInsetsListener((view, insets) -> {
                 android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
@@ -84,174 +71,107 @@ public class MainActivity extends Activity {
                 return insets;
             });
         }
+
         setContentView(root);
-
-        WebSettings settings = web.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(true);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setSupportMultipleWindows(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setDisplayZoomControls(false);
-        if (Build.VERSION.SDK_INT >= 26) settings.setSafeBrowsingEnabled(true);
-        CookieManager.getInstance().setAcceptCookie(true);
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
-        web.addJavascriptInterface(new ExportBridge(), "CanvasNative");
-        web.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                loadFailed = false;
-                onCanvasSite = SITE_HOST.equals(Uri.parse(url).getHost());
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                if (!request.isForMainFrame()) return false;
-                Uri url = request.getUrl();
-                if ("https".equals(url.getScheme()) && trustedHost(url.getHost())) return false;
-                if ("https".equals(url.getScheme())) {
-                    try { startActivity(new Intent(Intent.ACTION_VIEW, url)); }
-                    catch (Exception ignored) { }
-                }
-                return true;
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                if (!loadFailed) offline.setVisibility(View.GONE);
-            }
-
-            @Override
-            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) {
-                    loadFailed = true;
-                    offline.setVisibility(View.VISIBLE);
-                }
-            }
-        });
-        web.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onShowFileChooser(WebView view,
-                android.webkit.ValueCallback<Uri[]> callback, FileChooserParams params) {
-                if (fileCallback != null) fileCallback.onReceiveValue(null);
-                fileCallback = callback;
-                try {
-                    startActivityForResult(params.createIntent(), FILE_PICKER);
-                    return true;
-                } catch (Exception error) {
-                    fileCallback.onReceiveValue(null);
-                    fileCallback = null;
-                    Toast.makeText(MainActivity.this, "画像を選べません", Toast.LENGTH_SHORT).show();
-                    return false;
-                }
-            }
-
-            @Override
-            public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
-                EditText input = new EditText(MainActivity.this);
-                input.setSingleLine(false);
-                input.setText(defaultValue);
-                new AlertDialog.Builder(MainActivity.this).setTitle(message).setView(input)
-                    .setNegativeButton("キャンセル", (dialog, which) -> result.cancel())
-                    .setPositiveButton("OK", (dialog, which) -> result.confirm(input.getText().toString()))
-                    .show();
-                return true;
-            }
-
-            @Override
-            public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
-                new AlertDialog.Builder(MainActivity.this).setMessage(message)
-                    .setNegativeButton("キャンセル", (dialog, which) -> result.cancel())
-                    .setPositiveButton("OK", (dialog, which) -> result.confirm())
-                    .show();
-                return true;
-            }
-        });
-        web.setDownloadListener((url, userAgent, disposition, mime, size) -> {
-            if (!url.startsWith("https://")) return;
-            try {
-                DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
-                request.setMimeType(mime);
-                String cookies = CookieManager.getInstance().getCookie(url);
-                if (cookies != null) request.addRequestHeader("Cookie", cookies);
-                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "canvas-download");
-                ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(request);
-            } catch (Exception error) {
-                Toast.makeText(this, "保存に失敗しました", Toast.LENGTH_SHORT).show();
-            }
-        });
-        if (state != null) web.restoreState(state);
-        else web.loadUrl(SITE);
+        canvas.load(autosave);
+        updateToolButtons();
     }
 
-    private boolean trustedHost(String host) {
-        return SITE_HOST.equals(host);
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == FILE_PICKER && fileCallback != null) {
-            fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
-            fileCallback = null;
+    private void configureWindow() {
+        Window window = getWindow();
+        window.setStatusBarColor(Color.rgb(250, 250, 248));
+        window.setNavigationBarColor(Color.rgb(250, 250, 248));
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsAppearance(
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+            }
+        } else {
+            window.getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         }
     }
 
-    @Override
-    protected void onSaveInstanceState(Bundle state) {
-        web.saveState(state);
-        super.onSaveInstanceState(state);
+    private LinearLayout buildToolbar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER);
+        bar.setPadding(dp(6), dp(6), dp(6), dp(6));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.argb(242, 255, 255, 255));
+        background.setCornerRadius(dp(18));
+        background.setStroke(dp(1), Color.rgb(224, 226, 229));
+        bar.setBackground(background);
+        bar.setElevation(dp(7));
+
+        penButton = addToolButton(bar, "ペン", view -> {
+            canvas.setTool(NativeCanvasView.Tool.PEN);
+            updateToolButtons();
+        });
+        eraserButton = addToolButton(bar, "消し", view -> {
+            canvas.setTool(NativeCanvasView.Tool.ERASER);
+            updateToolButtons();
+        });
+        addToolButton(bar, "戻す", view -> canvas.undo());
+        addToolButton(bar, "進む", view -> canvas.redo());
+        gridButton = addToolButton(bar, "方眼", view -> {
+            canvas.setGridEnabled(!canvas.isGridEnabled());
+            updateToolButtons();
+        });
+        addToolButton(bar, "中央", view -> canvas.resetView());
+        return bar;
+    }
+
+    private Button addToolButton(LinearLayout bar, String label, View.OnClickListener listener) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setTextSize(13);
+        button.setTextColor(Color.rgb(33, 38, 44));
+        button.setAllCaps(false);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setPadding(dp(12), dp(9), dp(12), dp(9));
+        button.setBackground(makeButtonBackground(false));
+        button.setOnClickListener(listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(dp(2), 0, dp(2), 0);
+        bar.addView(button, params);
+        return button;
+    }
+
+    private GradientDrawable makeButtonBackground(boolean selected) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(selected ? Color.rgb(32, 95, 232) : Color.TRANSPARENT);
+        shape.setCornerRadius(dp(12));
+        return shape;
+    }
+
+    private void updateToolButtons() {
+        boolean pen = canvas.getTool() == NativeCanvasView.Tool.PEN;
+        penButton.setBackground(makeButtonBackground(pen));
+        penButton.setTextColor(pen ? Color.WHITE : Color.rgb(33, 38, 44));
+        eraserButton.setBackground(makeButtonBackground(!pen));
+        eraserButton.setTextColor(!pen ? Color.WHITE : Color.rgb(33, 38, 44));
+        boolean grid = canvas.isGridEnabled();
+        gridButton.setBackground(makeButtonBackground(grid));
+        gridButton.setTextColor(grid ? Color.WHITE : Color.rgb(33, 38, 44));
+    }
+
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     @Override
-    public void onBackPressed() {
-        if (web.canGoBack()) web.goBack();
-        else super.onBackPressed();
-    }
-
-    @Override
-    protected void onDestroy() {
-        web.destroy();
-        super.onDestroy();
-    }
-
-    private class ExportBridge {
-        @JavascriptInterface
-        public void saveFile(String base64, String filename, String mime) {
-            if (!onCanvasSite || base64.length() > 28_000_000) return;
-            String safeName = filename.replaceAll("[\\\\/:*?\"<>|\\r\\n]", "_");
-            if (safeName.isEmpty()) safeName = "canvas-export";
-            String safeMime = mime.equals("image/png") ? "image/png" :
-                mime.equals("image/svg+xml") ? "image/svg+xml" : "application/json";
-            try {
-                byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
-                if (bytes.length > 20_000_000) return;
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.Downloads.DISPLAY_NAME, safeName);
-                values.put(MediaStore.Downloads.MIME_TYPE, safeMime);
-                values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/Canvas");
-                values.put(MediaStore.Downloads.IS_PENDING, 1);
-                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                if (uri == null) throw new IllegalStateException("save");
-                try (OutputStream out = getContentResolver().openOutputStream(uri)) {
-                    if (out == null) throw new IllegalStateException("stream");
-                    out.write(bytes);
-                } catch (Exception error) {
-                    getContentResolver().delete(uri, null, null);
-                    throw error;
-                }
-                ContentValues ready = new ContentValues();
-                ready.put(MediaStore.Downloads.IS_PENDING, 0);
-                getContentResolver().update(uri, ready, null, null);
-                runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                    "ダウンロードに保存しました", Toast.LENGTH_SHORT).show());
-            } catch (Exception error) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                    "保存に失敗しました", Toast.LENGTH_SHORT).show());
-            }
-        }
+    protected void onPause() {
+        if (canvas != null && autosave != null) canvas.save(autosave);
+        super.onPause();
     }
 }
