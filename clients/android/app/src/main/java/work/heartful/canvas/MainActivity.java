@@ -28,7 +28,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        configureWindow();
+        configureWindowColors();
 
         autosave = new File(getFilesDir(), "native-canvas-v1.bin");
         FrameLayout root = new FrameLayout(this);
@@ -73,27 +73,31 @@ public class MainActivity extends Activity {
         }
 
         setContentView(root);
+        applySystemBarAppearance();
         canvas.load(autosave);
         updateToolButtons();
     }
 
-    private void configureWindow() {
+    private void configureWindowColors() {
         Window window = getWindow();
         window.setStatusBarColor(Color.rgb(250, 250, 248));
         window.setNavigationBarColor(Color.rgb(250, 250, 248));
-        if (Build.VERSION.SDK_INT >= 30) {
-            WindowInsetsController controller = window.getInsetsController();
-            if (controller != null) {
-                controller.setSystemBarsAppearance(
-                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
-                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
-            }
-        } else {
+        if (Build.VERSION.SDK_INT < 30) {
             window.getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         }
+    }
+
+    private void applySystemBarAppearance() {
+        if (Build.VERSION.SDK_INT < 30) return;
+        final View decor = getWindow().getDecorView();
+        decor.post(() -> {
+            WindowInsetsController controller = decor.getWindowInsetsController();
+            if (controller == null) return;
+            int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            controller.setSystemBarsAppearance(mask, mask);
+        });
     }
 
     private LinearLayout buildToolbar() {
