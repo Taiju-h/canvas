@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -23,7 +24,9 @@ public class MainActivity extends Activity {
     private Button penButton;
     private Button eraserButton;
     private Button gridButton;
+    private TextView hint;
     private File autosave;
+    private NativeCanvasView.Tool toolBeforeSpace;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -47,8 +50,7 @@ public class MainActivity extends Activity {
         toolsLayout.bottomMargin = dp(18);
         root.addView(toolbar, toolsLayout);
 
-        TextView hint = new TextView(this);
-        hint.setText("1本指/ペン: 描画    2本指: 移動・拡大縮小");
+        hint = new TextView(this);
         hint.setTextSize(11);
         hint.setTextColor(Color.rgb(98, 105, 114));
         hint.setGravity(Gravity.CENTER);
@@ -75,6 +77,7 @@ public class MainActivity extends Activity {
         setContentView(root);
         applySystemBarAppearance();
         canvas.load(autosave);
+        canvas.requestFocus();
         updateToolButtons();
     }
 
@@ -112,14 +115,8 @@ public class MainActivity extends Activity {
         bar.setBackground(background);
         bar.setElevation(dp(7));
 
-        penButton = addToolButton(bar, "ペン", view -> {
-            canvas.setTool(NativeCanvasView.Tool.PEN);
-            updateToolButtons();
-        });
-        eraserButton = addToolButton(bar, "消し", view -> {
-            canvas.setTool(NativeCanvasView.Tool.ERASER);
-            updateToolButtons();
-        });
+        penButton = addToolButton(bar, "ペン", view -> selectTool(NativeCanvasView.Tool.PEN));
+        eraserButton = addToolButton(bar, "消し", view -> selectTool(NativeCanvasView.Tool.ERASER));
         addToolButton(bar, "戻す", view -> canvas.undo());
         addToolButton(bar, "進む", view -> canvas.redo());
         gridButton = addToolButton(bar, "方眼", view -> {
@@ -158,15 +155,131 @@ public class MainActivity extends Activity {
         return shape;
     }
 
+    private void selectTool(NativeCanvasView.Tool tool) {
+        canvas.setTool(tool);
+        canvas.requestFocus();
+        updateToolButtons();
+    }
+
     private void updateToolButtons() {
-        boolean pen = canvas.getTool() == NativeCanvasView.Tool.PEN;
+        NativeCanvasView.Tool tool = canvas.getTool();
+        boolean pen = tool == NativeCanvasView.Tool.PEN || tool == NativeCanvasView.Tool.VECTOR_PEN;
+        boolean eraser = tool == NativeCanvasView.Tool.ERASER;
         penButton.setBackground(makeButtonBackground(pen));
         penButton.setTextColor(pen ? Color.WHITE : Color.rgb(33, 38, 44));
-        eraserButton.setBackground(makeButtonBackground(!pen));
-        eraserButton.setTextColor(!pen ? Color.WHITE : Color.rgb(33, 38, 44));
+        eraserButton.setBackground(makeButtonBackground(eraser));
+        eraserButton.setTextColor(eraser ? Color.WHITE : Color.rgb(33, 38, 44));
         boolean grid = canvas.isGridEnabled();
         gridButton.setBackground(makeButtonBackground(grid));
         gridButton.setTextColor(grid ? Color.WHITE : Color.rgb(33, 38, 44));
+        if (hint != null) hint.setText(canvas.getToolDisplayName() + "    Sペン側面: 消しゴム    Ctrl+側面: オブジェクト削除");
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (canvas == null) return super.dispatchKeyEvent(event);
+
+        int action = event.getAction();
+        int code = event.getKeyCode();
+        boolean down = action == KeyEvent.ACTION_DOWN;
+        boolean ctrl = event.isCtrlPressed();
+        boolean shift = event.isShiftPressed();
+
+        if (code == KeyEvent.KEYCODE_CTRL_LEFT || code == KeyEvent.KEYCODE_CTRL_RIGHT) {
+            canvas.setCtrlPressed(down);
+            return true;
+        }
+
+        if (code == KeyEvent.KEYCODE_SPACE) {
+            if (down && event.getRepeatCount() == 0) {
+                toolBeforeSpace = canvas.getTool();
+                canvas.setTool(NativeCanvasView.Tool.HAND);
+                updateToolButtons();
+            } else if (!down && toolBeforeSpace != null) {
+                canvas.setTool(toolBeforeSpace);
+                toolBeforeSpace = null;
+                updateToolButtons();
+            }
+            return true;
+        }
+
+        if (!down) return super.dispatchKeyEvent(event);
+
+        if (ctrl) {
+            switch (code) {
+                case KeyEvent.KEYCODE_A:
+                    canvas.selectAll();
+                    return true;
+                case KeyEvent.KEYCODE_D:
+                    canvas.clearSelection();
+                    return true;
+                case KeyEvent.KEYCODE_C:
+                    canvas.copySelection();
+                    return true;
+                case KeyEvent.KEYCODE_X:
+                    canvas.cutSelection();
+                    return true;
+                case KeyEvent.KEYCODE_V:
+                    canvas.pasteSelection();
+                    return true;
+                case KeyEvent.KEYCODE_Z:
+                    if (shift) canvas.redo(); else canvas.undo();
+                    return true;
+                default:
+                    break;
+            }
+        }
+
+        switch (code) {
+            case KeyEvent.KEYCODE_B:
+                selectTool(NativeCanvasView.Tool.PEN);
+                return true;
+            case KeyEvent.KEYCODE_E:
+                selectTool(NativeCanvasView.Tool.ERASER);
+                return true;
+            case KeyEvent.KEYCODE_M:
+                NativeCanvasView.Tool current = canvas.getTool();
+                selectTool(current == NativeCanvasView.Tool.RECT_SELECT
+                    ? NativeCanvasView.Tool.ELLIPSE_SELECT
+                    : NativeCanvasView.Tool.RECT_SELECT);
+                return true;
+            case KeyEvent.KEYCODE_L:
+                selectTool(NativeCanvasView.Tool.LASSO_SELECT);
+                return true;
+            case KeyEvent.KEYCODE_W:
+                selectTool(NativeCanvasView.Tool.QUICK_SELECT);
+                return true;
+            case KeyEvent.KEYCODE_G:
+                selectTool(NativeCanvasView.Tool.FILL);
+                return true;
+            case KeyEvent.KEYCODE_V:
+                selectTool(NativeCanvasView.Tool.MOVE);
+                return true;
+            case KeyEvent.KEYCODE_P:
+                selectTool(NativeCanvasView.Tool.VECTOR_PEN);
+                return true;
+            case KeyEvent.KEYCODE_H:
+                selectTool(NativeCanvasView.Tool.HAND);
+                return true;
+            case KeyEvent.KEYCODE_Z:
+                selectTool(NativeCanvasView.Tool.ZOOM);
+                return true;
+            case KeyEvent.KEYCODE_I:
+                selectTool(NativeCanvasView.Tool.EYEDROPPER);
+                return true;
+            case KeyEvent.KEYCODE_LEFT_BRACKET:
+                canvas.adjustBrushSize(-1);
+                return true;
+            case KeyEvent.KEYCODE_RIGHT_BRACKET:
+                canvas.adjustBrushSize(1);
+                return true;
+            case KeyEvent.KEYCODE_DEL:
+            case KeyEvent.KEYCODE_FORWARD_DEL:
+                canvas.deleteSelection();
+                return true;
+            default:
+                return super.dispatchKeyEvent(event);
+        }
     }
 
     private int dp(float value) {
