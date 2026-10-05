@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -18,24 +19,31 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.Deque;
-import java.util.Iterator;
 import java.util.List;
 
 /**
- * Small native drawing core built for low-latency pen input.
+ * Native low-latency Canvas core for Android.
  *
- * Design rules:
- * - drawing never waits for network / WebView / JavaScript
- * - MotionEvent history is consumed so fast stylus movement does not become dotted
- * - completed strokes are vectors in world coordinates
- * - two fingers pan/zoom an effectively infinite canvas
- * - redraws are scheduled on the display frame clock (60/90/120Hz depending on device)
+ * The app intentionally keeps pen input local/native. Keyboard shortcuts mirror
+ * Photoshop where possible, while S Pen side-button input is treated as a
+ * momentary eraser. Ctrl + side-button removes whole strokes/objects.
  */
 public final class NativeCanvasView extends View {
-    public enum Tool { PEN, ERASER }
+    public enum Tool {
+        PEN,
+        ERASER,
+        RECT_SELECT,
+        ELLIPSE_SELECT,
+        LASSO_SELECT,
+        QUICK_SELECT,
+        FILL,
+        MOVE,
+        VECTOR_PEN,
+        HAND,
+        ZOOM,
+        EYEDROPPER
+    }
 
     private static final int FILE_MAGIC = 0x434E5631; // CNV1
     private static final int MAX_STROKES = 20000;
@@ -64,6 +72,10 @@ public final class NativeCanvasView extends View {
 
         void add(Point point) {
             points.add(point);
+            include(point);
+        }
+
+        void include(Point point) {
             float radius = baseWidth * 0.75f + 1f;
             if (points.size() == 1) {
                 bounds.set(point.x - radius, point.y - radius, point.x + radius, point.y + radius);
@@ -72,15 +84,22 @@ public final class NativeCanvasView extends View {
                 bounds.union(point.x + radius, point.y + radius);
             }
         }
-    }
 
-    private static final class RemovedStroke {
-        final Stroke stroke;
-        final int index;
+        Stroke copy() {
+            Stroke out = new Stroke();
+            out.color = color;
+            out.baseWidth = baseWidth;
+            for (Point point : points) out.add(new Point(point.x, point.y, point.pressure));
+            return out;
+        }
 
-        RemovedStroke(Stroke stroke, int index) {
-            this.stroke = stroke;
-            this.index = index;
+        void translate(float dx, float dy) {
+            if (dx == 0f && dy == 0f) return;
+            ArrayList<Point> moved = new ArrayList<>(points.size());
+            for (Point point : points) moved.add(new Point(point.x + dx, point.y + dy, point.pressure));
+            points.clear();
+            bounds.setEmpty();
+            for (Point point : moved) add(point);
         }
     }
 
@@ -98,40 +117,48 @@ public final class NativeCanvasView extends View {
         @Override public void redo(ArrayList<Stroke> strokes) { strokes.add(stroke); }
     }
 
-    private static final class EraseAction implements EditAction {
-        final ArrayList<RemovedStroke> removed;
+    private static final class SnapshotAction implements EditAction {
+        final ArrayList<Stroke> before;
+        final ArrayList<Stroke> after;
 
-        EraseAction(ArrayList<RemovedStroke> removed) {
-            this.removed = new ArrayList<>(removed);
-            this.removed.sort(Comparator.comparingInt(item -> item.index));
+        SnapshotAction(List<Stroke> before, List<Stroke> after) {
+            this.before = deepCopy(before);
+            this.after = deepCopy(after);
         }
 
         @Override public void undo(ArrayList<Stroke> strokes) {
-            for (RemovedStroke item : removed) {
-                int at = Math.max(0, Math.min(item.index, strokes.size()));
-                if (!strokes.contains(item.stroke)) strokes.add(at, item.stroke);
-            }
+            replace(strokes, before);
         }
 
         @Override public void redo(ArrayList<Stroke> strokes) {
-            for (RemovedStroke item : removed) strokes.remove(item.stroke);
+            replace(strokes, after);
         }
     }
 
     private final ArrayList<Stroke> strokes = new ArrayList<>();
+    private final ArrayList<Stroke> selection = new ArrayList<>();
+    private final ArrayList<Stroke> clipboard = new ArrayList<>();
     private final Deque<EditAction> undo = new ArrayDeque<>();
     private final Deque<EditAction> redo = new ArrayDeque<>();
-    private final ArrayList<RemovedStroke> eraseGesture = new ArrayList<>();
     private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
     private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint originPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint selectionPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF visibleWorld = new RectF();
+    private final RectF selectionRect = new RectF();
+    private final ArrayList<Point> lasso = new ArrayList<>();
 
     private Tool tool = Tool.PEN;
     private Stroke currentStroke;
     private boolean gridEnabled = true;
     private boolean navigationGesture = false;
     private boolean blockDrawUntilAllUp = false;
+    private boolean ctrlPressed = false;
+    private boolean selecting = false;
+    private boolean movingSelection = false;
+    private boolean oneFingerPanning = false;
+    private boolean zoomDragging = false;
+    private ArrayList<Stroke> gestureBefore;
     private float scale = 1f;
     private float offsetX = 0f;
     private float offsetY = 0f;
@@ -139,6 +166,14 @@ public final class NativeCanvasView extends View {
     private float gestureStartDistance;
     private float gestureAnchorWorldX;
     private float gestureAnchorWorldY;
+    private float lastWorldX;
+    private float lastWorldY;
+    private float lastScreenX;
+    private float lastScreenY;
+    private float zoomStartY;
+    private float zoomStartScale;
+    private float currentBrushWidth = 3.2f;
+    private int currentColor = Color.rgb(28, 32, 38);
 
     public NativeCanvasView(Context context) { this(context, null); }
 
@@ -156,14 +191,39 @@ public final class NativeCanvasView extends View {
         gridPaint.setStyle(Paint.Style.STROKE);
         originPaint.setColor(Color.rgb(190, 196, 202));
         originPaint.setStyle(Paint.Style.STROKE);
+        selectionPaint.setColor(Color.rgb(32, 95, 232));
+        selectionPaint.setStyle(Paint.Style.STROKE);
     }
 
     public void setTool(Tool next) {
+        finishTransientGesture();
         tool = next == null ? Tool.PEN : next;
-        invalidate();
+        postInvalidateOnAnimation();
     }
 
     public Tool getTool() { return tool; }
+
+    public String getToolDisplayName() {
+        switch (tool) {
+            case PEN: return "B ブラシ";
+            case ERASER: return "E 消しゴム";
+            case RECT_SELECT: return "M 四角選択";
+            case ELLIPSE_SELECT: return "M 丸選択";
+            case LASSO_SELECT: return "L 投げ縄";
+            case QUICK_SELECT: return "W クイック選択";
+            case FILL: return "G 塗りつぶし";
+            case MOVE: return "V 移動";
+            case VECTOR_PEN: return "P ベクターペン";
+            case HAND: return "H 手のひら";
+            case ZOOM: return "Z ズーム";
+            case EYEDROPPER: return "I スポイト";
+            default: return tool.name();
+        }
+    }
+
+    public void setCtrlPressed(boolean pressed) {
+        ctrlPressed = pressed;
+    }
 
     public void setGridEnabled(boolean enabled) {
         gridEnabled = enabled;
@@ -172,10 +232,62 @@ public final class NativeCanvasView extends View {
 
     public boolean isGridEnabled() { return gridEnabled; }
 
+    public void adjustBrushSize(int direction) {
+        float step = currentBrushWidth < 6f ? 0.5f : 1f;
+        currentBrushWidth = clamp(currentBrushWidth + Math.signum(direction) * step, 0.5f, 80f);
+    }
+
+    public void selectAll() {
+        selection.clear();
+        selection.addAll(strokes);
+        postInvalidateOnAnimation();
+    }
+
+    public void clearSelection() {
+        selection.clear();
+        postInvalidateOnAnimation();
+    }
+
+    public void copySelection() {
+        clipboard.clear();
+        for (Stroke stroke : selection) clipboard.add(stroke.copy());
+    }
+
+    public void cutSelection() {
+        if (selection.isEmpty()) return;
+        copySelection();
+        deleteSelection();
+    }
+
+    public void pasteSelection() {
+        if (clipboard.isEmpty()) return;
+        ArrayList<Stroke> before = deepCopy(strokes);
+        selection.clear();
+        float delta = 24f / scale;
+        for (Stroke source : clipboard) {
+            Stroke copy = source.copy();
+            copy.translate(delta, delta);
+            strokes.add(copy);
+            selection.add(copy);
+        }
+        pushAction(new SnapshotAction(before, strokes));
+        postInvalidateOnAnimation();
+    }
+
+    public void deleteSelection() {
+        if (selection.isEmpty()) return;
+        ArrayList<Stroke> before = deepCopy(strokes);
+        strokes.removeAll(selection);
+        selection.clear();
+        pushAction(new SnapshotAction(before, strokes));
+        postInvalidateOnAnimation();
+    }
+
     public void undo() {
         EditAction action = undo.pollLast();
         if (action == null) return;
         action.undo(strokes);
+        selection.clear();
         redo.addLast(action);
         postInvalidateOnAnimation();
     }
@@ -184,6 +296,7 @@ public final class NativeCanvasView extends View {
         EditAction action = redo.pollLast();
         if (action == null) return;
         action.redo(strokes);
+        selection.clear();
         undo.addLast(action);
         postInvalidateOnAnimation();
     }
@@ -220,7 +333,9 @@ public final class NativeCanvasView extends View {
         canvas.scale(scale, scale);
         if (gridEnabled) drawGrid(canvas);
         drawStrokes(canvas);
-        if (currentStroke != null && currentStroke.points.size() > 0) drawStroke(canvas, currentStroke);
+        if (currentStroke != null && !currentStroke.points.isEmpty()) drawStroke(canvas, currentStroke);
+        drawSelection(canvas);
+        drawSelectionGesture(canvas);
         canvas.restore();
     }
 
@@ -294,19 +409,47 @@ public final class NativeCanvasView extends View {
         }
     }
 
+    private void drawSelection(Canvas canvas) {
+        if (selection.isEmpty()) return;
+        selectionPaint.setStrokeWidth(1.5f / scale);
+        selectionPaint.setAlpha(210);
+        for (Stroke stroke : selection) {
+            RectF b = new RectF(stroke.bounds);
+            b.inset(-4f / scale, -4f / scale);
+            canvas.drawRect(b, selectionPaint);
+        }
+    }
+
+    private void drawSelectionGesture(Canvas canvas) {
+        if (!selecting) return;
+        selectionPaint.setStrokeWidth(1.5f / scale);
+        selectionPaint.setAlpha(180);
+        if (tool == Tool.RECT_SELECT) {
+            canvas.drawRect(selectionRect, selectionPaint);
+        } else if (tool == Tool.ELLIPSE_SELECT) {
+            canvas.drawOval(selectionRect, selectionPaint);
+        } else if (tool == Tool.LASSO_SELECT && lasso.size() > 1) {
+            Path path = new Path();
+            path.moveTo(lasso.get(0).x, lasso.get(0).y);
+            for (int i = 1; i < lasso.size(); i++) path.lineTo(lasso.get(i).x, lasso.get(i).y);
+            canvas.drawPath(path, selectionPaint);
+        }
+    }
+
     private static float pressureWidth(float base, float pressure) {
-        float p = Math.max(0.05f, Math.min(1f, pressure));
+        float p = clamp(pressure, 0.05f, 1f);
         return base * (0.32f + 0.68f * p);
     }
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        requestFocus();
         getParent().requestDisallowInterceptTouchEvent(true);
         int action = event.getActionMasked();
 
         if (action == MotionEvent.ACTION_POINTER_DOWN && event.getPointerCount() >= 2) {
             finishStroke();
-            finishEraseGesture();
+            finishComplexEdit();
             beginNavigation(event);
             navigationGesture = true;
             blockDrawUntilAllUp = true;
@@ -335,50 +478,174 @@ public final class NativeCanvasView extends View {
             return true;
         }
 
+        boolean sideButton = isStylusSideButton(event);
+        boolean effectiveCtrl = ctrlPressed || event.isCtrlPressed();
+        Tool effectiveTool = sideButton ? Tool.ERASER : tool;
+        boolean wholeObjectErase = effectiveTool == Tool.ERASER && effectiveCtrl;
+
         switch (action) {
             case MotionEvent.ACTION_DOWN:
-                if (tool == Tool.PEN) {
-                    currentStroke = new Stroke();
-                    addEventPoints(event, currentStroke);
-                } else {
-                    eraseGesture.clear();
-                    eraseAt(event.getX(), event.getY());
-                }
-                postInvalidateOnAnimation();
-                return true;
-
+                return onPrimaryDown(event, effectiveTool, wholeObjectErase);
             case MotionEvent.ACTION_MOVE:
-                if (tool == Tool.PEN && currentStroke != null) {
-                    addEventPoints(event, currentStroke);
-                } else if (tool == Tool.ERASER) {
-                    for (int h = 0; h < event.getHistorySize(); h++) {
-                        eraseAt(event.getHistoricalX(0, h), event.getHistoricalY(0, h));
-                    }
-                    eraseAt(event.getX(), event.getY());
-                }
-                postInvalidateOnAnimation();
-                return true;
-
+                return onPrimaryMove(event, effectiveTool, wholeObjectErase);
             case MotionEvent.ACTION_UP:
-                if (tool == Tool.PEN && currentStroke != null) {
-                    addEventPoints(event, currentStroke);
-                    finishStroke();
-                } else {
-                    eraseAt(event.getX(), event.getY());
-                    finishEraseGesture();
-                }
-                postInvalidateOnAnimation();
-                performClick();
-                return true;
-
+                return onPrimaryUp(event, effectiveTool, wholeObjectErase);
             case MotionEvent.ACTION_CANCEL:
                 finishStroke();
-                finishEraseGesture();
+                finishComplexEdit();
+                selecting = false;
+                lasso.clear();
+                postInvalidateOnAnimation();
                 return true;
-
             default:
                 return true;
         }
+    }
+
+    private boolean onPrimaryDown(MotionEvent event, Tool effectiveTool, boolean wholeObjectErase) {
+        float sx = event.getX();
+        float sy = event.getY();
+        float wx = screenToWorldX(sx);
+        float wy = screenToWorldY(sy);
+
+        switch (effectiveTool) {
+            case PEN:
+            case VECTOR_PEN:
+                currentStroke = new Stroke();
+                currentStroke.color = currentColor;
+                currentStroke.baseWidth = currentBrushWidth;
+                addEventPoints(event, currentStroke, effectiveTool == Tool.VECTOR_PEN);
+                break;
+            case ERASER:
+                gestureBefore = deepCopy(strokes);
+                if (wholeObjectErase) eraseWholeAt(sx, sy); else erasePartialAt(sx, sy);
+                break;
+            case RECT_SELECT:
+            case ELLIPSE_SELECT:
+                selecting = true;
+                selectionRect.set(wx, wy, wx, wy);
+                break;
+            case LASSO_SELECT:
+                selecting = true;
+                lasso.clear();
+                lasso.add(new Point(wx, wy, 1f));
+                break;
+            case QUICK_SELECT:
+                quickSelect(sx, sy);
+                break;
+            case FILL:
+                fillAt(sx, sy);
+                break;
+            case MOVE:
+                if (selection.isEmpty()) quickSelect(sx, sy);
+                if (!selection.isEmpty()) {
+                    gestureBefore = deepCopy(strokes);
+                    movingSelection = true;
+                    lastWorldX = wx;
+                    lastWorldY = wy;
+                }
+                break;
+            case HAND:
+                oneFingerPanning = true;
+                lastScreenX = sx;
+                lastScreenY = sy;
+                break;
+            case ZOOM:
+                zoomDragging = true;
+                zoomStartY = sy;
+                zoomStartScale = scale;
+                break;
+            case EYEDROPPER:
+                pickColorAt(sx, sy);
+                break;
+            default:
+                break;
+        }
+        postInvalidateOnAnimation();
+        return true;
+    }
+
+    private boolean onPrimaryMove(MotionEvent event, Tool effectiveTool, boolean wholeObjectErase) {
+        float sx = event.getX();
+        float sy = event.getY();
+        float wx = screenToWorldX(sx);
+        float wy = screenToWorldY(sy);
+
+        if ((effectiveTool == Tool.PEN || effectiveTool == Tool.VECTOR_PEN) && currentStroke != null) {
+            addEventPoints(event, currentStroke, effectiveTool == Tool.VECTOR_PEN);
+        } else if (effectiveTool == Tool.ERASER) {
+            for (int h = 0; h < event.getHistorySize(); h++) {
+                float hx = event.getHistoricalX(0, h);
+                float hy = event.getHistoricalY(0, h);
+                if (wholeObjectErase) eraseWholeAt(hx, hy); else erasePartialAt(hx, hy);
+            }
+            if (wholeObjectErase) eraseWholeAt(sx, sy); else erasePartialAt(sx, sy);
+        } else if ((tool == Tool.RECT_SELECT || tool == Tool.ELLIPSE_SELECT) && selecting) {
+            selectionRect.right = wx;
+            selectionRect.bottom = wy;
+            normalize(selectionRect);
+        } else if (tool == Tool.LASSO_SELECT && selecting) {
+            if (lasso.isEmpty() || distance2(lasso.get(lasso.size() - 1), wx, wy) > (2f / scale) * (2f / scale)) {
+                lasso.add(new Point(wx, wy, 1f));
+            }
+        } else if (tool == Tool.MOVE && movingSelection) {
+            float dx = wx - lastWorldX;
+            float dy = wy - lastWorldY;
+            for (Stroke stroke : selection) stroke.translate(dx, dy);
+            lastWorldX = wx;
+            lastWorldY = wy;
+        } else if (tool == Tool.HAND && oneFingerPanning) {
+            offsetX += sx - lastScreenX;
+            offsetY += sy - lastScreenY;
+            lastScreenX = sx;
+            lastScreenY = sy;
+        } else if (tool == Tool.ZOOM && zoomDragging) {
+            float factor = (float)Math.exp((zoomStartY - sy) / 240f);
+            scaleAround(sx, sy, clamp(zoomStartScale * factor, MIN_SCALE, MAX_SCALE));
+        }
+        postInvalidateOnAnimation();
+        return true;
+    }
+
+    private boolean onPrimaryUp(MotionEvent event, Tool effectiveTool, boolean wholeObjectErase) {
+        float sx = event.getX();
+        float sy = event.getY();
+        float wx = screenToWorldX(sx);
+        float wy = screenToWorldY(sy);
+
+        if ((effectiveTool == Tool.PEN || effectiveTool == Tool.VECTOR_PEN) && currentStroke != null) {
+            addEventPoints(event, currentStroke, effectiveTool == Tool.VECTOR_PEN);
+            finishStroke();
+        } else if (effectiveTool == Tool.ERASER) {
+            if (wholeObjectErase) eraseWholeAt(sx, sy); else erasePartialAt(sx, sy);
+            finishComplexEdit();
+        } else if ((tool == Tool.RECT_SELECT || tool == Tool.ELLIPSE_SELECT) && selecting) {
+            selectionRect.right = wx;
+            selectionRect.bottom = wy;
+            normalize(selectionRect);
+            finishBoxSelection(tool == Tool.ELLIPSE_SELECT);
+        } else if (tool == Tool.LASSO_SELECT && selecting) {
+            lasso.add(new Point(wx, wy, 1f));
+            finishLassoSelection();
+        } else if (tool == Tool.MOVE && movingSelection) {
+            movingSelection = false;
+            finishComplexEdit();
+        } else if (tool == Tool.HAND) {
+            oneFingerPanning = false;
+        } else if (tool == Tool.ZOOM) {
+            zoomDragging = false;
+        }
+
+        selecting = false;
+        postInvalidateOnAnimation();
+        performClick();
+        return true;
+    }
+
+    private boolean isStylusSideButton(MotionEvent event) {
+        int buttonState = event.getButtonState();
+        int stylusButtons = MotionEvent.BUTTON_STYLUS_PRIMARY | MotionEvent.BUTTON_STYLUS_SECONDARY;
+        return (buttonState & stylusButtons) != 0;
     }
 
     @Override
@@ -387,27 +654,26 @@ public final class NativeCanvasView extends View {
         return true;
     }
 
-    private void addEventPoints(MotionEvent event, Stroke stroke) {
+    private void addEventPoints(MotionEvent event, Stroke stroke, boolean fixedPressure) {
         int pointer = 0;
         for (int h = 0; h < event.getHistorySize(); h++) {
-            addScreenPoint(stroke,
-                event.getHistoricalX(pointer, h),
-                event.getHistoricalY(pointer, h),
-                normalizedPressure(event.getHistoricalPressure(pointer, h), event.getToolType(pointer)));
+            float pressure = fixedPressure ? 1f
+                : normalizedPressure(event.getHistoricalPressure(pointer, h), event.getToolType(pointer));
+            addScreenPoint(stroke, event.getHistoricalX(pointer, h), event.getHistoricalY(pointer, h), pressure);
         }
-        addScreenPoint(stroke, event.getX(pointer), event.getY(pointer),
-            normalizedPressure(event.getPressure(pointer), event.getToolType(pointer)));
+        float pressure = fixedPressure ? 1f : normalizedPressure(event.getPressure(pointer), event.getToolType(pointer));
+        addScreenPoint(stroke, event.getX(pointer), event.getY(pointer), pressure);
     }
 
     private static float normalizedPressure(float raw, int toolType) {
         if (toolType != MotionEvent.TOOL_TYPE_STYLUS && toolType != MotionEvent.TOOL_TYPE_ERASER) return 1f;
         if (!Float.isFinite(raw) || raw <= 0f) return 0.55f;
-        return Math.max(0.05f, Math.min(1f, raw));
+        return clamp(raw, 0.05f, 1f);
     }
 
     private void addScreenPoint(Stroke stroke, float screenX, float screenY, float pressure) {
-        float x = (screenX - offsetX) / scale;
-        float y = (screenY - offsetY) / scale;
+        float x = screenToWorldX(screenX);
+        float y = screenToWorldY(screenY);
         List<Point> points = stroke.points;
         if (!points.isEmpty()) {
             Point last = points.get(points.size() - 1);
@@ -416,9 +682,8 @@ public final class NativeCanvasView extends View {
             float minWorldDistance = 0.35f / scale;
             if (dx * dx + dy * dy < minWorldDistance * minWorldDistance) return;
 
-            // Very light adaptive filtering: enough to remove sensor chatter without adding pen lag.
             float distanceScreen = (float)Math.sqrt(dx * dx + dy * dy) * scale;
-            float alpha = Math.max(0.72f, Math.min(0.94f, distanceScreen / 18f));
+            float alpha = clamp(distanceScreen / 18f, 0.72f, 0.94f);
             x = last.x + (x - last.x) * alpha;
             y = last.y + (y - last.y) * alpha;
             pressure = last.pressure + (pressure - last.pressure) * 0.72f;
@@ -435,9 +700,17 @@ public final class NativeCanvasView extends View {
         currentStroke = null;
     }
 
-    private void eraseAt(float screenX, float screenY) {
-        float x = (screenX - offsetX) / scale;
-        float y = (screenY - offsetY) / scale;
+    private void eraseWholeAt(float screenX, float screenY) {
+        Stroke hit = findTopmostStroke(screenX, screenY, 22f);
+        if (hit != null) {
+            selection.remove(hit);
+            strokes.remove(hit);
+        }
+    }
+
+    private void erasePartialAt(float screenX, float screenY) {
+        float x = screenToWorldX(screenX);
+        float y = screenToWorldY(screenY);
         float radius = 22f / scale;
         float radius2 = radius * radius;
 
@@ -446,31 +719,136 @@ public final class NativeCanvasView extends View {
             RectF hitBounds = new RectF(stroke.bounds);
             hitBounds.inset(-radius, -radius);
             if (!hitBounds.contains(x, y)) continue;
-            boolean hit = false;
+
+            boolean hasHit = false;
             for (Point point : stroke.points) {
                 float dx = point.x - x;
                 float dy = point.y - y;
                 if (dx * dx + dy * dy <= radius2) {
-                    hit = true;
+                    hasHit = true;
                     break;
                 }
             }
-            if (hit) {
-                strokes.remove(i);
-                boolean already = false;
-                for (RemovedStroke item : eraseGesture) {
-                    if (item.stroke == stroke) { already = true; break; }
-                }
-                if (!already) eraseGesture.add(new RemovedStroke(stroke, i));
+            if (!hasHit) continue;
+
+            boolean wasSelected = selection.remove(stroke);
+            ArrayList<Stroke> pieces = splitStrokeOutsideCircle(stroke, x, y, radius2);
+            strokes.remove(i);
+            if (!pieces.isEmpty()) {
+                strokes.addAll(i, pieces);
+                if (wasSelected) selection.addAll(pieces);
             }
         }
     }
 
-    private void finishEraseGesture() {
-        if (!eraseGesture.isEmpty()) {
-            pushAction(new EraseAction(eraseGesture));
-            eraseGesture.clear();
+    private static ArrayList<Stroke> splitStrokeOutsideCircle(Stroke source, float x, float y, float radius2) {
+        ArrayList<Stroke> pieces = new ArrayList<>();
+        Stroke current = null;
+        for (Point point : source.points) {
+            float dx = point.x - x;
+            float dy = point.y - y;
+            boolean erased = dx * dx + dy * dy <= radius2;
+            if (erased) {
+                if (current != null && !current.points.isEmpty()) pieces.add(current);
+                current = null;
+            } else {
+                if (current == null) {
+                    current = new Stroke();
+                    current.color = source.color;
+                    current.baseWidth = source.baseWidth;
+                }
+                current.add(new Point(point.x, point.y, point.pressure));
+            }
         }
+        if (current != null && !current.points.isEmpty()) pieces.add(current);
+        return pieces;
+    }
+
+    private void quickSelect(float screenX, float screenY) {
+        Stroke hit = findTopmostStroke(screenX, screenY, 14f);
+        selection.clear();
+        if (hit != null) selection.add(hit);
+        postInvalidateOnAnimation();
+    }
+
+    private void finishBoxSelection(boolean ellipse) {
+        selection.clear();
+        if (selectionRect.width() < 0.001f && selectionRect.height() < 0.001f) return;
+        float cx = selectionRect.centerX();
+        float cy = selectionRect.centerY();
+        float rx = Math.max(0.001f, selectionRect.width() * 0.5f);
+        float ry = Math.max(0.001f, selectionRect.height() * 0.5f);
+        for (Stroke stroke : strokes) {
+            if (!ellipse) {
+                if (RectF.intersects(selectionRect, stroke.bounds)) selection.add(stroke);
+            } else {
+                float sx = stroke.bounds.centerX();
+                float sy = stroke.bounds.centerY();
+                float nx = (sx - cx) / rx;
+                float ny = (sy - cy) / ry;
+                if (nx * nx + ny * ny <= 1f) selection.add(stroke);
+            }
+        }
+    }
+
+    private void finishLassoSelection() {
+        selection.clear();
+        if (lasso.size() < 3) {
+            lasso.clear();
+            return;
+        }
+        for (Stroke stroke : strokes) {
+            if (pointInPolygon(stroke.bounds.centerX(), stroke.bounds.centerY(), lasso)) selection.add(stroke);
+        }
+        lasso.clear();
+    }
+
+    private void fillAt(float screenX, float screenY) {
+        Stroke hit = findTopmostStroke(screenX, screenY, 14f);
+        if (hit == null || hit.color == currentColor) return;
+        ArrayList<Stroke> before = deepCopy(strokes);
+        hit.color = currentColor;
+        pushAction(new SnapshotAction(before, strokes));
+    }
+
+    private void pickColorAt(float screenX, float screenY) {
+        Stroke hit = findTopmostStroke(screenX, screenY, 14f);
+        if (hit != null) currentColor = hit.color;
+    }
+
+    private Stroke findTopmostStroke(float screenX, float screenY, float screenRadius) {
+        float x = screenToWorldX(screenX);
+        float y = screenToWorldY(screenY);
+        float radius = screenRadius / scale;
+        float radius2 = radius * radius;
+        for (int i = strokes.size() - 1; i >= 0; i--) {
+            Stroke stroke = strokes.get(i);
+            RectF hitBounds = new RectF(stroke.bounds);
+            hitBounds.inset(-radius, -radius);
+            if (!hitBounds.contains(x, y)) continue;
+            for (Point point : stroke.points) {
+                float dx = point.x - x;
+                float dy = point.y - y;
+                if (dx * dx + dy * dy <= radius2) return stroke;
+            }
+        }
+        return null;
+    }
+
+    private void finishComplexEdit() {
+        if (gestureBefore == null) return;
+        if (!sameGeometry(gestureBefore, strokes)) pushAction(new SnapshotAction(gestureBefore, strokes));
+        gestureBefore = null;
+    }
+
+    private void finishTransientGesture() {
+        finishStroke();
+        finishComplexEdit();
+        selecting = false;
+        movingSelection = false;
+        oneFingerPanning = false;
+        zoomDragging = false;
+        lasso.clear();
     }
 
     private void beginNavigation(MotionEvent event) {
@@ -486,11 +864,18 @@ public final class NativeCanvasView extends View {
         float midX = (event.getX(0) + event.getX(1)) * 0.5f;
         float midY = (event.getY(0) + event.getY(1)) * 0.5f;
         float ratio = pointerDistance(event) / gestureStartDistance;
-        float nextScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, gestureStartScale * ratio));
-        scale = nextScale;
+        scale = clamp(gestureStartScale * ratio, MIN_SCALE, MAX_SCALE);
         offsetX = midX - gestureAnchorWorldX * scale;
         offsetY = midY - gestureAnchorWorldY * scale;
         postInvalidateOnAnimation();
+    }
+
+    private void scaleAround(float screenX, float screenY, float nextScale) {
+        float worldX = screenToWorldX(screenX);
+        float worldY = screenToWorldY(screenY);
+        scale = nextScale;
+        offsetX = screenX - worldX * scale;
+        offsetY = screenY - worldY * scale;
     }
 
     private static float pointerDistance(MotionEvent event) {
@@ -498,6 +883,66 @@ public final class NativeCanvasView extends View {
         float dx = event.getX(0) - event.getX(1);
         float dy = event.getY(0) - event.getY(1);
         return (float)Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private float screenToWorldX(float screenX) { return (screenX - offsetX) / scale; }
+    private float screenToWorldY(float screenY) { return (screenY - offsetY) / scale; }
+
+    private static void normalize(RectF rect) {
+        float left = Math.min(rect.left, rect.right);
+        float right = Math.max(rect.left, rect.right);
+        float top = Math.min(rect.top, rect.bottom);
+        float bottom = Math.max(rect.top, rect.bottom);
+        rect.set(left, top, right, bottom);
+    }
+
+    private static float distance2(Point point, float x, float y) {
+        float dx = point.x - x;
+        float dy = point.y - y;
+        return dx * dx + dy * dy;
+    }
+
+    private static boolean pointInPolygon(float x, float y, List<Point> polygon) {
+        boolean inside = false;
+        for (int i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+            Point a = polygon.get(i);
+            Point b = polygon.get(j);
+            boolean intersects = ((a.y > y) != (b.y > y))
+                && (x < (b.x - a.x) * (y - a.y) / ((b.y - a.y) == 0f ? 0.00001f : (b.y - a.y)) + a.x);
+            if (intersects) inside = !inside;
+        }
+        return inside;
+    }
+
+    private static ArrayList<Stroke> deepCopy(List<Stroke> source) {
+        ArrayList<Stroke> out = new ArrayList<>(source.size());
+        for (Stroke stroke : source) out.add(stroke.copy());
+        return out;
+    }
+
+    private static void replace(ArrayList<Stroke> target, List<Stroke> source) {
+        target.clear();
+        for (Stroke stroke : source) target.add(stroke.copy());
+    }
+
+    private static boolean sameGeometry(List<Stroke> a, List<Stroke> b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            Stroke x = a.get(i);
+            Stroke y = b.get(i);
+            if (x.color != y.color || x.baseWidth != y.baseWidth || x.points.size() != y.points.size()) return false;
+            if (x.points.isEmpty()) continue;
+            Point xp = x.points.get(0);
+            Point yp = y.points.get(0);
+            Point xl = x.points.get(x.points.size() - 1);
+            Point yl = y.points.get(y.points.size() - 1);
+            if (xp.x != yp.x || xp.y != yp.y || xl.x != yl.x || xl.y != yl.y) return false;
+        }
+        return true;
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     public synchronized void save(File file) {
@@ -521,7 +966,6 @@ public final class NativeCanvasView extends View {
             }
             out.flush();
         } catch (Exception ignored) {
-            // Keep the previous autosave intact if a write is interrupted.
             //noinspection ResultOfMethodCallIgnored
             temp.delete();
             return;
@@ -560,6 +1004,7 @@ public final class NativeCanvasView extends View {
             if (!Float.isFinite(loadedOffsetX) || !Float.isFinite(loadedOffsetY)) return;
             strokes.clear();
             strokes.addAll(loaded);
+            selection.clear();
             scale = loadedScale;
             offsetX = loadedOffsetX;
             offsetY = loadedOffsetY;
