@@ -479,7 +479,7 @@ public final class NativeCanvasView extends View {
         }
 
         boolean sideButton = isStylusSideButton(event);
-        boolean effectiveCtrl = ctrlPressed || event.isCtrlPressed();
+        boolean effectiveCtrl = ctrlPressed || (event.getMetaState() & android.view.KeyEvent.META_CTRL_ON) != 0;
         Tool effectiveTool = sideButton ? Tool.ERASER : tool;
         boolean wholeObjectErase = effectiveTool == Tool.ERASER && effectiveCtrl;
 
