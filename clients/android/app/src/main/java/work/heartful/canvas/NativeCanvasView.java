@@ -5,6 +5,8 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.RectF;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
@@ -51,6 +53,13 @@ public final class NativeCanvasView extends View {
     private static final float MIN_SCALE = 0.08f;
     private static final float MAX_SCALE = 16f;
     private static final float GRID_STEP = 40f;
+
+    private static final class ImageItem {
+        String path;
+        float x, y, w, h;
+        transient Bitmap bitmap;
+        ImageItem(String path,float x,float y,float w,float h){this.path=path;this.x=x;this.y=y;this.w=w;this.h=h;}
+    }
 
     private static final class Point {
         final float x;
@@ -138,6 +147,7 @@ public final class NativeCanvasView extends View {
     private final ArrayList<Stroke> strokes = new ArrayList<>();
     private final ArrayList<Stroke> selection = new ArrayList<>();
     private final ArrayList<Stroke> clipboard = new ArrayList<>();
+    private final ArrayList<ImageItem> images = new ArrayList<>();
     private final Deque<EditAction> undo = new ArrayDeque<>();
     private final Deque<EditAction> redo = new ArrayDeque<>();
     private final Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
@@ -151,6 +161,8 @@ public final class NativeCanvasView extends View {
     private Tool tool = Tool.PEN;
     private Stroke currentStroke;
     private boolean gridEnabled = true;
+    private boolean drawingVisible = true;
+    private boolean imagesVisible = true;
     private boolean navigationGesture = false;
     private boolean blockDrawUntilAllUp = false;
     private boolean ctrlPressed = false;
@@ -332,7 +344,8 @@ public final class NativeCanvasView extends View {
         canvas.translate(offsetX, offsetY);
         canvas.scale(scale, scale);
         if (gridEnabled) drawGrid(canvas);
-        drawStrokes(canvas);
+        if (imagesVisible) drawImages(canvas);
+        if (drawingVisible) drawStrokes(canvas);
         if (currentStroke != null && !currentStroke.points.isEmpty()) drawStroke(canvas, currentStroke);
         drawSelection(canvas);
         drawSelectionGesture(canvas);
@@ -376,6 +389,26 @@ public final class NativeCanvasView extends View {
             canvas.drawLine(visibleWorld.left, 0, visibleWorld.right, 0, originPaint);
         }
     }
+
+    private void drawImages(Canvas canvas) {
+        for (ImageItem item : images) {
+            if (item.bitmap == null && item.path != null) item.bitmap = BitmapFactory.decodeFile(item.path);
+            if (item.bitmap != null) canvas.drawBitmap(item.bitmap, null, new RectF(item.x,item.y,item.x+item.w,item.y+item.h), null);
+        }
+    }
+
+    public void addImageFile(File file) {
+        Bitmap b=BitmapFactory.decodeFile(file.getAbsolutePath());
+        if(b==null)return;
+        float max=520f/scale, ratio=Math.min(1f,max/Math.max(b.getWidth(),b.getHeight()));
+        float w=Math.max(80f,b.getWidth()*ratio), h=Math.max(60f,b.getHeight()*ratio);
+        float x=(getWidth()*0.5f-offsetX)/scale-w*0.5f, y=(getHeight()*0.5f-offsetY)/scale-h*0.5f;
+        ImageItem item=new ImageItem(file.getAbsolutePath(),x,y,w,h); item.bitmap=b; images.add(item); postInvalidateOnAnimation();
+    }
+    public void setDrawingVisible(boolean visible){drawingVisible=visible;postInvalidateOnAnimation();}
+    public boolean isDrawingVisible(){return drawingVisible;}
+    public void setImagesVisible(boolean visible){imagesVisible=visible;postInvalidateOnAnimation();}
+    public boolean isImagesVisible(){return imagesVisible;}
 
     private void drawStrokes(Canvas canvas) {
         for (Stroke stroke : strokes) {
@@ -964,6 +997,9 @@ public final class NativeCanvasView extends View {
                     out.writeFloat(point.pressure);
                 }
             }
+            out.writeInt(images.size());
+            for(ImageItem item:images){out.writeUTF(item.path==null?"":item.path);out.writeFloat(item.x);out.writeFloat(item.y);out.writeFloat(item.w);out.writeFloat(item.h);}
+            out.writeBoolean(drawingVisible);out.writeBoolean(imagesVisible);
             out.flush();
         } catch (Exception ignored) {
             //noinspection ResultOfMethodCallIgnored
@@ -1002,8 +1038,17 @@ public final class NativeCanvasView extends View {
             }
             if (!Float.isFinite(loadedScale) || loadedScale < MIN_SCALE || loadedScale > MAX_SCALE) return;
             if (!Float.isFinite(loadedOffsetX) || !Float.isFinite(loadedOffsetY)) return;
+            ArrayList<ImageItem> loadedImages=new ArrayList<>();
+            boolean loadedDrawingVisible=true, loadedImagesVisible=true;
+            try {
+                int imageCount=in.readInt(); if(imageCount<0||imageCount>1000)return;
+                for(int i=0;i<imageCount;i++) loadedImages.add(new ImageItem(in.readUTF(),in.readFloat(),in.readFloat(),in.readFloat(),in.readFloat()));
+                loadedDrawingVisible=in.readBoolean(); loadedImagesVisible=in.readBoolean();
+            } catch (java.io.EOFException ignored) {}
             strokes.clear();
             strokes.addAll(loaded);
+            images.clear(); images.addAll(loadedImages);
+            drawingVisible=loadedDrawingVisible; imagesVisible=loadedImagesVisible;
             selection.clear();
             scale = loadedScale;
             offsetX = loadedOffsetX;
