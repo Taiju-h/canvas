@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cleanHTML, type NoteDoc } from '@/lib/notes';
 
 export type SheetData={visible:boolean;locked:boolean;rows:number;cols:number;cells:Record<string,string>};
@@ -63,7 +63,7 @@ function chartSeries(sheet:SheetData,range:string){
 
 export function ChartsLayer({sheet,charts,visibleLayers}:{sheet:SheetData;charts:ChartItem[];visibleLayers:Set<string>}){
   return <>{charts.filter(c=>visibleLayers.has(c.layerId)).map(chart=>{const data=chartSeries(sheet,chart.range),max=Math.max(1,...data.values.map(v=>Math.abs(v)));return <div key={chart.id} className="notes-chart" data-stroke={chart.id} style={{left:chart.x,top:chart.y,width:chart.w,height:chart.h}}>
-    <strong>{chart.title||chart.type==='bar'?'棒グラフ':chart.type==='line'?'折れ線グラフ':'円グラフ'}</strong>
+    <strong>{chart.title||(chart.type==='bar'?'棒グラフ':chart.type==='line'?'折れ線グラフ':'円グラフ')}</strong>
     <svg viewBox="0 0 360 200" preserveAspectRatio="none">
       {chart.type==='bar'&&data.values.map((v,i)=>{const h=Math.abs(v)/max*145;return <g key={i}><rect x={28+i*(310/Math.max(1,data.values.length))} y={175-h} width={Math.max(8,250/Math.max(1,data.values.length))} height={h}/><text x={32+i*(310/Math.max(1,data.values.length))} y="194">{data.labels[i]?.slice(0,8)}</text></g>;})}
       {chart.type==='line'&&data.values.length>0&&<><polyline points={data.values.map((v,i)=>`${28+i*(310/Math.max(1,data.values.length-1))},${175-Math.abs(v)/max*145}`).join(' ')} fill="none"/>{data.values.map((v,i)=><circle key={i} cx={28+i*(310/Math.max(1,data.values.length-1))} cy={175-Math.abs(v)/max*145} r="4"/>)}</>}
