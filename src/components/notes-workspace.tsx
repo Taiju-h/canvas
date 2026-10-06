@@ -89,13 +89,18 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(action.current||(!e.isPrimary&&e.pointerType==='touch')){e.preventDefault();return;}
     suppressClick.current=false;
     const target=e.target as Element;
-    if(target.closest('button'))return;
+    if(target.closest('button,.notes-sheet-layer,.notes-fixed-layer'))return;
     if(e.pointerType==='touch'&&Date.now()-lastPen.current<700){e.preventDefault();return;}
     const pen=e.pointerType==='pen';if(pen)lastPen.current=Date.now();
     const effective=pen?(e.button===5||tool==='eraser'?'eraser':'pen'):tool;
-    if(e.pointerType==='touch'&&(effective==='text'||effective==='hand')){
+    if(effective==='line'||effective==='rect'||effective==='ellipse'){
+      const layer=writableLayer(doc);if(!layer){notes.setError('書き込み可能な描画レイヤーがありません');return;}e.preventDefault();e.stopPropagation();setFocus('');typing.current=null;
+      const p=position(e);const item:Item={id:id32(),kind:effective,layerId:layer.id,x:p.x,y:p.y,w:0,h:0,color:inkColor,width:Math.max(1,inkWidth),opacity:1,fill:'none'};setDraftShape(item);
+      action.current={pointerId:e.pointerId,kind:'shape',start:p,original:doc,shapeKind:effective,id:item.id};e.currentTarget.setPointerCapture(e.pointerId);return;
+    }
+    if(e.pointerType==='touch'&&(effective==='text'||effective==='note'||effective==='hand')){
       if(effective==='hand'){e.preventDefault();e.stopPropagation();}
-      action.current={pointerId:e.pointerId,kind:'pan',verticalOnly:effective==='text',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};
+      action.current={pointerId:e.pointerId,kind:'pan',verticalOnly:effective!=='hand',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};
       if(effective==='hand')e.currentTarget.setPointerCapture(e.pointerId);return;
     }
     if(effective==='pen'){
@@ -104,10 +109,10 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     }
     if(effective==='eraser'){
       e.preventDefault();e.stopPropagation();const id=target.closest('[data-stroke]')?.getAttribute('data-stroke');
-      if(id)commit({...doc,items:doc.items.filter(i=>i.id!==id),paintStrokes:doc.paintStrokes?.filter(s=>s.id!==id)});return;
+      if(id){const d=doc as StudioNoteDoc;commit({...d,items:d.items.filter(i=>i.id!==id),paintStrokes:d.paintStrokes?.filter(stroke=>stroke.id!==id),charts:(d.charts||[]).filter(c=>c.id!==id)} as NoteDoc);}return;
     }
     if(effective==='hand'||e.button===1){e.preventDefault();e.stopPropagation();action.current={pointerId:e.pointerId,kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};e.currentTarget.setPointerCapture(e.pointerId);return;}
-    if(effective==='select'){
+    if(effective==='select'||effective==='magic'){
       const id=target.closest('[data-note-block]')?.getAttribute('data-note-block')||target.closest('[data-stroke]')?.getAttribute('data-stroke');
       if(id)drag(e,id);else setSelected('');return;
     }
@@ -119,20 +124,23 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(a.pen)lastPen.current=Date.now();
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
     const p=position(e);if(a.kind==='ink'){const last=a.points!.at(-1)!;if(Math.hypot(p.x-last.x,p.y-last.y)>.7){a.points!.push(p);setDraft([...a.points!]);}return;}
-    const dx=p.x-a.start.x,dy=p.y-a.start.y;
-    const next={...a.original,blocks:a.original.blocks?.map(b=>b.id===a.id?a.kind==='resize'?{...b,w:Math.max(220,Math.min(1800,b.w+dx))}:{...b,x:Math.max(0,b.x+dx),y:Math.max(0,b.y+dy)}:b),
-      items:a.original.items.map(i=>i.id===a.id?{...i,x:i.x+dx,y:i.y+dy,points:i.points?.map(p=>({...p,x:p.x+dx,y:p.y+dy}))}:i),
-      paintStrokes:a.original.paintStrokes?.map(s=>(s.id===a.id || (s.blockId===a.id && a.kind==='move'))?{...s,points:s.points.map(p=>({...p,x:p.x+dx,y:p.y+dy}))}:s)};
-    notes.change(next);
+    if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
+    const dx=p.x-a.start.x,dy=p.y-a.start.y;const original=a.original as StudioNoteDoc;
+    const next={...original,blocks:original.blocks?.map(b=>b.id===a.id?a.kind==='resize'?{...b,w:Math.max(220,Math.min(1800,b.w+dx))}:{...b,x:Math.max(0,b.x+dx),y:Math.max(0,b.y+dy)}:b),
+      items:original.items.map(i=>i.id===a.id?{...i,x:i.x+dx,y:i.y+dy,points:i.points?.map(point=>({...point,x:point.x+dx,y:point.y+dy}))}:i),
+      paintStrokes:original.paintStrokes?.map(stroke=>(stroke.id===a.id || (stroke.blockId===a.id && a.kind==='move'))?{...stroke,points:stroke.points.map(point=>({...point,x:point.x+dx,y:point.y+dy}))}:stroke),
+      charts:(original.charts||[]).map(c=>c.id===a.id?{...c,x:c.x+dx,y:c.y+dy}:c)};
+    notes.change(next as NoteDoc);
   }
   function up(e:ReactPointerEvent<HTMLDivElement>,cancel=false){const a=action.current;if(!a||a.pointerId!==e.pointerId)return;action.current=null;
     if(plane.current?.hasPointerCapture(e.pointerId))plane.current.releasePointerCapture(e.pointerId);
     if(a.kind==='ink'){
       if(!cancel){const points=a.points!;if(points.length===1)points.push({...points[0],x:points[0].x+.2});
-        const visible=a.original.layers.find(l=>l.visible&&!l.locked);if(!visible){notes.setError('書き込み可能なレイヤーがありません');setDraft([]);return;}
-        commit({...a.original,paintStrokes:[...(a.original.paintStrokes||[]),{id:id32(),layerId:visible.id,points,color:inkColor,width:inkWidth,opacity:1,blockId:a.blockId}]});}
+        const layer=writableLayer(a.original);if(!layer){notes.setError('書き込み可能な描画レイヤーがありません');setDraft([]);return;}
+        commit({...a.original,paintStrokes:[...(a.original.paintStrokes||[]),{id:id32(),layerId:layer.id,points,color:inkColor,width:inkWidth,opacity:brush==='marker'?.32:1,blockId:a.blockId,brush} as any]});}
       setDraft([]);if(a.pen)lastPen.current=Date.now();return;
     }
+    if(a.kind==='shape'){const shape=draftShape;setDraftShape(null);if(!cancel&&shape&&Math.hypot(shape.w,shape.h)>2){commit({...a.original,items:[...a.original.items,shape]});setSelected(shape.id);setActiveLayer(shape.layerId);}return;}
     if(a.kind==='move'||a.kind==='resize'){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
   }
   function format(command:string,value?:string){typing.current=null;document.execCommand(command,false,value);const el=document.activeElement as HTMLElement;
