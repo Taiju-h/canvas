@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { cleanHTML, type ChartItem, type NoteDoc, type SheetData } from '@/lib/notes';
+import { cleanHTML, type NoteDoc } from '@/lib/notes';
+
+export type SheetData={visible:boolean;locked:boolean;rows:number;cols:number;cells:Record<string,string>};
+export type ChartItem={id:string;layerId:string;x:number;y:number;w:number;h:number;type:'bar'|'line'|'pie';range:string;title?:string};
+export type StudioNoteDoc=NoteDoc & {fixedNote?:{html:string;visible:boolean;locked:boolean};sheet?:SheetData;charts?:ChartItem[]};
 
 export type CellRange={start:string;end:string};
 
@@ -68,7 +72,7 @@ export function ChartsLayer({sheet,charts,visibleLayers}:{sheet:SheetData;charts
   </div>;})}</>;
 }
 
-export function LayerPanel({doc,activeLayer,onActive,onChange,onNoteTool,onSheetTool}:{doc:NoteDoc;activeLayer:string;onActive:(id:string)=>void;onChange:(next:NoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void}){
+export function LayerPanel({doc,activeLayer,onActive,onChange,onNoteTool,onSheetTool}:{doc:StudioNoteDoc;activeLayer:string;onActive:(id:string)=>void;onChange:(next:StudioNoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void}){
   const note=doc.fixedNote||{html:'',visible:true,locked:false};const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
   const patchLayer=(id:string,patch:Record<string,unknown>)=>onChange({...doc,layers:doc.layers.map(l=>l.id===id?{...l,...patch}:l)});
   const moveLayer=(id:string,dir:-1|1)=>{const list=[...doc.layers],index=list.findIndex(l=>l.id===id),to=index+dir;if(index<0||to<0||to>=list.length)return;[list[index],list[to]]=[list[to],list[index]];onChange({...doc,layers:list});};
