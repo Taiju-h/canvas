@@ -320,6 +320,27 @@ public final class NativeCanvasView extends View {
         postInvalidateOnAnimation();
     }
 
+    public void clearDocument() {
+        finishTransientGesture();
+        strokes.clear();
+        selection.clear();
+        clipboard.clear();
+        for (ImageItem item : images) {
+            if (item.bitmap != null) item.bitmap.recycle();
+        }
+        images.clear();
+        undo.clear();
+        redo.clear();
+        gridEnabled = true;
+        drawingVisible = true;
+        imagesVisible = true;
+        scale = 1f;
+        offsetX = getWidth() * 0.5f;
+        offsetY = getHeight() * 0.5f;
+        postInvalidateOnAnimation();
+    }
+
+
     private void pushAction(EditAction action) {
         undo.addLast(action);
         while (undo.size() > 100) undo.removeFirst();
