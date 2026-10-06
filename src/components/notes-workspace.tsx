@@ -64,6 +64,25 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:e.pressure||.5};}
   function addBlock(html='',background?:string){const d=current.current?.content;if(!d)return;const x=80+(scroll.current?.scrollLeft||0)/scale;const y=80+(scroll.current?.scrollTop||0)/scale;
     const b={...block(x,y,html),background};commit({...d,blocks:[...(d.blocks||[]),b]});setSelected(b.id);setFocus(b.id);setTool('text');}
+  function writableLayer(d:NoteDoc){return d.layers.find(l=>l.id===activeLayer&&l.visible&&!l.locked)||d.layers.find(l=>l.visible&&!l.locked);}
+  function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
+  function updateSheet(next:SheetData){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;commit({...d,sheet:next} as NoteDoc,false);}
+  function useNoteLayer(){setFocus('');setTool('note');(document.activeElement as HTMLElement)?.blur();}
+  function useSheetLayer(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};if(!state.visible)commit({...d,sheet:{...state,visible:true}} as NoteDoc);setFocus('');setTool('sheet');(document.activeElement as HTMLElement)?.blur();}
+  async function placeImages(files:File[]){if(!files.length||attaching||organizing)return;setAttaching(true);
+    try{await notes.save();const r=current.current;if(!r||r.id.startsWith('local-'))throw new Error('画像配置にはサーバーへの接続が必要です');let working=r.content as StudioNoteDoc;
+      const layer=writableLayer(working);if(!layer)throw new Error('画像を置ける描画レイヤーがありません');
+      let x=100+(scroll.current?.scrollLeft||0)/scale,y=100+(scroll.current?.scrollTop||0)/scale;
+      for(const file of files){if(!file.type.startsWith('image/'))continue;if(file.size===0||file.size>512*1024*1024)throw new Error('画像は1バイト～512MBです');
+        const a:Attachment={id:id32(),name:file.name,mime:file.type||'image/*',size:file.size};await uploadAttachment(r.id,a,file);
+        let w=640,h=420;const url=URL.createObjectURL(file);try{const dims=await new Promise<{w:number;h:number}>(resolve=>{const image=new Image();image.onload=()=>resolve({w:image.naturalWidth||640,h:image.naturalHeight||420});image.onerror=()=>resolve({w:640,h:420});image.src=url;});const ratio=Math.min(1,720/Math.max(1,dims.w),520/Math.max(1,dims.h));w=Math.max(80,Math.round(dims.w*ratio));h=Math.max(60,Math.round(dims.h*ratio));}finally{URL.revokeObjectURL(url);}
+        const item:Item={id:id32(),kind:'image',layerId:layer.id,x,y,w,h,color:'#000000',width:1,opacity:1,imageId:'file:'+a.id};working={...working,items:[...working.items,item],attachments:[...(working.attachments||[]),a]};x+=36;y+=36;
+      }
+      commit(working as NoteDoc);setSelected(working.items.at(-1)?.id||'');setTool('select');
+    }catch(err){notes.setError(err instanceof Error?err.message:'画像を配置できません');}finally{setAttaching(false);}
+  }
+  function createChart(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!sheetSelection)return;const layer=d.layers.find(l=>l.id===(chartLayer||activeLayer)&&l.visible&&!l.locked)||d.layers.find(l=>l.visible&&!l.locked);if(!layer){notes.setError('グラフを置ける描画レイヤーがありません');return;}
+    const range=sheetSelection.start+(sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:'');const chart:ChartItem={id:id32(),layerId:layer.id,x:120+(scroll.current?.scrollLeft||0)/scale,y:120+(scroll.current?.scrollTop||0)/scale,w:520,h:310,type:chartType,range};commit({...d,charts:[...(d.charts||[]),chart]} as NoteDoc);setActiveLayer(layer.id);setSelected(chart.id);setChartOpen(false);setTool('select');}
   function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc||action.current||(!e.isPrimary&&e.pointerType==='touch'))return;setSelected(id);setFocus('');typing.current=null;
     action.current={pointerId:e.pointerId,kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
   function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
