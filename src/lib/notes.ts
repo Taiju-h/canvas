@@ -26,8 +26,9 @@ export function cleanHTML(value: string): string {
 export const markdownHTML = (text: string) => cleanHTML(marked.parse(text, { async: false }) as string);
 export function plainText(html: string) { const el = document.createElement('div'); el.innerHTML = cleanHTML(html); return el.textContent || ''; }
 export function block(x = 80, y = 80, html = ''): NoteBlock { return { id: id32(), x, y, w: 660, h: 240, html }; }
-export function blankNote(): NoteDoc { return { version: 1, items: [], layers: [{ id: id32(), name: 'メモ', visible: true, locked: false }], grid: 'none', snap: false,
-  blocks: [{...block(innerWidth <= 760 ? 28 : 80, 60), w: innerWidth <= 760 ? Math.max(260, innerWidth - 56) : 660}], note: { category: '', tags: [] }, attachments: [] }; }
+export function blankNote(): NoteDoc { return { version: 1, items: [], layers: [{ id: id32(), name: '描画 1', visible: true, locked: false }], grid: 'none', snap: false,
+  blocks: [], fixedNote: { html: '', visible: true, locked: false }, sheet: { visible: false, locked: false, rows: 20, cols: 10, cells: {} }, charts: [],
+  note: { category: '', tags: [] }, attachments: [] } as NoteDoc; }
 export function normalizeNote(input: NoteDoc): NoteDoc {
   // Shift old negative-coordinate canvases into the scrollable workspace once.
   const legacy = input.items.filter(item => item.kind === 'text');
