@@ -62,6 +62,7 @@ public class MainActivity extends Activity {
     private String currentNoteId = "";
     private SharedPreferences prefs;
     private boolean loadingNote = false;
+    private boolean noteLayerLocked = false;
 
     private final Handler autosaveHandler = new Handler(Looper.getMainLooper());
     private final Runnable autosaveTick = new Runnable() {
@@ -206,7 +207,8 @@ public class MainActivity extends Activity {
         head.addView(title,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
         Button close=new Button(this); close.setText("×"); close.setTextSize(20); close.setAllCaps(false); close.setMinWidth(0); close.setMinimumWidth(0); close.setOnClickListener(v->toggleLayers());
         head.addView(close,new LinearLayout.LayoutParams(dp(48),dp(42))); panel.addView(head);
-        addPanelButton(panel,"固定ノート",v->toggleFixedNote());
+        addPanelButton(panel,"ノートレイヤー（最上段・画面固定）",v->toggleFixedNote());
+        addPanelButton(panel,"ノートレイヤー  ロック/解除",v->toggleNoteLayerLock());
         addPanelButton(panel,"描画 1  表示/非表示",v->{canvas.setDrawingVisible(!canvas.isDrawingVisible());updateToolButtons();scheduleAutosave();});
         addPanelButton(panel,"画像  表示/非表示",v->{canvas.setImagesVisible(!canvas.isImagesVisible());updateToolButtons();scheduleAutosave();});
         addPanelButton(panel,"表計算  表示/非表示",v->toggleSheet());
@@ -250,16 +252,21 @@ public class MainActivity extends Activity {
             LinearLayout row=new LinearLayout(this); row.setOrientation(LinearLayout.VERTICAL); row.setPadding(dp(14),dp(10),dp(10),dp(10));
             int accent=noteColor(id);
             GradientDrawable bg=new GradientDrawable(); bg.setCornerRadius(dp(10)); bg.setColor(id.equals(currentNoteId)?blendWithWhite(accent,0.80f):blendWithWhite(accent,0.92f)); bg.setStroke(dp(id.equals(currentNoteId)?2:1),accent); row.setBackground(bg);
+            LinearLayout titleLine=new LinearLayout(this); titleLine.setOrientation(LinearLayout.HORIZONTAL); titleLine.setGravity(Gravity.CENTER_VERTICAL);
             TextView title=new TextView(this); title.setText(titleFor(id)); title.setTextSize(15); title.setTextColor(Color.rgb(34,39,46)); title.setMaxLines(1);
+            titleLine.addView(title,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
+            Button edit=new Button(this); edit.setText("編集"); edit.setTextSize(10); edit.setAllCaps(false); edit.setMinWidth(0); edit.setMinimumWidth(0);
+            edit.setPadding(dp(8),dp(2),dp(8),dp(2)); edit.setOnClickListener(v->editNoteInfo(id));
+            titleLine.addView(edit,new LinearLayout.LayoutParams(dp(54),dp(36)));
             String category=categoryFor(id), tags=tagsFor(id);
             StringBuilder info=new StringBuilder();
             if(!category.isEmpty()) info.append("● ").append(category);
             if(!tags.isEmpty()){ if(info.length()>0)info.append("   "); for(String tag:tags.split(",")){String t=tag.trim();if(!t.isEmpty())info.append("#").append(t).append(" ");} }
             if(info.length()==0) info.append(id.equals(currentNoteId)?"編集中・自動保存":"未分類");
             TextView meta=new TextView(this); meta.setText(info.toString().trim()); meta.setTextSize(10); meta.setTextColor(accent); meta.setPadding(0,dp(3),0,0); meta.setMaxLines(2);
-            row.addView(title); row.addView(meta);
+            row.addView(titleLine); row.addView(meta);
             row.setOnClickListener(v->switchNote(id));
-            row.setOnLongClickListener(v->{editMetadata(id);return true;});
+            row.setOnLongClickListener(v->{editNoteInfo(id);return true;});
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);lp.setMargins(0,0,0,dp(4));noteListContainer.addView(row,lp);
         }
     }
@@ -326,6 +333,8 @@ public class MainActivity extends Activity {
             File legacy=new File(getFilesDir(),"native-studio-v1.bin");
             if(legacy.isFile()) loadStudio(legacy);
         }
+        noteLayerLocked=prefs.getBoolean("note-locked-"+id,false);
+        applyNoteLayerLock();
         loadingNote=false;
         refreshNoteList();
     }
@@ -334,11 +343,13 @@ public class MainActivity extends Activity {
         if(loadingNote||currentNoteId==null||currentNoteId.isEmpty()||canvas==null)return;
         canvas.save(canvasFile(currentNoteId));
         saveStudio(studioFile(currentNoteId));
-        String title=deriveCurrentTitle();
-        String old=prefs.getString("title-"+currentNoteId,"");
-        if(!title.equals(old)){
-            prefs.edit().putString("title-"+currentNoteId,title).apply();
-            refreshNoteList();
+        if(!prefs.getBoolean("manual-title-"+currentNoteId,false)){
+            String title=deriveCurrentTitle();
+            String old=prefs.getString("title-"+currentNoteId,"");
+            if(!title.equals(old)){
+                prefs.edit().putString("title-"+currentNoteId,title).apply();
+                refreshNoteList();
+            }
         }
     }
 
@@ -369,20 +380,29 @@ public class MainActivity extends Activity {
     private String categoryFor(String id){return prefs.getString("category-"+id,"");}
     private String tagsFor(String id){return prefs.getString("tags-"+id,"");}
 
-    private void editCurrentMetadata(){ if(currentNoteId!=null&&!currentNoteId.isEmpty()) editMetadata(currentNoteId); }
+    private void editCurrentMetadata(){ if(currentNoteId!=null&&!currentNoteId.isEmpty()) editNoteInfo(currentNoteId); }
+    private void editMetadata(String id){ editNoteInfo(id); }
 
-    private void editMetadata(String id){
+    private void editNoteInfo(String id){
         LinearLayout box=new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(22),dp(8),dp(22),0);
+        EditText name=new EditText(this); name.setHint("メモ名"); name.setSingleLine(true); name.setText(titleFor(id));
         EditText category=new EditText(this); category.setHint("カテゴリー"); category.setSingleLine(true); category.setText(categoryFor(id));
         EditText tags=new EditText(this); tags.setHint("タグ（カンマ区切り）"); tags.setSingleLine(true); tags.setText(tagsFor(id));
-        if(Build.VERSION.SDK_INT>=33){category.setAutoHandwritingEnabled(false);tags.setAutoHandwritingEnabled(false);}
-        box.addView(category); box.addView(tags);
-        new AlertDialog.Builder(this).setTitle(titleFor(id)+" の分類").setView(box)
+        if(Build.VERSION.SDK_INT>=33){name.setAutoHandwritingEnabled(false);category.setAutoHandwritingEnabled(false);tags.setAutoHandwritingEnabled(false);}
+        box.addView(name); box.addView(category); box.addView(tags);
+        new AlertDialog.Builder(this).setTitle("メモを編集").setView(box)
             .setNegativeButton("キャンセル",null)
             .setPositiveButton("保存",(d,w)->{
-                prefs.edit().putString("category-"+id,category.getText().toString().trim())
-                    .putString("tags-"+id,tags.getText().toString().trim()).apply();
+                String title=name.getText().toString().trim();
+                if(title.isEmpty()) title="新しいメモ";
+                prefs.edit()
+                    .putString("title-"+id,title)
+                    .putBoolean("manual-title-"+id,true)
+                    .putString("category-"+id,category.getText().toString().trim())
+                    .putString("tags-"+id,tags.getText().toString().trim())
+                    .apply();
                 refreshNoteList();
+                updateToolButtons();
             }).show();
     }
 
@@ -420,9 +440,26 @@ public class MainActivity extends Activity {
     private void toggleFixedNote(){
         boolean show=fixedNote.getVisibility()!=View.VISIBLE;
         fixedNote.setVisibility(show?View.VISIBLE:View.GONE);
-        if(show){fixedNote.bringToFront();fixedNote.requestFocus();}else canvas.requestFocus();
+        if(show){fixedNote.bringToFront();applyNoteLayerLock();if(!noteLayerLocked)fixedNote.requestFocus();}else canvas.requestFocus();
         bringChromeToFront(); updateToolButtons(); scheduleAutosave();
     }
+    private void toggleNoteLayerLock(){
+        noteLayerLocked=!noteLayerLocked;
+        prefs.edit().putBoolean("note-locked-"+currentNoteId,noteLayerLocked).apply();
+        applyNoteLayerLock();
+        updateToolButtons();
+        scheduleAutosave();
+    }
+
+    private void applyNoteLayerLock(){
+        fixedNote.setFocusable(!noteLayerLocked);
+        fixedNote.setFocusableInTouchMode(!noteLayerLocked);
+        fixedNote.setCursorVisible(!noteLayerLocked);
+        fixedNote.setLongClickable(!noteLayerLocked);
+        fixedNote.setTextIsSelectable(!noteLayerLocked);
+        if(noteLayerLocked) canvas.requestFocus();
+    }
+
     private void toggleSheet(){sheetView.setVisibility(sheetView.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);sheetView.bringToFront();bringChromeToFront();updateToolButtons();scheduleAutosave();}
     private void toggleChart(){chartView.setVisibility(chartView.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);chartView.bringToFront();bringChromeToFront();updateToolButtons();scheduleAutosave();}
     private void toggleLayers(){layerPanel.setVisibility(layerPanel.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE);layerPanel.bringToFront();updateToolButtons();}
@@ -459,7 +496,7 @@ public class MainActivity extends Activity {
         setSelected(penButton,pen);setSelected(eraserButton,eraser);setSelected(gridButton,canvas.isGridEnabled());
         setSelected(noteButton,fixedNote.getVisibility()==View.VISIBLE);setSelected(sheetButton,sheetView.getVisibility()==View.VISIBLE);
         setSelected(chartButton,chartView.getVisibility()==View.VISIBLE);setSelected(layersButton,layerPanel.getVisibility()==View.VISIBLE);
-        if(hint!=null) hint.setText(titleFor(currentNoteId)+"    自動保存    "+canvas.getToolDisplayName()+"    Sペン側面: 消しゴム");
+        if(hint!=null) hint.setText(titleFor(currentNoteId)+"    自動保存    ノートレイヤー:"+(noteLayerLocked?"ロック":"編集可")+"    "+canvas.getToolDisplayName()+"    Sペン側面: 消しゴム");
     }
     private void setSelected(Button b,boolean on){if(b==null)return;b.setBackground(makeButtonBackground(on));b.setTextColor(on?Color.WHITE:Color.rgb(33,38,44));}
     private GradientDrawable makeButtonBackground(boolean selected){GradientDrawable s=new GradientDrawable();s.setColor(selected?Color.rgb(32,95,232):Color.TRANSPARENT);s.setCornerRadius(dp(12));return s;}
