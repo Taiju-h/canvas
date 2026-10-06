@@ -1,6 +1,7 @@
 package work.heartful.canvas;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
@@ -56,6 +57,7 @@ public class MainActivity extends Activity {
     private LinearLayout noteListPanel;
     private LinearLayout noteListContainer;
     private Button noteListToggle;
+    private Button layerPanelToggle;
     private final ArrayList<String> noteIds = new ArrayList<>();
     private String currentNoteId = "";
     private SharedPreferences prefs;
@@ -104,6 +106,9 @@ public class MainActivity extends Activity {
         fixedNote.setBackgroundColor(Color.argb(244,255,255,255));
         fixedNote.setVisibility(View.GONE);
         fixedNote.setSingleLine(false);
+        if (Build.VERSION.SDK_INT >= 33) {
+            fixedNote.setAutoHandwritingEnabled(false);
+        }
         fixedNote.setInputType(android.text.InputType.TYPE_CLASS_TEXT
             | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
             | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -148,6 +153,17 @@ public class MainActivity extends Activity {
         listToggleLp.leftMargin=dp(8); listToggleLp.topMargin=dp(8);
         root.addView(noteListToggle,listToggleLp);
 
+        layerPanelToggle=new Button(this);
+        layerPanelToggle.setText("☷ レイヤー");
+        layerPanelToggle.setTextSize(11);
+        layerPanelToggle.setAllCaps(false);
+        layerPanelToggle.setMinWidth(0); layerPanelToggle.setMinimumWidth(0);
+        layerPanelToggle.setPadding(dp(10),dp(4),dp(10),dp(4));
+        layerPanelToggle.setOnClickListener(v->toggleLayers());
+        FrameLayout.LayoutParams layerToggleLp=new FrameLayout.LayoutParams(dp(92),dp(42),Gravity.TOP|Gravity.END);
+        layerToggleLp.rightMargin=dp(8); layerToggleLp.topMargin=dp(8);
+        root.addView(layerPanelToggle,layerToggleLp);
+
         if(Build.VERSION.SDK_INT>=30){
             root.setOnApplyWindowInsetsListener((view,insets)->{
                 android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.systemBars());
@@ -185,7 +201,11 @@ public class MainActivity extends Activity {
 
     private LinearLayout buildLayerPanel(){
         LinearLayout panel=new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL); panel.setPadding(dp(10),dp(48),dp(10),dp(12)); panel.setBackgroundColor(Color.rgb(244,245,247)); panel.setElevation(dp(12));
-        TextView title=new TextView(this); title.setText("レイヤー"); title.setTextSize(16); title.setTextColor(Color.rgb(40,46,54)); title.setPadding(dp(6),0,0,dp(12)); panel.addView(title);
+        LinearLayout head=new LinearLayout(this); head.setOrientation(LinearLayout.HORIZONTAL); head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=new TextView(this); title.setText("レイヤー"); title.setTextSize(18); title.setTextColor(Color.rgb(40,46,54)); title.setTypeface(null,android.graphics.Typeface.BOLD);
+        head.addView(title,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
+        Button close=new Button(this); close.setText("×"); close.setTextSize(20); close.setAllCaps(false); close.setMinWidth(0); close.setMinimumWidth(0); close.setOnClickListener(v->toggleLayers());
+        head.addView(close,new LinearLayout.LayoutParams(dp(48),dp(42))); panel.addView(head);
         addPanelButton(panel,"固定ノート",v->toggleFixedNote());
         addPanelButton(panel,"描画 1  表示/非表示",v->{canvas.setDrawingVisible(!canvas.isDrawingVisible());updateToolButtons();scheduleAutosave();});
         addPanelButton(panel,"画像  表示/非表示",v->{canvas.setImagesVisible(!canvas.isImagesVisible());updateToolButtons();scheduleAutosave();});
@@ -206,8 +226,12 @@ public class MainActivity extends Activity {
         head.setOrientation(LinearLayout.HORIZONTAL); head.setGravity(Gravity.CENTER_VERTICAL);
         TextView title=new TextView(this); title.setText("メモ"); title.setTextSize(22); title.setTextColor(Color.rgb(28,32,38)); title.setTypeface(null,android.graphics.Typeface.BOLD);
         head.addView(title,new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
+        Button classify=new Button(this); classify.setText("分類"); classify.setTextSize(11); classify.setAllCaps(false); classify.setMinWidth(0); classify.setMinimumWidth(0); classify.setOnClickListener(v->editCurrentMetadata());
+        head.addView(classify,new LinearLayout.LayoutParams(dp(58),dp(44)));
         Button add=new Button(this); add.setText("＋"); add.setTextSize(24); add.setAllCaps(false); add.setMinWidth(0); add.setMinimumWidth(0); add.setOnClickListener(v->createNewNote());
-        head.addView(add,new LinearLayout.LayoutParams(dp(52),dp(46)));
+        head.addView(add,new LinearLayout.LayoutParams(dp(48),dp(44)));
+        Button close=new Button(this); close.setText("×"); close.setTextSize(20); close.setAllCaps(false); close.setMinWidth(0); close.setMinimumWidth(0); close.setOnClickListener(v->toggleNoteList());
+        head.addView(close,new LinearLayout.LayoutParams(dp(44),dp(44)));
         panel.addView(head);
 
         TextView sub=new TextView(this); sub.setText("自動保存"); sub.setTextSize(11); sub.setTextColor(Color.rgb(125,132,141)); sub.setPadding(dp(2),0,0,dp(8)); panel.addView(sub);
@@ -223,12 +247,19 @@ public class MainActivity extends Activity {
         if(noteListContainer==null)return;
         noteListContainer.removeAllViews();
         for(String id:noteIds){
-            LinearLayout row=new LinearLayout(this); row.setOrientation(LinearLayout.VERTICAL); row.setPadding(dp(12),dp(10),dp(10),dp(10));
-            GradientDrawable bg=new GradientDrawable(); bg.setCornerRadius(dp(10)); bg.setColor(id.equals(currentNoteId)?Color.rgb(226,236,250):Color.TRANSPARENT); row.setBackground(bg);
+            LinearLayout row=new LinearLayout(this); row.setOrientation(LinearLayout.VERTICAL); row.setPadding(dp(14),dp(10),dp(10),dp(10));
+            int accent=noteColor(id);
+            GradientDrawable bg=new GradientDrawable(); bg.setCornerRadius(dp(10)); bg.setColor(id.equals(currentNoteId)?blendWithWhite(accent,0.80f):blendWithWhite(accent,0.92f)); bg.setStroke(dp(id.equals(currentNoteId)?2:1),accent); row.setBackground(bg);
             TextView title=new TextView(this); title.setText(titleFor(id)); title.setTextSize(15); title.setTextColor(Color.rgb(34,39,46)); title.setMaxLines(1);
-            TextView meta=new TextView(this); meta.setText(id.equals(currentNoteId)?"編集中・自動保存":"メモ"); meta.setTextSize(10); meta.setTextColor(Color.rgb(127,134,143)); meta.setPadding(0,dp(2),0,0);
+            String category=categoryFor(id), tags=tagsFor(id);
+            StringBuilder info=new StringBuilder();
+            if(!category.isEmpty()) info.append("● ").append(category);
+            if(!tags.isEmpty()){ if(info.length()>0)info.append("   "); for(String tag:tags.split(",")){String t=tag.trim();if(!t.isEmpty())info.append("#").append(t).append(" ");} }
+            if(info.length()==0) info.append(id.equals(currentNoteId)?"編集中・自動保存":"未分類");
+            TextView meta=new TextView(this); meta.setText(info.toString().trim()); meta.setTextSize(10); meta.setTextColor(accent); meta.setPadding(0,dp(3),0,0); meta.setMaxLines(2);
             row.addView(title); row.addView(meta);
             row.setOnClickListener(v->switchNote(id));
+            row.setOnLongClickListener(v->{editMetadata(id);return true;});
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);lp.setMargins(0,0,0,dp(4));noteListContainer.addView(row,lp);
         }
     }
@@ -261,8 +292,8 @@ public class MainActivity extends Activity {
         persistNoteOrder();
         prefs.edit().putString(PREF_CURRENT,id).apply();
         loadNote(id,false);
-        fixedNote.setVisibility(View.VISIBLE);
-        fixedNote.bringToFront(); fixedNote.requestFocus();
+        fixedNote.setVisibility(View.GONE);
+        canvas.requestFocus();
         bringChromeToFront(); refreshNoteList(); updateToolButtons();
     }
 
@@ -335,6 +366,44 @@ public class MainActivity extends Activity {
         prefs.edit().putString(PREF_ORDER,b.toString()).apply();
     }
 
+    private String categoryFor(String id){return prefs.getString("category-"+id,"");}
+    private String tagsFor(String id){return prefs.getString("tags-"+id,"");}
+
+    private void editCurrentMetadata(){ if(currentNoteId!=null&&!currentNoteId.isEmpty()) editMetadata(currentNoteId); }
+
+    private void editMetadata(String id){
+        LinearLayout box=new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(22),dp(8),dp(22),0);
+        EditText category=new EditText(this); category.setHint("カテゴリー"); category.setSingleLine(true); category.setText(categoryFor(id));
+        EditText tags=new EditText(this); tags.setHint("タグ（カンマ区切り）"); tags.setSingleLine(true); tags.setText(tagsFor(id));
+        if(Build.VERSION.SDK_INT>=33){category.setAutoHandwritingEnabled(false);tags.setAutoHandwritingEnabled(false);}
+        box.addView(category); box.addView(tags);
+        new AlertDialog.Builder(this).setTitle(titleFor(id)+" の分類").setView(box)
+            .setNegativeButton("キャンセル",null)
+            .setPositiveButton("保存",(d,w)->{
+                prefs.edit().putString("category-"+id,category.getText().toString().trim())
+                    .putString("tags-"+id,tags.getText().toString().trim()).apply();
+                refreshNoteList();
+            }).show();
+    }
+
+    private int noteColor(String id){
+        String category=categoryFor(id);
+        int seed=(category.isEmpty()?id:category).hashCode();
+        int[] colors={
+            Color.rgb(230,143,34), Color.rgb(55,126,184), Color.rgb(68,150,96),
+            Color.rgb(171,91,168), Color.rgb(203,92,86), Color.rgb(73,147,157)
+        };
+        return colors[Math.floorMod(seed,colors.length)];
+    }
+
+    private static int blendWithWhite(int color,float whiteAmount){
+        whiteAmount=Math.max(0f,Math.min(1f,whiteAmount));
+        int r=(int)(Color.red(color)*(1f-whiteAmount)+255f*whiteAmount);
+        int g=(int)(Color.green(color)*(1f-whiteAmount)+255f*whiteAmount);
+        int b=(int)(Color.blue(color)*(1f-whiteAmount)+255f*whiteAmount);
+        return Color.rgb(r,g,b);
+    }
+
     private Button addPanelButton(LinearLayout panel,String label,View.OnClickListener listener){
         Button b=new Button(this); b.setText(label); b.setAllCaps(false); b.setTextSize(12); b.setOnClickListener(listener);
         panel.addView(b,new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -361,6 +430,7 @@ public class MainActivity extends Activity {
     private void bringChromeToFront(){
         if(noteListPanel!=null&&noteListPanel.getVisibility()==View.VISIBLE)noteListPanel.bringToFront();
         if(noteListToggle!=null)noteListToggle.bringToFront();
+        if(layerPanelToggle!=null)layerPanelToggle.bringToFront();
         if(hint!=null)hint.bringToFront();
         if(layerPanel!=null&&layerPanel.getVisibility()==View.VISIBLE)layerPanel.bringToFront();
     }
