@@ -1,4 +1,4 @@
-name: Android debug APK
+name: Android web shell debug APK
 
 on:
   workflow_dispatch:
