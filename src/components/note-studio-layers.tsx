@@ -84,6 +84,6 @@ export function LayerPanel({doc,activeLayer,onActive,onChange,onNoteTool,onSheet
       <button title="下へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,-1);}}>↓</button><button title="上へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,1);}}>↑</button>
       <button title="ロック" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button>
     </div>)}</div>
-    <button className="special bottom" onClick={onSheetTool}><span>表計算</span><em>最下層</em><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,visible:!sheet.visible}});}}>{sheet.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,locked:!sheet.locked}});}}>{sheet.locked?'🔒':'🔓'}</i></button>
+    <button className="special bottom" onClick={onSheetTool}><span>Excel</span><em>表計算・最下層</em><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,visible:!sheet.visible}});}}>{sheet.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,locked:!sheet.locked}});}}>{sheet.locked?'🔒':'🔓'}</i></button>
   </aside>;
 }
