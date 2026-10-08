@@ -61,7 +61,8 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   function undo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const previous=undoStack.current.pop();if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
   function redo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const next=redoStack.current.pop();if(!d||!next)return;undoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(next);redraw(v=>v+1);}
   function toggleSidebar(){setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
-  function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:e.pressure||.5};}
+  function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();const pressure=e.pointerType==='pen'?(e.pressure>0?e.pressure:.5):1;return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:pressure};}
+  function coalescedPositions(e:ReactPointerEvent):Point[]{const r=plane.current!.getBoundingClientRect();const native=e.nativeEvent;const events=typeof native.getCoalescedEvents==='function'?native.getCoalescedEvents():[native];return events.map(value=>({x:Math.max(0,(value.clientX-r.left)/scale),y:Math.max(0,(value.clientY-r.top)/scale),p:e.pointerType==='pen'?(value.pressure>0?value.pressure:.5):1}));}
   function addBlock(html='',background?:string){const d=current.current?.content;if(!d)return;const x=80+(scroll.current?.scrollLeft||0)/scale;const y=80+(scroll.current?.scrollTop||0)/scale;
     const b={...block(x,y,html),background};commit({...d,blocks:[...(d.blocks||[]),b]});setSelected(b.id);setFocus(b.id);setTool('text');}
   function writableLayer(d:NoteDoc){return d.layers.find(l=>l.id===activeLayer&&l.visible&&!l.locked)||d.layers.find(l=>l.visible&&!l.locked);}
@@ -69,6 +70,24 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   function updateSheet(next:SheetData){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;commit({...d,sheet:next} as NoteDoc,false);}
   function useNoteLayer(){setFocus('');setTool('note');(document.activeElement as HTMLElement)?.blur();}
   function useSheetLayer(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};if(!state.visible)commit({...d,sheet:{...state,visible:true}} as NoteDoc);setFocus('');setTool('sheet');(document.activeElement as HTMLElement)?.blur();}
+  function pasteIntoSheet(text:string){
+    const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!text)return;
+    const state=d.sheet||{visible:true,locked:false,rows:20,cols:10,cells:{}};if(state.locked)return;
+    const start=(sheetSelection?.start||'A1').toUpperCase();const match=/^([A-Z]+)(\d+)$/.exec(start);if(!match)return;
+    let col=0;for(const ch of match[1])col=col*26+ch.charCodeAt(0)-64;col--;const row=Number(match[2])-1;
+    const key=(r:number,c:number)=>{let n=c+1,s='';while(n){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26);}return s+(r+1);};
+    const rows=text.replace(/\r/g,'').split('\n');const cells={...state.cells};
+    rows.forEach((line,ri)=>line.split('\t').forEach((value,ci)=>{if(row+ri<state.rows&&col+ci<state.cols)cells[key(row+ri,col+ci)]=value;}));
+    updateSheet({...state,visible:true,cells});setSheetSelection({start,end:key(Math.min(state.rows-1,row+rows.length-1),Math.min(state.cols-1,col+Math.max(0,...rows.map(line=>line.split('\t').length-1))))});
+  }
+  function pasteWorkspace(e:React.ClipboardEvent<HTMLDivElement>){
+    const target=e.target as Element;if(target.closest('[contenteditable="true"]'))return;
+    if(tool==='sheet'){const text=e.clipboardData.getData('text/plain');if(text){e.preventDefault();pasteIntoSheet(text);}return;}
+    if(tool==='note')return;
+    const files=Array.from(e.clipboardData.items).map(item=>item.kind==='file'?item.getAsFile():null).filter((file):file is File=>!!file&&file.type.startsWith('image/'));
+    if(files.length){e.preventDefault();void placeImages(files);return;}
+    const text=e.clipboardData.getData('text/plain');if(text.trim()){e.preventDefault();addBlock(escapeHTML(text).replace(/\n/g,'<br>'));}
+  }
   async function placeImages(files:File[]){if(!files.length||attaching||organizing)return;setAttaching(true);
     try{await notes.save();const r=current.current;if(!r||r.id.startsWith('local-'))throw new Error('画像配置にはサーバーへの接続が必要です');let working=r.content as StudioNoteDoc;
       const layer=writableLayer(working);if(!layer)throw new Error('画像を置ける描画レイヤーがありません');
@@ -123,7 +142,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   function move(e:ReactPointerEvent<HTMLDivElement>){const a=action.current;if(!a||a.pointerId!==e.pointerId)return;e.preventDefault();
     if(a.pen)lastPen.current=Date.now();
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
-    const p=position(e);if(a.kind==='ink'){const last=a.points!.at(-1)!;if(Math.hypot(p.x-last.x,p.y-last.y)>.7){a.points!.push(p);setDraft([...a.points!]);}return;}
+    const p=position(e);if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
     if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
     const dx=p.x-a.start.x,dy=p.y-a.start.y;const original=a.original as StudioNoteDoc;
     const next={...original,blocks:original.blocks?.map(b=>b.id===a.id?a.kind==='resize'?{...b,w:Math.max(220,Math.min(1800,b.w+dx))}:{...b,x:Math.max(0,b.x+dx),y:Math.max(0,b.y+dy)}:b),
@@ -251,7 +270,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   width=extent.current.width;height=extent.current.height;
   function stroke(points:Point[]){return points.map(p=>`${p.x},${p.y}`).join(' ');}
   function pressureWidth(base:number,p?:number){const pressure=p&&p>0?p:.5;return Math.max(.8,base*(.38+pressure*1.05));}
-  function paintStrokeView(value:NonNullable<NoteDoc['paintStrokes']>[number]){const mode=(value as any).brush||'pen';if(mode==='gpen'&&value.points.length>1)return <g key={value.id} data-stroke={value.id} stroke={value.color} opacity={value.opacity} strokeLinecap="round">{value.points.slice(1).map((point,index)=><line key={index} x1={value.points[index].x} y1={value.points[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(value.width,point.p)}/>)}</g>;return <polyline key={value.id} data-stroke={value.id} points={stroke(value.points)} stroke={value.color} strokeWidth={value.width} opacity={value.opacity} strokeLinecap="round" strokeLinejoin="round" fill="none"/>;}
+  function paintStrokeView(value:NonNullable<NoteDoc['paintStrokes']>[number]){const mode=(value as any).brush||'pen';if(mode!=='marker'&&value.points.length>1)return <g key={value.id} data-stroke={value.id} stroke={value.color} opacity={value.opacity} strokeLinecap="round">{value.points.slice(1).map((point,index)=><line key={index} x1={value.points[index].x} y1={value.points[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(value.width,point.p)}/>)}</g>;return <polyline key={value.id} data-stroke={value.id} points={stroke(value.points)} stroke={value.color} strokeWidth={value.width} opacity={value.opacity} strokeLinecap="round" strokeLinejoin="round" fill="none"/>;}
   return <main className={`notes-app ${sidebar?'sidebar-open':''}`}>
     <header className="notes-header">
       <button onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={21}/></button>
@@ -264,7 +283,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     </header>
     <div className="notes-layout">
       {sidebar&&<><button className="notes-sidebar-backdrop" aria-label="メモ一覧を閉じる" onClick={toggleSidebar}/><aside className="notes-sidebar">
-        <div className="notes-sidebar-head"><div><small>MY WORKSPACE</small><h1>メモ</h1></div><button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button></div>
+        <div className="notes-sidebar-head"><div><small>MY WORKSPACE</small><h1>メモ</h1></div><div className="notes-sidebar-head-actions"><button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button><button className="notes-sidebar-close" onClick={toggleSidebar} aria-label="サイドバーを閉じる" title="閉じる"><X size={20}/></button></div></div>
         <label className="notes-search"><Search size={17}/><input ref={searchInput} placeholder="全メモの本文・タグを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
         <div className="notes-search-options"><label>検索範囲<select aria-label="検索範囲" value={searchScope} onChange={e=>setSearchScope(e.target.value as 'all'|'filtered')}><option value="all">全カテゴリ横断</option><option value="filtered">選択中のカテゴリ・タグ</option></select></label><small>{trash?'ゴミ箱内を検索':'タイトル・本文・タグ・添付名'} · 空白でAND検索</small></div>
         <div className="notes-navigation"><button className={!trash&&!category?'active':''} onClick={()=>{setTrash(false);setCategory('');setTag('');setQuery('');}}>すべてのメモ <small>{notes.list.filter(n=>!n.note?.trashedAt).length}</small></button><button className={trash?'active':''} onClick={()=>{setTrash(true);setQuery('');setCategory('');setTag('');}}><Trash2 size={15}/>ゴミ箱 <small>{notes.list.filter(n=>n.note?.trashedAt).length}</small></button></div>
@@ -317,8 +336,8 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
           <div className="notes-stage-center">
             <div ref={scroll} className="notes-scroll" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const files=Array.from(e.dataTransfer.files);const images=files.filter(file=>file.type.startsWith('image/'));if(images.length===files.length&&files.length)void placeImages(images);else void attach(files);}}>
               {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div className="notes-surface" style={{width:width*scale,height:height*scale}}>
-                <div ref={plane} className={`notes-plane tool-${tool}`} style={{width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
-                  onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
+                <div ref={plane} className={`notes-plane tool-${tool}`} tabIndex={0} style={{width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
+                  onPasteCapture={pasteWorkspace} onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
                   <SpreadsheetLayer sheet={sheet} active={tool==='sheet'} selection={sheetSelection} onChange={updateSheet} onSelect={setSheetSelection}/>
                   <svg className="notes-ink" width={width} height={height}>
                     {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><LegacyImage key={l.id} docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/>)}
@@ -326,7 +345,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                       {i.kind==='path'?<polyline points={stroke(i.points||[])} fill="none" strokeLinecap="round"/>:i.kind==='rect'?<rect x={Math.min(i.x,i.x+i.w)} y={Math.min(i.y,i.y+i.h)} width={Math.abs(i.w)} height={Math.abs(i.h)}/>:i.kind==='ellipse'?<ellipse cx={i.x+i.w/2} cy={i.y+i.h/2} rx={Math.abs(i.w/2)} ry={Math.abs(i.h/2)}/>:i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h}/>:i.kind==='image'&&i.imageId?(i.imageId.startsWith('file:')?<image href={fileURL(record.id,i.imageId.slice(5))} x={i.x} y={i.y} width={i.w} height={i.h}/>:<LegacyImage docId={record.id} imageId={i.imageId} x={i.x} y={i.y} w={i.w} h={i.h}/>):null}
                     </g>)}
                     {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false).map(paintStrokeView)}
-                    {draft.length>0&&(brush==='gpen'?<g stroke={inkColor} strokeLinecap="round" pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(inkWidth,point.p)}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={brush==='marker'?.32:1} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
+                    {draft.length>0&&(brush!=='marker'?<g stroke={inkColor} strokeLinecap="round" pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(inkWidth,point.p)}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={.32} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
                     {draftShape&&<g stroke={draftShape.color} strokeWidth={draftShape.width} fill="none" pointerEvents="none">{draftShape.kind==='line'?<line x1={draftShape.x} y1={draftShape.y} x2={draftShape.x+draftShape.w} y2={draftShape.y+draftShape.h}/>:draftShape.kind==='rect'?<rect x={Math.min(draftShape.x,draftShape.x+draftShape.w)} y={Math.min(draftShape.y,draftShape.y+draftShape.h)} width={Math.abs(draftShape.w)} height={Math.abs(draftShape.h)}/>:<ellipse cx={draftShape.x+draftShape.w/2} cy={draftShape.y+draftShape.h/2} rx={Math.abs(draftShape.w/2)} ry={Math.abs(draftShape.h/2)}/>}</g>}
                   </svg>
                   <ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/>
@@ -338,7 +357,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
             </div>
             {record&&<FixedNoteLayer html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
           </div>
-          {layersOpen&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);setTool('select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
+          {layersOpen&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);setTool('select');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
         </div>
         {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
@@ -359,7 +378,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     </div>
     {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
     {deleteOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">メモをゴミ箱へ移動</h2><p>「{record?.title}」をゴミ箱へ移動します。あとから復元できます。</p><button onClick={()=>setDeleteOpen(false)}>キャンセル</button><button className="notes-primary" onClick={()=>setTrashed(true)}>ゴミ箱へ移動</button></section></div>}
-    {chartOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="chart-title"><div className="notes-settings-title"><h2 id="chart-title">グラフを作成</h2><button onClick={()=>setChartOpen(false)} aria-label="閉じる"><X size={18}/></button></div><p>表計算で選択した範囲をグラフ化し、Excelレイヤーではなく指定した描画レイヤーへ配置します。</p><label>種類<select value={chartType} onChange={e=>setChartType(e.target.value as ChartItem['type'])}><option value="bar">棒グラフ</option><option value="line">折れ線グラフ</option><option value="pie">円グラフ</option></select></label><label>配置レイヤー<select value={chartLayer} onChange={e=>setChartLayer(e.target.value)}>{doc?.layers.filter(l=>l.visible&&!l.locked).map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></label><div className="notes-dialog-actions"><button onClick={()=>setChartOpen(false)}>キャンセル</button><button className="notes-primary" onClick={createChart}>作成</button></div></section></div>}
+    {chartOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="chart-title"><div className="notes-settings-title"><h2 id="chart-title">グラフを作成</h2><button onClick={()=>setChartOpen(false)} aria-label="閉じる"><X size={18}/></button></div><p>Excelレイヤーで選択した範囲を参照する、グラフレイヤーの子オブジェクトを作成します。元データを変更するとグラフも更新されます。</p><label>種類<select value={chartType} onChange={e=>setChartType(e.target.value as ChartItem['type'])}><option value="bar">棒グラフ</option><option value="line">折れ線グラフ</option><option value="pie">円グラフ</option></select></label><div className="notes-dialog-actions"><button onClick={()=>setChartOpen(false)}>キャンセル</button><button className="notes-primary" onClick={createChart}>作成</button></div></section></div>}
     <input ref={fileInput} hidden type="file" multiple onChange={e=>{void attach(Array.from(e.target.files||[]));e.target.value='';}}/>
     <input ref={imageInput} hidden type="file" accept="image/*" multiple onChange={e=>{void placeImages(Array.from(e.target.files||[]));e.target.value='';}}/>
     <input ref={organizationInput} hidden type="file" accept=".json" onChange={e=>{if(e.target.files?.[0])void applyOrganization(e.target.files[0]);e.target.value='';}}/>
