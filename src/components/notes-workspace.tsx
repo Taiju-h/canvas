@@ -100,8 +100,8 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       commit(working as NoteDoc);setSelected(working.items.at(-1)?.id||'');setTool('select');
     }catch(err){notes.setError(err instanceof Error?err.message:'画像を配置できません');}finally{setAttaching(false);}
   }
-  function createChart(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!sheetSelection)return;const layer=d.layers.find(l=>l.id===(chartLayer||activeLayer)&&l.visible&&!l.locked)||d.layers.find(l=>l.visible&&!l.locked);if(!layer){notes.setError('グラフを置ける描画レイヤーがありません');return;}
-    const range=sheetSelection.start+(sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:'');const chart:ChartItem={id:id32(),layerId:layer.id,x:120+(scroll.current?.scrollLeft||0)/scale,y:120+(scroll.current?.scrollTop||0)/scale,w:520,h:310,type:chartType,range};commit({...d,charts:[...(d.charts||[]),chart]} as NoteDoc);setActiveLayer(layer.id);setSelected(chart.id);setChartOpen(false);setTool('select');}
+  function createChart(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!sheetSelection)return;
+    const range=sheetSelection.start+(sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:'');const chart:ChartItem={id:id32(),layerId:'graph-root',x:120+(scroll.current?.scrollLeft||0)/scale,y:120+(scroll.current?.scrollTop||0)/scale,w:520,h:310,type:chartType,range,visible:true,locked:false,name:'グラフ '+((d.charts||[]).length+1)};commit({...d,charts:[...(d.charts||[]),chart]} as NoteDoc);setSelected(chart.id);setChartOpen(false);setTool('select');}
   function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc||action.current||(!e.isPrimary&&e.pointerType==='touch'))return;setSelected(id);setFocus('');typing.current=null;
     action.current={pointerId:e.pointerId,kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
   function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
