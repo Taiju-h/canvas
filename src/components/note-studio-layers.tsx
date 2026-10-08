@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { cleanHTML, type NoteDoc } from '@/lib/notes';
 
 export type SheetData={visible:boolean;locked:boolean;rows:number;cols:number;cells:Record<string,string>};
-export type ChartItem={id:string;layerId:string;x:number;y:number;w:number;h:number;type:'bar'|'line'|'pie';range:string;title?:string};
+export type ChartItem={id:string;layerId:string;x:number;y:number;w:number;h:number;type:'bar'|'line'|'pie';range:string;title?:string;visible?:boolean;locked?:boolean;name?:string};
 export type StudioNoteDoc=NoteDoc & {fixedNote?:{html:string;visible:boolean;locked:boolean};sheet?:SheetData;charts?:ChartItem[]};
 
 export type CellRange={start:string;end:string};
@@ -62,7 +62,7 @@ function chartSeries(sheet:SheetData,range:string){
 }
 
 export function ChartsLayer({sheet,charts,visibleLayers}:{sheet:SheetData;charts:ChartItem[];visibleLayers:Set<string>}){
-  return <>{charts.filter(c=>visibleLayers.has(c.layerId)).map(chart=>{const data=chartSeries(sheet,chart.range),max=Math.max(1,...data.values.map(v=>Math.abs(v)));return <div key={chart.id} className="notes-chart" data-stroke={chart.id} style={{left:chart.x,top:chart.y,width:chart.w,height:chart.h}}>
+  return <>{charts.filter(chart=>chart.visible!==false).map(chart=>{const data=chartSeries(sheet,chart.range),max=Math.max(1,...data.values.map(v=>Math.abs(v)));return <div key={chart.id} className={'notes-chart '+(chart.locked?'locked':'')} data-stroke={chart.id} style={{left:chart.x,top:chart.y,width:chart.w,height:chart.h}}>
     <strong>{chart.title||(chart.type==='bar'?'棒グラフ':chart.type==='line'?'折れ線グラフ':'円グラフ')}</strong>
     <svg viewBox="0 0 360 200" preserveAspectRatio="none">
       {chart.type==='bar'&&data.values.map((v,i)=>{const h=Math.abs(v)/max*145;return <g key={i}><rect x={28+i*(310/Math.max(1,data.values.length))} y={175-h} width={Math.max(8,250/Math.max(1,data.values.length))} height={h}/><text x={32+i*(310/Math.max(1,data.values.length))} y="194">{data.labels[i]?.slice(0,8)}</text></g>;})}
@@ -72,18 +72,47 @@ export function ChartsLayer({sheet,charts,visibleLayers}:{sheet:SheetData;charts
   </div>;})}</>;
 }
 
-export function LayerPanel({doc,activeLayer,onActive,onChange,onNoteTool,onSheetTool}:{doc:StudioNoteDoc;activeLayer:string;onActive:(id:string)=>void;onChange:(next:StudioNoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void}){
-  const note=doc.fixedNote||{html:'',visible:true,locked:false};const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
+export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onNoteTool,onSheetTool}:{doc:StudioNoteDoc;activeLayer:string;onActive:(id:string)=>void;onSelectObject:(id:string,kind:'text'|'chart')=>void;onChange:(next:StudioNoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void}){
+  const note=doc.fixedNote||{html:'',visible:true,locked:false};
+  const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
+  const charts=doc.charts||[];
   const patchLayer=(id:string,patch:Record<string,unknown>)=>onChange({...doc,layers:doc.layers.map(l=>l.id===id?{...l,...patch}:l)});
+  const patchChart=(id:string,patch:Partial<ChartItem>)=>onChange({...doc,charts:charts.map(c=>c.id===id?{...c,...patch}:c)});
   const moveLayer=(id:string,dir:-1|1)=>{const list=[...doc.layers],index=list.findIndex(l=>l.id===id),to=index+dir;if(index<0||to<0||to>=list.length)return;[list[index],list[to]]=[list[to],list[index]];onChange({...doc,layers:list});};
   return <aside className="notes-layer-panel" aria-label="レイヤー">
-    <div className="notes-layer-title"><strong>レイヤー</strong><button title="描画レイヤー追加" onClick={()=>{const id=crypto.randomUUID();onChange({...doc,layers:[...doc.layers,{id,name:'描画 '+(doc.layers.length+1),visible:true,locked:false}]});onActive(id);}}>＋</button></div>
-    <button className="special top" onClick={onNoteTool}><span>固定ノート</span><em>画面固定</em><i onClick={e=>{e.stopPropagation();onChange({...doc,fixedNote:{...note,visible:!note.visible}});}}>{note.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,fixedNote:{...note,locked:!note.locked}});}}>{note.locked?'🔒':'🔓'}</i></button>
-    <div className="notes-layer-list">{[...doc.layers].reverse().map(layer=><div key={layer.id} className={'notes-layer-row '+(activeLayer===layer.id?'active':'')} onClick={()=>onActive(layer.id)}>
-      <button title="表示切替" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><span>{layer.name}</span>
-      <button title="下へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,-1);}}>↓</button><button title="上へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,1);}}>↑</button>
-      <button title="ロック" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button>
-    </div>)}</div>
-    <button className="special bottom" onClick={onSheetTool}><span>Excel</span><em>表計算・最下層</em><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,visible:!sheet.visible}});}}>{sheet.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,locked:!sheet.locked}});}}>{sheet.locked?'🔒':'🔓'}</i></button>
+    <div className="notes-layer-title"><strong>レイヤー</strong><button title="キャンバス子レイヤー追加" onClick={()=>{const id=crypto.randomUUID();onChange({...doc,layers:[...doc.layers,{id,name:'キャンバス '+(doc.layers.length+1),visible:true,locked:false}]});onActive(id);}}>＋</button></div>
+
+    <div className="notes-layer-group">
+      <button className="special top" onClick={onNoteTool}><span>ノート</span><em>固定テキスト・テキストボックス</em><i onClick={e=>{e.stopPropagation();onChange({...doc,fixedNote:{...note,visible:!note.visible}});}}>{note.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,fixedNote:{...note,locked:!note.locked}});}}>{note.locked?'🔒':'🔓'}</i></button>
+      <div className="notes-layer-children">
+        <button className="notes-layer-child" onClick={onNoteTool}><span>固定ノート</span><small>画面固定</small></button>
+        {(doc.blocks||[]).map((block,index)=><button key={block.id} className="notes-layer-child" onClick={()=>onSelectObject(block.id,'text')}><span>テキストボックス {index+1}</span><small>{cleanHTML(block.html).replace(/<[^>]+>/g,' ').trim().slice(0,22)||'空のテキスト'}</small></button>)}
+      </div>
+    </div>
+
+    <div className="notes-layer-group">
+      <div className="notes-layer-parent-label"><strong>キャンバス</strong><small>手書き・画像・ベクター</small></div>
+      <div className="notes-layer-list">{[...doc.layers].reverse().map(layer=><div key={layer.id} className={'notes-layer-row '+(activeLayer===layer.id?'active':'')} onClick={()=>onActive(layer.id)}>
+        <button title="表示切替" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><span>{layer.name}</span>
+        <button title="下へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,-1);}}>↓</button><button title="上へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,1);}}>↑</button>
+        <button title="ロック" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button>
+      </div>)}</div>
+    </div>
+
+    <div className="notes-layer-group">
+      <div className="notes-layer-parent-label"><strong>グラフ</strong><small>Excel参照・動的オブジェクト</small></div>
+      <div className="notes-layer-children">
+        {!charts.length&&<div className="notes-layer-empty">グラフなし</div>}
+        {charts.map((chart,index)=><div key={chart.id} className="notes-layer-chart-row">
+          <button onClick={()=>onSelectObject(chart.id,'chart')}><span>{chart.name||chart.title||('グラフ '+(index+1))}</span><small>{chart.range}</small></button>
+          <button title="表示切替" onClick={()=>patchChart(chart.id,{visible:chart.visible===false})}>{chart.visible===false?'○':'◉'}</button>
+          <button title="ロック" onClick={()=>patchChart(chart.id,{locked:!chart.locked})}>{chart.locked?'🔒':'🔓'}</button>
+        </div>)}
+      </div>
+    </div>
+
+    <div className="notes-layer-group excel-group">
+      <button className="special bottom" onClick={onSheetTool}><span>Excel</span><em>表計算・参照元</em><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,visible:!sheet.visible}});}}>{sheet.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,locked:!sheet.locked}});}}>{sheet.locked?'🔒':'🔓'}</i></button>
+    </div>
   </aside>;
 }
