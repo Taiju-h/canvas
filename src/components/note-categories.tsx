@@ -1,18 +1,58 @@
-import {useState} from 'react';
-import {ChevronDown,ChevronRight,Folder,Plus,Settings2,Tag,X} from 'lucide-react';
+import {useEffect,useMemo,useState} from 'react';
+import {ChevronLeft,ChevronRight,Folder,Plus,Settings2,Tag,X} from 'lucide-react';
 import {categoryParts,categoryPath,categoryTree,inCategory,type CategoryNode} from '@/lib/note-organization';
 import type {NoteIndex} from '@/lib/notes';
 export type CategoryOperation={kind:'create'|'move'|'tag';source:string;target:string;remove?:boolean};
-export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;disabled:boolean}){
-  const [collapsed,setCollapsed]=useState(new Set<string>());
-  function render(nodes:CategoryNode[],depth=0):React.ReactNode{return nodes.map(node=><div key={node.path}>
-    <div className={`notes-category-row ${selected===node.path?'active':''}`} style={{paddingLeft:depth*14}}>
-      <button aria-label={`${node.path}を${collapsed.has(node.path)?'展開':'折りたたむ'}`} aria-expanded={!collapsed.has(node.path)} disabled={!node.children.length} onClick={()=>setCollapsed(old=>{const next=new Set(old);if(next.has(node.path))next.delete(node.path);else next.add(node.path);return next;})}>{node.children.length?(collapsed.has(node.path)?<ChevronRight size={14}/>:<ChevronDown size={14}/>):<span/>}</button>
-      <button disabled={disabled} aria-label={`カテゴリ ${node.path}`} title={node.path} onClick={()=>onSelect(node.path)}><Folder size={14}/><span>{node.label}</span><small>{notes.filter(n=>!n.note?.trashedAt&&inCategory(n.note?.category||'',node.path)).length}</small></button>
-    </div>{!collapsed.has(node.path)&&render(node.children,depth+1)}
-  </div>);}
-  return <div className="notes-category-tree"><div className="notes-category-heading"><strong>カテゴリ</strong><button disabled={disabled} onClick={onManage} aria-label="カテゴリを管理"><Settings2 size={15}/></button></div>{render(categoryTree(paths))}{!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}</div>;
+
+function directCount(notes:NoteIndex[],path:string){
+  return notes.filter(n=>!n.note?.trashedAt&&inCategory(n.note?.category||'',path)).length;
 }
+
+export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;disabled:boolean}){
+  const tree=useMemo(()=>categoryTree(paths),[paths]);
+  const parts=categoryParts(selected);
+  const selectedRoot=parts[0]||'';
+  const root=tree.find(node=>node.label===selectedRoot)||null;
+  const [openRoot,setOpenRoot]=useState<string>(selectedRoot);
+  const [peekRoot,setPeekRoot]=useState(false);
+
+  useEffect(()=>{if(selectedRoot)setOpenRoot(selectedRoot);},[selectedRoot]);
+  const activeRoot=tree.find(node=>node.label===openRoot)||root;
+  const children=activeRoot?.children||[];
+  const hasCascade=!!activeRoot&&children.length>0;
+
+  function chooseRoot(node:CategoryNode){
+    setOpenRoot(node.label);setPeekRoot(false);onSelect(node.path);
+  }
+  function chooseChild(node:CategoryNode){
+    setPeekRoot(false);onSelect(node.path);
+    if(node.children.length)setOpenRoot(node.label);
+  }
+
+  return <div className={'notes-category-tree notes-category-cascade '+(hasCascade?'has-child ':'')+(peekRoot?'peek-root':'')}>
+    <div className="notes-category-heading"><strong>カテゴリ</strong><button disabled={disabled} onClick={onManage} aria-label="カテゴリを管理"><Settings2 size={15}/></button></div>
+    {!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}
+    {!!paths.length&&<div className="notes-category-cascade-stage">
+      <section className="notes-category-pane notes-category-root-pane" aria-label="大カテゴリ"
+        onMouseEnter={()=>hasCascade&&setPeekRoot(true)} onMouseLeave={()=>setPeekRoot(false)}>
+        {tree.map(node=><button key={node.path} disabled={disabled} className={selectedRoot===node.label?'active':''}
+          title={node.path} onClick={()=>chooseRoot(node)}>
+          <Folder size={14}/><span>{node.label}</span><small>{directCount(notes,node.path)}</small>{node.children.length>0&&<ChevronRight size={14}/>}
+        </button>)}
+      </section>
+      {hasCascade&&<section className="notes-category-pane notes-category-child-pane" aria-label={activeRoot!.label+' の小カテゴリ'}>
+        <button className="notes-category-parent-peek" onMouseEnter={()=>setPeekRoot(true)} onFocus={()=>setPeekRoot(true)}
+          onClick={()=>setPeekRoot(value=>!value)} aria-label="大カテゴリを表示"><ChevronLeft size={14}/><span>{activeRoot!.label}</span></button>
+        <button className={selected===activeRoot!.path?'active':''} disabled={disabled} onClick={()=>{setPeekRoot(false);onSelect(activeRoot!.path);}}>
+          <Folder size={14}/><span>このカテゴリすべて</span><small>{directCount(notes,activeRoot!.path)}</small>
+        </button>
+        {children.map(node=><button key={node.path} disabled={disabled} className={selected===node.path?'active':''} title={node.path}
+          onClick={()=>chooseChild(node)}><Folder size={14}/><span>{node.label}</span><small>{directCount(notes,node.path)}</small>{node.children.length>0&&<ChevronRight size={14}/>}</button>)}
+      </section>}
+    </div>}
+  </div>;
+}
+
 export function CategoryManager({paths,initial,busy,onClose,onApply}:{paths:string[];initial:string;busy:boolean;onClose:()=>void;onApply:(op:CategoryOperation)=>Promise<void>}){
   const [kind,setKind]=useState<CategoryOperation['kind']>('create');const [source,setSource]=useState(initial||paths[0]||'');
   const [name,setName]=useState('');const [parent,setParent]=useState(initial);const [tag,setTag]=useState('');const [remove,setRemove]=useState(true);const [error,setError]=useState('');
