@@ -57,3 +57,19 @@
   .notes-category-child-pane{left:18%;width:82%}
   .notes-category-cascade.peek-root .notes-category-child-pane{transform:translateX(64%)}
 }
+
+
+/* Four parent layer families: Note / Canvas / Graph / Excel. */
+.notes-layer-group{border-bottom:1px solid #d6dbe1;background:#f7f8fa}
+.notes-layer-parent-label{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:8px 10px 5px;background:#e9ecf0;color:#313740}
+.notes-layer-parent-label strong{font-size:12px}.notes-layer-parent-label small{font-size:9px;color:#7c8793}
+.notes-layer-children{padding:5px 7px 7px;display:flex;flex-direction:column;gap:3px}
+.notes-layer-child{width:100%;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;text-align:left;gap:8px;min-height:34px;padding:5px 8px;background:#fff;border:1px solid #dfe3e8;border-radius:5px}
+.notes-layer-child span{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.notes-layer-child small{font-size:9px;color:#8a929c;max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.notes-layer-chart-row{display:grid;grid-template-columns:minmax(0,1fr) 30px 34px;gap:3px;align-items:center}
+.notes-layer-chart-row>button:first-child{display:grid;grid-template-columns:minmax(0,1fr) auto;text-align:left;gap:6px;min-height:34px;padding:5px 7px;background:#fff;border:1px solid #dfe3e8;border-radius:5px}
+.notes-layer-chart-row span{font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.notes-layer-chart-row small{font-size:9px;color:#7f8994}
+.notes-layer-chart-row>button:not(:first-child){min-height:32px;padding:0}
+.notes-layer-empty{padding:9px;color:#9098a2;font-size:10px}
+.notes-layer-group.excel-group{margin-top:auto;border-bottom:0}.notes-layer-group.excel-group .special.bottom{margin-top:0}
+.notes-chart.locked{pointer-events:none!important;opacity:.72}
