@@ -29,7 +29,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public final class MainActivity extends Activity {
-    private static final String CANVAS_URL = "https://canvas.uzero.style/";
+    private static final String CANVAS_URL = "https://canvas.uzero.style/canvas/";
     private static final String CANVAS_HOST = "canvas.uzero.style";
     private static final int FILE_CHOOSER_REQUEST = 701;
 
@@ -68,8 +68,31 @@ public final class MainActivity extends Activity {
         setContentView(root);
 
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
-            webView.loadUrl(CANVAS_URL);
+            webView.loadUrl(canvasUrlFromIntent(getIntent()));
         }
+    }
+
+    private String canvasUrlFromIntent(Intent intent) {
+        if (intent == null) return CANVAS_URL;
+        Uri uri = intent.getData();
+        if (uri == null) return CANVAS_URL;
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        String path = uri.getPath();
+        if ("https".equalsIgnoreCase(scheme)
+            && CANVAS_HOST.equalsIgnoreCase(host)
+            && path != null
+            && path.startsWith("/canvas")) {
+            return uri.toString();
+        }
+        return CANVAS_URL;
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (webView != null) webView.loadUrl(canvasUrlFromIntent(intent));
     }
 
     private void configureWebView(WebView view) {
