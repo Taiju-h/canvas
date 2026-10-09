@@ -140,3 +140,9 @@
 .notes-drawer-handle.left,.notes-drawer-handle.right{height:140px}
 .notes-focus-drawing-controls{display:grid;gap:10px;min-width:210px;margin-top:28px}
 @media(max-width:760px){.notes-opacity-control input{width:80px}.notes-focus-drawing-controls{margin-top:8px}.notes-drawer-handle.top{width:150px}.notes-drawer-handle.left,.notes-drawer-handle.right{height:150px}}
+
+
+/* Keep Excel immediately adjacent to Graph in the layer panel. */
+.notes-layer-family-wrap{display:block}
+.notes-layer-family-wrap .excel-group{margin-top:0}
+.notes-layer-family-wrap .excel-special.bottom{margin-top:0!important;border-top:1px solid #cdd3da}
