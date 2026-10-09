@@ -139,14 +139,15 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
     </div>;
   };
 
-  const excelGroup=<div className="notes-layer-group excel-group" key="excel">
+  const sheetHasData=Object.values(sheet.cells||{}).some(value=>String(value).trim()!=='');
+  const excelGroup=sheetHasData?<div className="notes-layer-group excel-group" key="excel">
     <div className="special bottom excel-special">
-      <button className="excel-open" onClick={onSheetTool}><span>▦ Excel</span><em>{sheet.visible?'表示中・最下層':'非表示・使う時だけ開く'}</em></button>
+      <button className="excel-open" onClick={onSheetTool}><span>▦ Excel</span><em>{sheet.visible?'表示中・最下層':'データあり・非表示'}</em></button>
       <button title={sheet.visible?'Excelを隠す':'Excelを表示'} onClick={()=>onChange({...doc,sheet:{...sheet,visible:!sheet.visible}})}>{sheet.visible?'◉':'○'}</button>
       <button title="ロック" onClick={()=>onChange({...doc,sheet:{...sheet,locked:!sheet.locked}})}>{sheet.locked?'🔒':'🔓'}</button>
       <button title="Excelを隠す" disabled={!sheet.visible} onClick={()=>onChange({...doc,sheet:{...sheet,visible:false}})}>×</button>
     </div>
-  </div>;
+  </div>:null;
 
   return <aside className="notes-layer-panel" aria-label="レイヤー">
     <div className="notes-layer-title"><strong>レイヤー</strong><small>親レイヤーごとに順序変更</small></div>
