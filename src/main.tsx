@@ -19,6 +19,16 @@ function cachedSession(): Session | null { try { const raw=localStorage.getItem(
 function cacheSession(value: Session) { try { localStorage.setItem("canvasSessionCache", JSON.stringify(value)); } catch {} }
 
 async function readSession(): Promise<Session> {
+  const cached = cachedSession();
+  const appBridge = (window as Window & {CanvasApp?:unknown}).CanvasApp;
+  if (appBridge && cached?.authenticated && cached.accountId) {
+    void fetch(API + encodeURIComponent("/api/session"), {
+      credentials: "same-origin", cache: "no-store",
+    }).then(async response => {
+      if (response.ok) cacheSession(await response.json() as Session);
+    }).catch(()=>{});
+    return cached;
+  }
   try {
     const response = await fetch(API + encodeURIComponent("/api/session"), {
       credentials: "same-origin", cache: "no-store",
@@ -28,7 +38,6 @@ async function readSession(): Promise<Session> {
     cacheSession(result);
     return result;
   } catch (error) {
-    const cached = cachedSession();
     if (cached?.authenticated && cached.accountId) return cached;
     throw error;
   }
