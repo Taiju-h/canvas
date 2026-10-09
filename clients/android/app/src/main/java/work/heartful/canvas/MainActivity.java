@@ -29,7 +29,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public final class MainActivity extends Activity {
-    private static final String CANVAS_URL = "https://canvas.uzero.style/canvas/";
+    private static final String CANVAS_URL = "https://canvas.uzero.style/canvas/?app=0.3.2";
     private static final String CANVAS_HOST = "canvas.uzero.style";
     private static final int FILE_CHOOSER_REQUEST = 701;
 
@@ -67,9 +67,10 @@ public final class MainActivity extends Activity {
 
         setContentView(root);
 
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
-            webView.loadUrl(canvasUrlFromIntent(getIntent()));
-        }
+        // Always fetch the current web UI on app start. The document itself restores
+        // the last opened note/layer state, so restoring an old WebView page snapshot
+        // would only risk showing stale UI after an app/web update.
+        webView.loadUrl(canvasUrlFromIntent(getIntent()));
     }
 
     private String canvasUrlFromIntent(Intent intent) {
@@ -106,11 +107,11 @@ public final class MainActivity extends Activity {
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
         settings.setGeolocationEnabled(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " CanvasAndroidShell/0.3");
+        settings.setUserAgentString(settings.getUserAgentString() + " CanvasAndroidShell/0.3.2");
 
         view.setBackgroundColor(Color.rgb(250, 250, 248));
         view.setOverScrollMode(View.OVER_SCROLL_NEVER);
