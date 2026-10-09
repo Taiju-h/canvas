@@ -77,7 +77,7 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
   const note=doc.fixedNote||{html:'',visible:true,locked:false};
   const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
   const charts=doc.charts||[];
-  const order=doc.studioOrder?.length?doc.studioOrder:['note','canvas','layout','graph'];
+  const order:('note'|'canvas'|'layout'|'graph')[]=doc.studioOrder?.length?[...doc.studioOrder]:['note','canvas','layout','graph'];
   const canvasLayers=doc.layers.filter(l=>(l.studioKind||'canvas')==='canvas');
   const layoutLayers=doc.layers.filter(l=>l.studioKind==='layout');
   const patchLayer=(id:string,patch:Record<string,unknown>)=>onChange({...doc,layers:doc.layers.map(l=>l.id===id?{...l,...patch}:l)});
