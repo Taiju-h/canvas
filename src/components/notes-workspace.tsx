@@ -48,7 +48,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const notes=useNotes(accountId);const {record}=notes;
   const [sidebar,setSidebar]=useState(storedSidebar);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
-  const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
+  const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
   const [focusMode,setFocusMode]=useState(false);const [focusFloat,setFocusFloat]=useState({x:0,y:0});const [focusDrag,setFocusDrag]=useState<{dx:number;dy:number}|null>(null);const [drawer,setDrawer]=useState<'top'|'left'|'right'|''>('');const [colorOpen,setColorOpen]=useState(false);const [colorFading,setColorFading]=useState(false);
   const [archive,setArchive]=useState<JexArchive|null>(null);const [importOpen,setImportOpen]=useState(false);const [importMessage,setImportMessage]=useState('');const [importing,setImporting]=useState(false);
@@ -64,10 +64,10 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const scroll=useRef<HTMLDivElement>(null);const plane=useRef<HTMLDivElement>(null);const action=useRef<Action|null>(null);
   const fittedViewport=useRef({id:'',width:0});const extent=useRef({id:'',width:1800,height:1400});const suppressClick=useRef(false);
   const current=useRef(record);current.current=record;const cancelImport=useRef(false);const fileInput=useRef<HTMLInputElement>(null);const imageInput=useRef<HTMLInputElement>(null);const jexInput=useRef<HTMLInputElement>(null);const organizationInput=useRef<HTMLInputElement>(null);
-  const undoStack=useRef<NoteDoc[]>([]);const redoStack=useRef<NoteDoc[]>([]);const typing=useRef<{id:string;at:number}|null>(null);const [,redraw]=useState(0);const lastPen=useRef(0);const previousId=useRef('');const focusRestore=useRef({sidebar:false,layersOpen:true});const colorFadeTimer=useRef<number|undefined>(undefined);const colorCloseTimer=useRef<number|undefined>(undefined);const sheetIdleTimer=useRef<number|undefined>(undefined);
+  const undoStack=useRef<NoteDoc[]>([]);const redoStack=useRef<NoteDoc[]>([]);const typing=useRef<{id:string;at:number}|null>(null);const [,redraw]=useState(0);const lastPen=useRef(0);const previousId=useRef('');const focusRestore=useRef({sidebar:false,layersOpen:true});const colorFadeTimer=useRef<number|undefined>(undefined);const colorCloseTimer=useRef<number|undefined>(undefined);
   const doc=record?.content;const studio=doc as StudioNoteDoc|undefined;const meta=doc?.note||{category:'',tags:[]};
-  const fixedNote=studio?.fixedNote||{html:'',visible:true,locked:false};const sheet=studio?.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};const charts=studio?.charts||[];
-  useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setSelected('');setFocus('');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool('note');setWorkspaceMode('note');setSheetSelection(undefined);const layers=(record.content as StudioNoteDoc).layers;setActiveLayer(layers.find(l=>(l.studioKind||'canvas')==='canvas'&&l.visible&&!l.locked)?.id||layers.find(l=>l.visible&&!l.locked)?.id||layers[0]?.id||'');scroll.current?.scrollTo(0,0);},[record?.id]);
+  const fixedNote=studio?.fixedNote||{html:'',visible:true,locked:false};const sheet=studio?.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};const sheetHasData=Object.values(sheet.cells||{}).some(value=>String(value).trim()!=='');const sheetForView=sheetPreviewOpen&&!sheet.visible?{...sheet,visible:true}:sheet;const charts=studio?.charts||[];
+  useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setSelected('');setFocus('');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool('note');setWorkspaceMode('note');setSheetSelection(undefined);setSheetPreviewOpen(false);const layers=(record.content as StudioNoteDoc).layers;setActiveLayer(layers.find(l=>(l.studioKind||'canvas')==='canvas'&&l.visible&&!l.locked)?.id||layers.find(l=>l.visible&&!l.locked)?.id||layers[0]?.id||'');scroll.current?.scrollTo(0,0);},[record?.id]);
   useEffect(()=>{const fit=()=>{
     const d=current.current;if(!d)return;const viewportWidth=scroll.current?.clientWidth||innerWidth;
     const previous=fittedViewport.current;const promoted=previous.id.startsWith('local-')&&!d.id.startsWith('local-');
@@ -92,6 +92,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     setActiveLayer(layer.id);setWorkspaceMode(kind);return layer.id;
   }
   function chooseTool(next:typeof tool){
+    if(next!=='sheet'&&workspaceMode==='excel'&&!sheetHasData)setSheetPreviewOpen(false);
     if(next==='note'||next==='text'){setWorkspaceMode('note');setTool(next);return;}
     if(next==='sheet'){useSheetLayer();return;}
     if(next==='pen'||next==='eraser'){activateFamily('canvas');setTool(next);setFocus('');return;}
@@ -111,18 +112,17 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     const b={...block(x,y,html),background};commit({...d,blocks:[...(d.blocks||[]),b]});setSelected(b.id);setFocus(b.id);setTool('text');}
   function writableLayer(d:NoteDoc,kind?:'canvas'|'layout'){const layers=(d as StudioNoteDoc).layers;const matches=(l:(typeof layers)[number])=>(!kind||(l.studioKind||'canvas')===kind)&&l.visible&&!l.locked;return layers.find(l=>l.id===activeLayer&&matches(l))||layers.find(matches);}
   function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
-  function updateSheet(next:SheetData){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;commit({...d,sheet:next} as NoteDoc,false);}
-  function hideSheetAfterIdle(){
-    if(sheetIdleTimer.current)window.clearTimeout(sheetIdleTimer.current);
-    sheetIdleTimer.current=window.setTimeout(()=>{
-      const d=current.current?.content as StudioNoteDoc|undefined;if(!d?.sheet?.visible)return;
-      commit({...d,sheet:{...d.sheet,visible:false}} as NoteDoc,false);
-      if(workspaceMode==='excel'){setWorkspaceMode('graph');setTool('select');}
-    },20000);
+  function updateSheet(next:SheetData){
+    const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;
+    const hasData=Object.values(next.cells||{}).some(value=>String(value).trim()!=='');
+    if(!hasData&&!sheetHasData)return;
+    setSheetPreviewOpen(false);
+    commit({...d,sheet:{...next,visible:true}} as NoteDoc,false);
   }
-  function useNoteLayer(){setFocus('');setWorkspaceMode('note');setTool('note');(document.activeElement as HTMLElement)?.blur();}
-  function useSheetLayer(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};if(!state.visible)commit({...d,sheet:{...state,visible:true}} as NoteDoc);setFocus('');setWorkspaceMode('excel');setTool('sheet');(document.activeElement as HTMLElement)?.blur();hideSheetAfterIdle();}
-  function useGraphLayer(){setFocus('');setWorkspaceMode('graph');setTool('select');(document.activeElement as HTMLElement)?.blur();}
+  function leaveTransientSheet(){if(workspaceMode==='excel'&&!sheetHasData){setSheetPreviewOpen(false);setSheetSelection(undefined);}}
+  function useNoteLayer(){leaveTransientSheet();setFocus('');setWorkspaceMode('note');setTool('note');(document.activeElement as HTMLElement)?.blur();}
+  function useSheetLayer(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};if(sheetHasData&&!state.visible)commit({...d,sheet:{...state,visible:true}} as NoteDoc,false);if(!sheetHasData)setSheetPreviewOpen(true);setFocus('');setWorkspaceMode('excel');setTool('sheet');(document.activeElement as HTMLElement)?.blur();}
+  function useGraphLayer(){leaveTransientSheet();setFocus('');setWorkspaceMode('graph');setTool('select');(document.activeElement as HTMLElement)?.blur();}
   function pasteIntoSheet(text:string){
     const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!text)return;
     const state=d.sheet||{visible:true,locked:false,rows:20,cols:10,cells:{}};if(state.locked)return;
@@ -419,7 +419,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
               {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div className="notes-surface" style={{width:width*scale,height:height*scale}}>
                 <div ref={plane} className={`notes-plane tool-${tool}`} tabIndex={0} style={{width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
                   onPasteCapture={pasteWorkspace} onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
-                  <SpreadsheetLayer sheet={sheet} active={tool==='sheet'} selection={sheetSelection} onChange={next=>{updateSheet(next);hideSheetAfterIdle();}} onSelect={range=>{setSheetSelection(range);hideSheetAfterIdle();}} onInteract={hideSheetAfterIdle}/>
+                  <SpreadsheetLayer sheet={sheetForView} active={tool==='sheet'} selection={sheetSelection} onChange={updateSheet} onSelect={setSheetSelection}/>
                   <svg className="notes-ink" width={width} height={height}>
                     {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><LegacyImage key={l.id} docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/>)}
                     {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={i.opacity??1} fill={i.fill||'none'}>
