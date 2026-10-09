@@ -15,13 +15,23 @@ type Session = {
 const API = "/canvas/api.php?path=";
 function stored(key: string) { try { return localStorage.getItem(key) || ""; } catch { return ""; } }
 function store(key: string, value: string) { try { localStorage.setItem(key, value); } catch {} }
+function cachedSession(): Session | null { try { const raw=localStorage.getItem("canvasSessionCache"); return raw?JSON.parse(raw) as Session:null; } catch { return null; } }
+function cacheSession(value: Session) { try { localStorage.setItem("canvasSessionCache", JSON.stringify(value)); } catch {} }
 
 async function readSession(): Promise<Session> {
-  const response = await fetch(API + encodeURIComponent("/api/session"), {
-    credentials: "same-origin", cache: "no-store",
-  });
-  if (!response.ok) throw new Error("利用者情報を確認できません");
-  return response.json() as Promise<Session>;
+  try {
+    const response = await fetch(API + encodeURIComponent("/api/session"), {
+      credentials: "same-origin", cache: "no-store",
+    });
+    if (!response.ok) throw new Error("利用者情報を確認できません");
+    const result = await response.json() as Session;
+    cacheSession(result);
+    return result;
+  } catch (error) {
+    const cached = cachedSession();
+    if (cached?.authenticated && cached.accountId) return cached;
+    throw error;
+  }
 }
 
 function VisitorGate({ session, onReady }: { session: Session; onReady: (next: Session) => void }) {
@@ -49,6 +59,7 @@ function VisitorGate({ session, onReady }: { session: Session; onReady: (next: S
           if (result.visitorToken) store("canvasVisitorToken", result.visitorToken);
           store("canvasVisitorNickname", name);
           window.CanvasCsrf = result.csrfToken || "";
+          cacheSession(result);
           onReady(result);
         } catch (err) { setError(err instanceof Error ? err.message : "利用者情報を保存できません"); }
         finally { setBusy(false); }
@@ -63,6 +74,38 @@ function VisitorGate({ session, onReady }: { session: Session; onReady: (next: S
   </main>;
 }
 
+
+function UpdateBadge() {
+  const [available,setAvailable]=useState(false);
+  const [updating,setUpdating]=useState(false);
+  const [message,setMessage]=useState("");
+  useEffect(()=>{
+    let live=true;
+    const check=async()=>{
+      try{
+        const local=await fetch("/canvas/build-version.json",{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject());
+        const remote=await fetch("/canvas/build-version.json?remote=1&t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject());
+        if(live)setAvailable(!!local?.buildId&&!!remote?.buildId&&local.buildId!==remote.buildId);
+      }catch{}
+    };
+    const timer=window.setTimeout(()=>void check(),800);
+    const interval=window.setInterval(()=>void check(),5*60*1000);
+    const failed=(event:Event)=>{const detail=(event as CustomEvent<string>).detail||"更新できませんでした";setUpdating(false);setMessage(detail);};
+    addEventListener("canvas-update-failed",failed);
+    return()=>{live=false;clearTimeout(timer);clearInterval(interval);removeEventListener("canvas-update-failed",failed);};
+  },[]);
+  if(!available&&!message)return null;
+  return <div className="canvas-update-status">
+    {available&&<button title="新しいCanvasがあります" disabled={updating} onClick={()=>{
+      setUpdating(true);setMessage("");
+      const bridge=(window as Window & {CanvasApp?:{applyWebUpdate?:()=>void}}).CanvasApp;
+      if(bridge?.applyWebUpdate) bridge.applyWebUpdate();
+      else { location.href="/canvas/?remoteui=1&update="+Date.now(); }
+    }}><b>!</b><span>{updating?"更新中…":"更新あり"}</span></button>}
+    {message&&<button className="error" onClick={()=>setMessage("")}>{message}</button>}
+  </div>;
+}
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [fatal, setFatal] = useState("");
@@ -74,8 +117,8 @@ function App() {
   }, []);
   if (fatal) return <main className="visitor-gate"><section className="visitor-card"><h1>接続できません</h1><p>{fatal}</p></section></main>;
   if (!session) return <main className="hybrid-loading"><div className="hybrid-spinner" />起動しています…</main>;
-  if (!session.authenticated) return <VisitorGate session={session} onReady={setSession} />;
-  return <NotesWorkspace accountId={session.accountId || ""} />;
+  if (!session.authenticated) return <><VisitorGate session={session} onReady={setSession} /><UpdateBadge /></>;
+  return <><NotesWorkspace accountId={session.accountId || ""} /><UpdateBadge /></>;
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
