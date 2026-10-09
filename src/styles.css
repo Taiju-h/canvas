@@ -220,3 +220,10 @@ button:disabled { opacity: .4; cursor: default; }
   .title-wrap input { max-width: 115px; }
   .header-btn.signin { max-width: 65px; line-height: 1.1; text-align: center; }
 }
+
+
+.canvas-update-status{position:fixed;left:10px;bottom:8px;z-index:140;display:flex;gap:6px;align-items:center;pointer-events:none}
+.canvas-update-status button{pointer-events:auto;display:flex;align-items:center;gap:6px;min-height:30px;padding:4px 9px;border:1px solid #d9a400;border-radius:9px;background:#fff7c2;color:#6b5200;box-shadow:0 4px 16px #0002;font-size:11px;font-weight:700}
+.canvas-update-status button b{display:grid;place-items:center;width:19px;height:19px;border-radius:50%;background:#f2b700;color:#111;font-size:14px;line-height:1}
+.canvas-update-status button.error{border-color:#d99a9a;background:#fff0f0;color:#8d3434}
+@media(max-width:760px){.canvas-update-status{left:6px;bottom:5px}.canvas-update-status button span{display:none}.canvas-update-status button{width:31px;height:31px;padding:4px;justify-content:center}}
