@@ -10,8 +10,8 @@ android {
         applicationId = "work.heartful.canvas"
         minSdk = 29
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.3.2-web-shell"
+        versionCode = 7
+        versionName = "0.4.0-local-first"
     }
 
     compileOptions {
