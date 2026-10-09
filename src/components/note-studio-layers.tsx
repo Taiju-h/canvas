@@ -3,7 +3,8 @@ import { cleanHTML, type NoteDoc } from '@/lib/notes';
 
 export type SheetData={visible:boolean;locked:boolean;rows:number;cols:number;cells:Record<string,string>};
 export type ChartItem={id:string;layerId:string;x:number;y:number;w:number;h:number;type:'bar'|'line'|'pie';range:string;title?:string;visible?:boolean;locked?:boolean;name?:string};
-export type StudioNoteDoc=NoteDoc & {fixedNote?:{html:string;visible:boolean;locked:boolean};sheet?:SheetData;charts?:ChartItem[]};
+export type StudioLayer=NoteDoc['layers'][number] & {studioKind?:'canvas'|'layout'};
+export type StudioNoteDoc=Omit<NoteDoc,'layers'> & {layers:StudioLayer[];fixedNote?:{html:string;visible:boolean;locked:boolean};sheet?:SheetData;charts?:ChartItem[];studioOrder?:('note'|'canvas'|'layout'|'graph')[]};
 
 export type CellRange={start:string;end:string};
 
@@ -76,43 +77,73 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
   const note=doc.fixedNote||{html:'',visible:true,locked:false};
   const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
   const charts=doc.charts||[];
+  const order=doc.studioOrder?.length?doc.studioOrder:['note','canvas','layout','graph'];
+  const canvasLayers=doc.layers.filter(l=>(l.studioKind||'canvas')==='canvas');
+  const layoutLayers=doc.layers.filter(l=>l.studioKind==='layout');
   const patchLayer=(id:string,patch:Record<string,unknown>)=>onChange({...doc,layers:doc.layers.map(l=>l.id===id?{...l,...patch}:l)});
   const patchChart=(id:string,patch:Partial<ChartItem>)=>onChange({...doc,charts:charts.map(c=>c.id===id?{...c,...patch}:c)});
-  const moveLayer=(id:string,dir:-1|1)=>{const list=[...doc.layers],index=list.findIndex(l=>l.id===id),to=index+dir;if(index<0||to<0||to>=list.length)return;[list[index],list[to]]=[list[to],list[index]];onChange({...doc,layers:list});};
-  return <aside className="notes-layer-panel" aria-label="レイヤー">
-    <div className="notes-layer-title"><strong>レイヤー</strong><button title="キャンバス子レイヤー追加" onClick={()=>{const id=crypto.randomUUID();onChange({...doc,layers:[...doc.layers,{id,name:'キャンバス '+(doc.layers.length+1),visible:true,locked:false}]});onActive(id);}}>＋</button></div>
+  const moveChild=(id:string,dir:-1|1)=>{
+    const kind=doc.layers.find(l=>l.id===id)?.studioKind||'canvas';
+    const ids=doc.layers.filter(l=>(l.studioKind||'canvas')===kind).map(l=>l.id);
+    const i=ids.indexOf(id),j=i+dir;if(i<0||j<0||j>=ids.length)return;
+    const target=ids[j],a=doc.layers.findIndex(l=>l.id===id),b=doc.layers.findIndex(l=>l.id===target);
+    const layers=[...doc.layers];[layers[a],layers[b]]=[layers[b],layers[a]];onChange({...doc,layers});
+  };
+  const moveGroup=(kind:'note'|'canvas'|'layout'|'graph',dir:-1|1)=>{
+    const list=[...order],i=list.indexOf(kind),j=i+dir;if(i<0||j<0||j>=list.length)return;
+    [list[i],list[j]]=[list[j],list[i]];onChange({...doc,studioOrder:list});
+  };
+  const addLayer=(kind:'canvas'|'layout')=>{
+    const id=crypto.randomUUID(), count=doc.layers.filter(l=>(l.studioKind||'canvas')===kind).length+1;
+    onChange({...doc,layers:[...doc.layers,{id,name:(kind==='canvas'?'キャンバス ':'レイアウト ')+count,visible:true,locked:false,studioKind:kind}]});onActive(id);
+  };
+  const groupButtons=(kind:'note'|'canvas'|'layout'|'graph')=><span className="notes-layer-order">
+    <button title="この親レイヤーを上へ" disabled={order.indexOf(kind)===0} onClick={e=>{e.stopPropagation();moveGroup(kind,-1);}}>↑</button>
+    <button title="この親レイヤーを下へ" disabled={order.indexOf(kind)===order.length-1} onClick={e=>{e.stopPropagation();moveGroup(kind,1);}}>↓</button>
+  </span>;
 
-    <div className="notes-layer-group">
-      <button className="special top" onClick={onNoteTool}><span>ノート</span><em>固定テキスト・テキストボックス</em><i onClick={e=>{e.stopPropagation();onChange({...doc,fixedNote:{...note,visible:!note.visible}});}}>{note.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,fixedNote:{...note,locked:!note.locked}});}}>{note.locked?'🔒':'🔓'}</i></button>
+  const renderGroup=(kind:'note'|'canvas'|'layout'|'graph')=>{
+    if(kind==='note')return <div className="notes-layer-group" key="note">
+      <div className="notes-layer-parent-label active-family" onClick={onNoteTool}><strong>▤ ノート</strong><small>文字・文章</small>{groupButtons('note')}</div>
       <div className="notes-layer-children">
-        <button className="notes-layer-child" onClick={onNoteTool}><span>固定ノート</span><small>画面固定</small></button>
+        <div className="notes-layer-child-row"><button className="notes-layer-child" onClick={onNoteTool}><span>固定ノート</span><small>ワープロ</small></button><button onClick={()=>onChange({...doc,fixedNote:{...note,visible:!note.visible}})}>{note.visible?'◉':'○'}</button><button onClick={()=>onChange({...doc,fixedNote:{...note,locked:!note.locked}})}>{note.locked?'🔒':'🔓'}</button></div>
         {(doc.blocks||[]).map((block,index)=><button key={block.id} className="notes-layer-child" onClick={()=>onSelectObject(block.id,'text')}><span>テキストボックス {index+1}</span><small>{cleanHTML(block.html).replace(/<[^>]+>/g,' ').trim().slice(0,22)||'空のテキスト'}</small></button>)}
       </div>
-    </div>
+    </div>;
 
-    <div className="notes-layer-group">
-      <div className="notes-layer-parent-label"><strong>キャンバス</strong><small>手書き・画像・ベクター</small></div>
-      <div className="notes-layer-list">{[...doc.layers].reverse().map(layer=><div key={layer.id} className={'notes-layer-row '+(activeLayer===layer.id?'active':'')} onClick={()=>onActive(layer.id)}>
-        <button title="表示切替" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><span>{layer.name}</span>
-        <button title="下へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,-1);}}>↓</button><button title="上へ" onClick={e=>{e.stopPropagation();moveLayer(layer.id,1);}}>↑</button>
-        <button title="ロック" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button>
-      </div>)}</div>
-    </div>
+    if(kind==='canvas')return <div className="notes-layer-group" key="canvas">
+      <div className="notes-layer-parent-label"><strong>✎ キャンバス</strong><small>手書き・ペン</small>{groupButtons('canvas')}<button className="notes-layer-add" title="キャンバスレイヤーを追加" onClick={()=>addLayer('canvas')}>＋</button></div>
+      <div className="notes-layer-list">{canvasLayers.map(layer=><div key={layer.id} className={'notes-layer-row '+(activeLayer===layer.id?'active':'')} onClick={()=>onActive(layer.id)}>
+        <button title="表示" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><span>{layer.name}</span>
+        <button onClick={e=>{e.stopPropagation();moveChild(layer.id,-1);}}>↑</button><button onClick={e=>{e.stopPropagation();moveChild(layer.id,1);}}>↓</button><button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button>
+      </div>)}{!canvasLayers.length&&<button className="notes-layer-empty-button" onClick={()=>addLayer('canvas')}>＋ キャンバスレイヤー</button>}</div>
+    </div>;
 
-    <div className="notes-layer-group">
-      <div className="notes-layer-parent-label"><strong>グラフ</strong><small>Excel参照・動的オブジェクト</small></div>
-      <div className="notes-layer-children">
-        {!charts.length&&<div className="notes-layer-empty">グラフなし</div>}
+    if(kind==='layout')return <div className="notes-layer-group" key="layout">
+      <div className="notes-layer-parent-label"><strong>◇ レイアウト</strong><small>図形・画像・選択</small>{groupButtons('layout')}<button className="notes-layer-add" title="レイアウトレイヤーを追加" onClick={()=>addLayer('layout')}>＋</button></div>
+      <div className="notes-layer-list">{layoutLayers.map(layer=><div key={layer.id} className={'notes-layer-row '+(activeLayer===layer.id?'active':'')} onClick={()=>onActive(layer.id)}>
+        <button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><span>{layer.name}</span>
+        <button onClick={e=>{e.stopPropagation();moveChild(layer.id,-1);}}>↑</button><button onClick={e=>{e.stopPropagation();moveChild(layer.id,1);}}>↓</button><button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button>
+      </div>)}{!layoutLayers.length&&<button className="notes-layer-empty-button" onClick={()=>addLayer('layout')}>＋ レイアウトレイヤー</button>}</div>
+    </div>;
+
+    return <div className="notes-layer-group" key="graph">
+      <div className="notes-layer-parent-label"><strong>▥ グラフ</strong><small>Excel参照</small>{groupButtons('graph')}</div>
+      <div className="notes-layer-children">{!charts.length&&<div className="notes-layer-empty">グラフなし</div>}
         {charts.map((chart,index)=><div key={chart.id} className="notes-layer-chart-row">
           <button onClick={()=>onSelectObject(chart.id,'chart')}><span>{chart.name||chart.title||('グラフ '+(index+1))}</span><small>{chart.range}</small></button>
-          <button title="表示切替" onClick={()=>patchChart(chart.id,{visible:chart.visible===false})}>{chart.visible===false?'○':'◉'}</button>
-          <button title="ロック" onClick={()=>patchChart(chart.id,{locked:!chart.locked})}>{chart.locked?'🔒':'🔓'}</button>
+          <button onClick={()=>patchChart(chart.id,{visible:chart.visible===false})}>{chart.visible===false?'○':'◉'}</button>
+          <button onClick={()=>patchChart(chart.id,{locked:!chart.locked})}>{chart.locked?'🔒':'🔓'}</button>
         </div>)}
       </div>
-    </div>
+    </div>;
+  };
 
+  return <aside className="notes-layer-panel" aria-label="レイヤー">
+    <div className="notes-layer-title"><strong>レイヤー</strong><small>親レイヤーごとに順序変更</small></div>
+    {order.map(renderGroup)}
     <div className="notes-layer-group excel-group">
-      <button className="special bottom" onClick={onSheetTool}><span>Excel</span><em>表計算・参照元</em><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,visible:!sheet.visible}});}}>{sheet.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,locked:!sheet.locked}});}}>{sheet.locked?'🔒':'🔓'}</i></button>
+      <button className="special bottom" onClick={onSheetTool}><span>▦ Excel</span><em>最下層・固定</em><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,visible:!sheet.visible}});}}>{sheet.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,locked:!sheet.locked}});}}>{sheet.locked?'🔒':'🔓'}</i></button>
     </div>
   </aside>;
 }
