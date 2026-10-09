@@ -35,11 +35,11 @@ export function FixedNoteLayer({html,visible,locked,active,onChange}:{html:strin
   </div>;
 }
 
-export function SpreadsheetLayer({sheet,active,selection,onChange,onSelect}:{sheet:SheetData;active:boolean;selection?:CellRange;onChange:(next:SheetData)=>void;onSelect:(range:CellRange)=>void}){
+export function SpreadsheetLayer({sheet,active,selection,onChange,onSelect,onInteract}:{sheet:SheetData;active:boolean;selection?:CellRange;onChange:(next:SheetData)=>void;onSelect:(range:CellRange)=>void;onInteract?:()=>void}){
   const [anchor,setAnchor]=useState('');
   if(!sheet.visible)return null;
   const selected=new Set(selection?rangeKeys(selection.start+':'+selection.end):[]);
-  return <div className={'notes-sheet-layer '+(active?'active':'')+(sheet.locked?' locked':'')} style={{width:62+sheet.cols*112,height:34+sheet.rows*32}}>
+  return <div className={'notes-sheet-layer '+(active?'active':'')+(sheet.locked?' locked':'')} style={{width:62+sheet.cols*112,height:34+sheet.rows*32}} onPointerDown={onInteract} onKeyDown={onInteract} onFocusCapture={onInteract}>
     <div className="sheet-corner">fx</div>{Array.from({length:sheet.cols},(_,c)=><div key={'h'+c} className="sheet-col" style={{left:62+c*112}}>{colName(c)}</div>)}
     {Array.from({length:sheet.rows},(_,r)=><div key={'r'+r} className="sheet-row" style={{top:34+r*32}}>{r+1}</div>)}
     {Array.from({length:sheet.rows},(_,r)=>Array.from({length:sheet.cols},(_,c)=>{const key=cellKey(r,c);const raw=sheet.cells[key]||'';return <input key={key} data-cell={key} className={selected.has(key)?'selected':''}
@@ -139,16 +139,17 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
     </div>;
   };
 
+  const excelGroup=<div className="notes-layer-group excel-group" key="excel">
+    <div className="special bottom excel-special">
+      <button className="excel-open" onClick={onSheetTool}><span>▦ Excel</span><em>{sheet.visible?'表示中・最下層':'非表示・使う時だけ開く'}</em></button>
+      <button title={sheet.visible?'Excelを隠す':'Excelを表示'} onClick={()=>onChange({...doc,sheet:{...sheet,visible:!sheet.visible}})}>{sheet.visible?'◉':'○'}</button>
+      <button title="ロック" onClick={()=>onChange({...doc,sheet:{...sheet,locked:!sheet.locked}})}>{sheet.locked?'🔒':'🔓'}</button>
+      <button title="Excelを隠す" disabled={!sheet.visible} onClick={()=>onChange({...doc,sheet:{...sheet,visible:false}})}>×</button>
+    </div>
+  </div>;
+
   return <aside className="notes-layer-panel" aria-label="レイヤー">
     <div className="notes-layer-title"><strong>レイヤー</strong><small>親レイヤーごとに順序変更</small></div>
-    {order.map(renderGroup)}
-    <div className="notes-layer-group excel-group">
-      <div className="special bottom excel-special">
-        <button className="excel-open" onClick={onSheetTool}><span>▦ Excel</span><em>{sheet.visible?'表示中・最下層':'非表示・使う時だけ開く'}</em></button>
-        <button title={sheet.visible?'Excelを隠す':'Excelを表示'} onClick={()=>onChange({...doc,sheet:{...sheet,visible:!sheet.visible}})}>{sheet.visible?'◉':'○'}</button>
-        <button title="ロック" onClick={()=>onChange({...doc,sheet:{...sheet,locked:!sheet.locked}})}>{sheet.locked?'🔒':'🔓'}</button>
-        <button title="Excelを隠す" disabled={!sheet.visible} onClick={()=>onChange({...doc,sheet:{...sheet,visible:false}})}>×</button>
-      </div>
-    </div>
+    {order.map(kind=><div key={kind} className="notes-layer-family-wrap">{renderGroup(kind)}{kind==='graph'&&excelGroup}</div>)}
   </aside>;
 }
