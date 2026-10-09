@@ -143,7 +143,12 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
     <div className="notes-layer-title"><strong>レイヤー</strong><small>親レイヤーごとに順序変更</small></div>
     {order.map(renderGroup)}
     <div className="notes-layer-group excel-group">
-      <button className="special bottom" onClick={onSheetTool}><span>▦ Excel</span><em>最下層・固定</em><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,visible:!sheet.visible}});}}>{sheet.visible?'◉':'○'}</i><i onClick={e=>{e.stopPropagation();onChange({...doc,sheet:{...sheet,locked:!sheet.locked}});}}>{sheet.locked?'🔒':'🔓'}</i></button>
+      <div className="special bottom excel-special">
+        <button className="excel-open" onClick={onSheetTool}><span>▦ Excel</span><em>{sheet.visible?'表示中・最下層':'非表示・使う時だけ開く'}</em></button>
+        <button title={sheet.visible?'Excelを隠す':'Excelを表示'} onClick={()=>onChange({...doc,sheet:{...sheet,visible:!sheet.visible}})}>{sheet.visible?'◉':'○'}</button>
+        <button title="ロック" onClick={()=>onChange({...doc,sheet:{...sheet,locked:!sheet.locked}})}>{sheet.locked?'🔒':'🔓'}</button>
+        <button title="Excelを隠す" disabled={!sheet.visible} onClick={()=>onChange({...doc,sheet:{...sheet,visible:false}})}>×</button>
+      </div>
     </div>
   </aside>;
 }
