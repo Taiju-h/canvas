@@ -125,3 +125,18 @@
 .notes-focus-drawer.left{left:0;top:0;bottom:0;width:74px;padding:38px 7px 10px;transform:translateX(-110%);display:flex;flex-direction:column;gap:6px}.notes-focus-drawer.left.open{transform:translateX(0)}.notes-focus-drawer.left button{min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}.notes-focus-drawer.left small{font-size:8px}
 .notes-focus-drawer.right{right:0;top:0;bottom:0;width:min(300px,85vw);transform:translateX(110%);overflow:auto}.notes-focus-drawer.right.open{transform:translateX(0)}.notes-focus-drawer.right .notes-layer-panel{display:flex!important;width:100%;height:100%;border-left:0}
 @media(max-width:760px){.notes-color-popover{top:46px;right:8px;width:calc(100vw - 16px)}.notes-color-palette{grid-template-columns:repeat(8,1fr)}.notes-color-fields{grid-template-columns:repeat(2,minmax(62px,1fr))}.notes-focus-drawer.top{display:block;padding:28px 10px 10px;max-height:58vh;overflow:auto}.notes-focus-drawer.top .notes-color-studio{width:100%}.notes-focus-drawer.top .notes-width-control{margin-top:8px}.notes-focus-drawer.left{width:62px}}
+
+
+/* Follow-up polish: transient colors, pen opacity, Excel placement, focus handles */
+.notes-color-popover{opacity:1;transition:opacity .5s ease,transform .5s ease}
+.notes-color-popover.fading{opacity:0;transform:translateY(-6px);pointer-events:auto}
+.notes-opacity-control{display:flex;align-items:center;gap:6px;font-size:10px;white-space:nowrap}.notes-opacity-control input{width:95px}.notes-opacity-control b{min-width:38px;text-align:right}
+.notes-sheet-layer{left:0!important;top:0!important}
+.notes-layer-panel .excel-special{display:grid!important;grid-template-columns:minmax(0,1fr) 30px 34px 30px!important;align-items:center;gap:3px}
+.notes-layer-panel .excel-special .excel-open{display:flex;min-width:0;align-items:center;justify-content:space-between;gap:8px;text-align:left;background:transparent;border:0;padding:0 4px}
+.notes-layer-panel .excel-special .excel-open span{font-weight:700;white-space:nowrap}.notes-layer-panel .excel-special .excel-open em{font-size:9px;color:#89929d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notes-layer-panel .excel-special>button:not(.excel-open){min-height:30px;padding:0}
+.notes-drawer-handle.top{width:140px}
+.notes-drawer-handle.left,.notes-drawer-handle.right{height:140px}
+.notes-focus-drawing-controls{display:grid;gap:10px;min-width:210px;margin-top:28px}
+@media(max-width:760px){.notes-opacity-control input{width:80px}.notes-focus-drawing-controls{margin-top:8px}.notes-drawer-handle.top{width:150px}.notes-drawer-handle.left,.notes-drawer-handle.right{height:150px}}
