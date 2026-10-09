@@ -13,6 +13,9 @@ export function useNotes(accountId: string) {
   const active = useRef(''); const blocked = useRef(new Set<string>());
   const jobs = useRef(new Map<string,Promise<void>>()); const timers = useRef(new Map<string,ReturnType<typeof setTimeout>>());
   const localJobs = useRef(Promise.resolve()); const openSeq = useRef(0);
+  const lastOpenKey = 'canvas-last-open:'+accountId;
+  function rememberOpen(id:string) { try { localStorage.setItem(lastOpenKey,id); } catch {} }
+  function rememberedOpen() { try { return localStorage.getItem(lastOpenKey)||''; } catch { return ''; } }
   function show(next: NoteRecord) { records.current.set(next.id,next); if (active.current === next.id) { setRecord(next); setConflict(blocked.current.has(next.id)); }
     setList(old => [indexOf(next), ...old.filter(n=>n.id!==next.id)].sort((a,b)=>b.updated_at-a.updated_at)); }
   function persist(next: NoteRecord) {
@@ -82,7 +85,7 @@ export function useNotes(accountId: string) {
     })().finally(()=>{ jobs.current.delete(id); });
     jobs.current.set(id,job); return job;
   }
-  function setURL(id:string) { const url=new URL(location.href);url.searchParams.set('d',id);history.replaceState(null,'',url); }
+  function setURL(id:string) { rememberOpen(id); const url=new URL(location.href);url.searchParams.set('d',id);history.replaceState(null,'',url); }
   function change(content:NoteDoc, title?:string) {
     const previous=records.current.get(active.current); if(!previous)return;
     const next={...previous,content,title:title??previous.title,updated_at:Date.now(),dirty:true};show(next);
@@ -135,8 +138,25 @@ export function useNotes(accountId: string) {
   }
   useEffect(()=>{
     let live=true;
-    void refresh().then(async rows=>{if(!live)return;const wanted=new URLSearchParams(location.search).get('d');
-      const target=rows.find(n=>n.id===wanted)||rows.find(n=>!n.note?.trashedAt);if(target)await open(target.id);else await create();}).catch(err=>setError(String(err)));
+    void (async()=>{
+      const wanted=new URLSearchParams(location.search).get('d')||rememberedOpen();
+      // Fast path for APK/WebView startup: restore the last cached document first,
+      // then refresh the remote index in the background.
+      if(wanted){
+        const cached=await getLocalDoc(wanted).catch(()=>undefined);
+        if(live&&cached?.accountId===accountId){
+          const next={...cached,content:normalizeNote(cached.content)} as NoteRecord;
+          active.current=wanted;show(next);setURL(wanted);setBusy(false);
+          setStatus(next.dirty?'同期待ち':'端末から復元');
+        }
+      }
+      const rows=await refresh();if(!live)return;
+      const target=rows.find(n=>n.id===wanted)||rows.find(n=>!n.note?.trashedAt);
+      if(target){
+        if(active.current!==target.id || !records.current.get(target.id)) await open(target.id);
+        else if(navigator.onLine&&!target.id.startsWith('local-')) void open(target.id);
+      } else if(!active.current) await create();
+    })().catch(err=>setError(String(err)));
     const online=()=>{for(const n of records.current.values())if(n.dirty)void save(n.id);};
     const before=(e:BeforeUnloadEvent)=>{if([...records.current.values()].some(n=>n.dirty)){e.preventDefault();e.returnValue='';}};
     addEventListener('online',online);addEventListener('beforeunload',before);
