@@ -14,6 +14,7 @@ const files = [...built].sort().map(name => "/canvas/" + name);
 await writeFile(join(output, "offline-assets.json"), JSON.stringify(files));
 const serviceWorker = await readFile(join(root, "public", "sw.js"), "utf8");
 const buildId = createHash("sha256").update(JSON.stringify(files)).digest("hex").slice(0, 12);
+await writeFile(join(output, "build-version.json"), JSON.stringify({ buildId }));
 await writeFile(join(output, "sw.js"), serviceWorker.replace("__BUILD_ID__", buildId));
 await copyFile(join(root, "public", "favicon.svg"), join(output, "favicon.svg"));
 await copyFile(join(root, "public", "manifest.webmanifest"), join(output, "manifest.webmanifest"));
