@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box } from 'lucide-react';
+import { PanelLeft, Plus, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
@@ -21,6 +21,27 @@ function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:numb
   return url?<image href={url} x={x} y={y} width={w} height={h}/>:null;
 }
 
+
+type ColorMode='palette'|'wheel'|'hsb'|'cmyk';
+const COLOR_PALETTE=['#000000','#343739','#ffffff','#ef4444','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#14b8a6','#06b6d4','#0ea5e9','#3b82f6','#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899','#f43f5e','#7f1d1d','#78350f','#365314','#064e3b','#164e63','#1e3a8a','#312e81','#581c87','#831843'];
+function clamp255(n:number){return Math.max(0,Math.min(255,Math.round(n)));}
+function rgbHex(r:number,g:number,b:number){return '#'+[r,g,b].map(v=>clamp255(v).toString(16).padStart(2,'0')).join('');}
+function hsbToHex(h:number,s:number,v:number){const hh=((h%360)+360)%360,ss=Math.max(0,Math.min(100,s))/100,vv=Math.max(0,Math.min(100,v))/100,c=vv*ss,x=c*(1-Math.abs((hh/60)%2-1)),m=vv-c;let r=0,g=0,b=0;if(hh<60){r=c;g=x}else if(hh<120){r=x;g=c}else if(hh<180){g=c;b=x}else if(hh<240){g=x;b=c}else if(hh<300){r=x;b=c}else{r=c;b=x}return rgbHex((r+m)*255,(g+m)*255,(b+m)*255);}
+function cmykToHex(c:number,m:number,y:number,k:number){const C=Math.max(0,Math.min(100,c))/100,M=Math.max(0,Math.min(100,m))/100,Y=Math.max(0,Math.min(100,y))/100,K=Math.max(0,Math.min(100,k))/100;return rgbHex(255*(1-C)*(1-K),255*(1-M)*(1-K),255*(1-Y)*(1-K));}
+function ColorStudio({color,onChange}:{color:string;onChange:(color:string)=>void}){
+  const [mode,setMode]=useState<ColorMode>('palette');const [h,setH]=useState(220);const [s,setS]=useState(85);const [b,setB]=useState(90);const [c,setC]=useState(0);const [m,setM]=useState(45);const [y,setY]=useState(80);const [k,setK]=useState(5);
+  const wheel=(e:ReactPointerEvent<HTMLDivElement>)=>{const r=e.currentTarget.getBoundingClientRect(),dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2);const next=(Math.atan2(dy,dx)*180/Math.PI+450)%360;setH(next);onChange(hsbToHex(next,s,b));};
+  const hsb=(H=h,S=s,B=b)=>{setH(H);setS(S);setB(B);onChange(hsbToHex(H,S,B));};
+  const cmyk=(C=c,M=m,Y=y,K=k)=>{setC(C);setM(M);setY(Y);setK(K);onChange(cmykToHex(C,M,Y,K));};
+  return <div className="notes-color-studio" onMouseDown={e=>e.preventDefault()}>
+    <div className="notes-color-tabs"><Palette size={15}/>{(['palette','wheel','hsb','cmyk'] as ColorMode[]).map(v=><button key={v} className={mode===v?'active':''} onClick={()=>setMode(v)}>{v==='palette'?'パレット':v==='wheel'?'カラーサークル':v.toUpperCase()}</button>)}</div>
+    {mode==='palette'&&<div className="notes-color-palette">{COLOR_PALETTE.map(v=><button key={v} title={v} aria-label={v} className={color.toLowerCase()===v?'active':''} style={{background:v}} onClick={()=>onChange(v)}/>)}</div>}
+    {mode==='wheel'&&<div className="notes-color-wheel-wrap"><div className="notes-color-wheel" onPointerDown={wheel} onPointerMove={e=>{if(e.buttons)wheel(e);}}><i style={{transform:`rotate(${h}deg) translateX(42px)`}}/></div><div className="notes-color-sliders"><label>S <input type="range" min="0" max="100" value={s} onChange={e=>hsb(h,Number(e.target.value),b)}/></label><label>B <input type="range" min="0" max="100" value={b} onChange={e=>hsb(h,s,Number(e.target.value))}/></label></div></div>}
+    {mode==='hsb'&&<div className="notes-color-fields">{[['H',h,360],['S',s,100],['B',b,100]].map(([name,val,max])=><label key={String(name)}>{name}<input type="number" min="0" max={Number(max)} value={Math.round(Number(val))} onChange={e=>{const n=Number(e.target.value);if(name==='H')hsb(n,s,b);else if(name==='S')hsb(h,n,b);else hsb(h,s,n);}}/></label>)}</div>}
+    {mode==='cmyk'&&<div className="notes-color-fields">{[['C',c],['M',m],['Y',y],['K',k]].map(([name,val])=><label key={String(name)}>{name}<input type="number" min="0" max="100" value={Math.round(Number(val))} onChange={e=>{const n=Number(e.target.value);if(name==='C')cmyk(n,m,y,k);else if(name==='M')cmyk(c,n,y,k);else if(name==='Y')cmyk(c,m,n,k);else cmyk(c,m,y,n);}}/></label>)}</div>}
+    <div className="notes-color-current"><span style={{background:color}}/><code>{color.toUpperCase()}</code><input type="color" value={color} onChange={e=>onChange(e.target.value)}/></div>
+  </div>;
+}
 type Action={pointerId:number;verticalOnly?:boolean;kind:'move'|'resize'|'ink'|'pan'|'shape';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId}:{accountId:string}){
@@ -29,6 +50,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
+  const [focusMode,setFocusMode]=useState(false);const [focusFloat,setFocusFloat]=useState({x:0,y:0});const [focusDrag,setFocusDrag]=useState<{dx:number;dy:number}|null>(null);const [drawer,setDrawer]=useState<'top'|'left'|'right'|''>('');const [colorOpen,setColorOpen]=useState(false);
   const [archive,setArchive]=useState<JexArchive|null>(null);const [importOpen,setImportOpen]=useState(false);const [importMessage,setImportMessage]=useState('');const [importing,setImporting]=useState(false);
   const [attaching,setAttaching]=useState(false);
   const [trash,setTrash]=useState(false);const [searchScope,setSearchScope]=useState<'all'|'filtered'>('all');
@@ -76,6 +98,11 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(next==='select'||next==='magic'||next==='line'||next==='rect'||next==='ellipse'){activateFamily('layout');setTool(next);setFocus('');return;}
     setTool(next);setFocus('');
   }
+  function toggleFocusMode(){setFocusMode(v=>{const next=!v;if(next){setSidebar(false);setLayersOpen(false);setFocusFloat({x:Math.max(16,innerWidth-76),y:72});setDrawer('');}else{setDrawer('');setFocusDrag(null);}return next;});}
+  function focusButtonDown(e:ReactPointerEvent<HTMLButtonElement>){if(!focusMode)return;const r=e.currentTarget.getBoundingClientRect();setFocusDrag({dx:e.clientX-r.left,dy:e.clientY-r.top});e.currentTarget.setPointerCapture(e.pointerId);}
+  function focusButtonMove(e:ReactPointerEvent<HTMLButtonElement>){if(!focusMode||!focusDrag)return;setFocusFloat({x:Math.max(8,Math.min(innerWidth-58,e.clientX-focusDrag.dx)),y:Math.max(8,Math.min(innerHeight-58,e.clientY-focusDrag.dy))});}
+  function focusButtonUp(e:ReactPointerEvent<HTMLButtonElement>){setFocusDrag(null);if(e.currentTarget.hasPointerCapture(e.pointerId))e.currentTarget.releasePointerCapture(e.pointerId);}
+  function setDrawingColor(value:string){setInkColor(value);setColorOpen(true);}
   function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();const pressure=e.pointerType==='pen'?(e.pressure>0?e.pressure:.5):1;return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:pressure};}
   function coalescedPositions(e:ReactPointerEvent):Point[]{const r=plane.current!.getBoundingClientRect();const native=e.nativeEvent;const events=typeof native.getCoalescedEvents==='function'?native.getCoalescedEvents():[native];return events.map(value=>({x:Math.max(0,(value.clientX-r.left)/scale),y:Math.max(0,(value.clientY-r.top)/scale),p:e.pointerType==='pen'?(value.pressure>0?value.pressure:.5):1}));}
   function addBlock(html='',background?:string){const d=current.current?.content;if(!d)return;const x=80+(scroll.current?.scrollLeft||0)/scale;const y=80+(scroll.current?.scrollTop||0)/scale;
@@ -127,7 +154,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(target.closest('button,.notes-sheet-layer,.notes-fixed-layer'))return;
     if(e.pointerType==='touch'&&Date.now()-lastPen.current<700){e.preventDefault();return;}
     const pen=e.pointerType==='pen';if(pen)lastPen.current=Date.now();
-    const effective=pen?(e.button===5||tool==='eraser'?'eraser':'pen'):tool;
+    const penEraser=pen&&(e.button===5||(e.buttons&32)!==0);const effective=pen?(penEraser||tool==='eraser'?'eraser':'pen'):tool;
     if(effective==='line'||effective==='rect'||effective==='ellipse'){
       const layer=writableLayer(doc,'layout');if(!layer){notes.setError('レイアウトレイヤーを選んでください');return;}e.preventDefault();e.stopPropagation();setFocus('');typing.current=null;
       const p=position(e);const item:Item={id:id32(),kind:effective,layerId:layer.id,x:p.x,y:p.y,w:0,h:0,color:inkColor,width:Math.max(1,inkWidth),opacity:1,fill:'none'};setDraftShape(item);
@@ -322,19 +349,20 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
               <select aria-label="文字サイズ" defaultValue="3" onChange={e=>format('fontSize',e.target.value)}>
                 <option value="1">10</option><option value="2">12</option><option value="3">16</option><option value="4">20</option><option value="5">28</option><option value="6">36</option><option value="7">48</option>
               </select>
-              <label className="notes-text-color" title="文字色">A<input aria-label="文字色" type="color" defaultValue="#343739" onChange={e=>format('foreColor',e.target.value)}/></label>
+              <button className="notes-color-button" title="文字色" onClick={()=>setColorOpen(v=>!v)}><span style={{background:inkColor}}/>文字色</button>
               <button title="見出し1" onClick={()=>format('formatBlock','h1')}>H1</button><button title="見出し2" onClick={()=>format('formatBlock','h2')}>H2</button><button title="本文" onClick={()=>format('formatBlock','p')}>本文</button>
               <button title="箇条書き" onClick={()=>format('insertUnorderedList')}><List size={18}/></button><button title="チェックリスト" onClick={()=>format('insertHTML','<p><input type="checkbox"> やること</p>')}><ListChecks size={18}/></button>
             </div>
             <div className="notes-tool-group"><button onClick={()=>addBlock()} title="自由配置テキストボックス"><Type size={18}/><span>テキストボックス</span></button><button onClick={()=>fileInput.current?.click()} title="ファイル添付"><Paperclip size={18}/><span>添付</span></button></div>
           </>:<>
             <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
-            {(workspaceMode==='canvas')&&<div className="notes-tool-group"><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><input aria-label="描画色" type="color" value={inkColor} onChange={e=>setInkColor(e.target.value)}/><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label></div>}
-            {(workspaceMode==='layout')&&<div className="notes-tool-group"><input aria-label="線と図形の色" type="color" value={inkColor} onChange={e=>setInkColor(e.target.value)}/><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
+            {(workspaceMode==='canvas')&&<div className="notes-tool-group"><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><button className="notes-color-button" onClick={()=>setColorOpen(v=>!v)}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label></div>}
+            {(workspaceMode==='layout')&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>setColorOpen(v=>!v)}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
             {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>}</div>}
           </>}
           <div className="notes-tool-group"><button className={layersOpen?'active':''} onClick={()=>setLayersOpen(v=>!v)} title="レイヤーパネル">レイヤー</button></div>
         </div>
+        {colorOpen&&<div className="notes-color-popover"><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
         <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'&&<select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン（筆圧）</option><option value="pen">均一ペン</option><option value="marker">マーカー</option></select>}<input aria-label="描画色" type="color" value={inkColor} onChange={e=>setInkColor(e.target.value)}/><label className="notes-width-control">太さ <input aria-label="ペンの太さ" type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label></>:tool==='note'?<>固定ノート：通常のワープロ入力です。下のキャンバスをズーム・移動しても文字サイズと位置は変わりません。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：キャンバス上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
           {selected&&<div><button title="ブロックを複製" onClick={()=>{const b=doc?.blocks?.find(b=>b.id===selected);if(b&&doc)commit({...doc,blocks:[...(doc.blocks||[]),{...b,id:id32(),x:b.x+35,y:b.y+(sizes[b.id]||b.h)+24}]});}}><Copy size={15}/></button><button title="選択を削除" onClick={()=>{if(doc){const d=doc as StudioNoteDoc;commit({...d,blocks:d.blocks?.filter(b=>b.id!==selected),items:d.items.filter(i=>i.id!==selected),paintStrokes:d.paintStrokes?.filter(stroke=>stroke.id!==selected),charts:(d.charts||[]).filter(c=>c.id!==selected)} as NoteDoc);}setSelected('');}}><Trash2 size={15}/></button></div>}
         </div>
@@ -343,7 +371,16 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         {meta.importState==='pending'&&<div className="notes-warning">取り込み途中のメモです。同じJEXを選んで取り込みを再開してください。</div>}
         {notes.conflict&&<div className="notes-warning">他端末の更新と競合しています。今の内容は端末に保持しています。<button onClick={()=>void notes.recover()}>今の内容を別メモに保存</button></div>}
         {notes.error&&<div className="notes-warning" role="alert">{notes.error}<button onClick={()=>notes.setError('')} aria-label="通知を閉じる"><X size={15}/></button></div>}
-        <div className={`notes-stage ${layersOpen?'layers-open':''}`}>
+        <div className={`notes-stage ${layersOpen?'layers-open':''} ${focusMode?'focus-mode':''}`}>
+          <button className={`notes-focus-float ${focusMode?'floating':''}`} style={focusMode?{left:focusFloat.x,top:focusFloat.y}:undefined} title={focusMode?'通常表示へ戻る':'作業エリアだけ拡大'} onClick={toggleFocusMode} onPointerDown={focusButtonDown} onPointerMove={focusButtonMove} onPointerUp={focusButtonUp} onPointerCancel={focusButtonUp}>{focusMode?<Minimize2 size={20}/>:<Maximize2 size={20}/>}<small>{focusMode?'戻る':'拡大'}</small></button>
+          {focusMode&&<>
+            <button className="notes-drawer-handle top" onClick={()=>setDrawer(drawer==='top'?'':'top')}>⌄</button>
+            <button className="notes-drawer-handle left" onClick={()=>setDrawer(drawer==='left'?'':'left')}>›</button>
+            <button className="notes-drawer-handle right" onClick={()=>setDrawer(drawer==='right'?'':'right')}>‹</button>
+            <div className={`notes-focus-drawer top ${drawer==='top'?'open':''}`}><ColorStudio color={inkColor} onChange={value=>{setInkColor(value);if(workspaceMode==='note')format('foreColor',value);}}/><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label></div>
+            <div className={`notes-focus-drawer left ${drawer==='left'?'open':''}`}><button onClick={()=>chooseTool('pen')}><Pencil size={20}/><small>ペン</small></button><button onClick={()=>chooseTool('eraser')}><Eraser size={20}/><small>消し</small></button><button onClick={()=>chooseTool('select')}><MousePointer2 size={20}/><small>選択</small></button><button onClick={()=>chooseTool('hand')}><Hand size={20}/><small>移動</small></button></div>
+            <div className={`notes-focus-drawer right ${drawer==='right'?'open':''}`}>{studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}</div>
+          </>}
           <nav className="notes-studio-tools" aria-label="制作ツール">
             <button className={'studio-family '+(workspaceMode==='note'?'active':'')} onClick={useNoteLayer} title="ノートレイヤー"><Type size={22}/><small>ノート</small></button>
             <button className={'studio-family '+(workspaceMode==='canvas'?'active':'')} onClick={()=>{activateFamily('canvas');chooseTool('pen');}} title="キャンバスレイヤー"><Pencil size={22}/><small>キャンバス</small></button>
@@ -391,7 +428,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
             </div>
             {record&&<FixedNoteLayer html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
           </div>
-          {layersOpen&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
+          {!focusMode&&layersOpen&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
         </div>
         {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
