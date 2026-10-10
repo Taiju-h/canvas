@@ -328,7 +328,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   return <main className={`notes-app ${sidebar?'sidebar-open':''}`}>
     <header className="notes-header">
       <button onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={21}/></button>
-      <strong className="notes-brand">Canvas <span>Notes</span></strong><span className="notes-header-divider"/>
+      <strong className="notes-brand">Kaeru<span>Note</span></strong><span className="notes-header-divider"/>
       <input aria-label="メモのタイトル" placeholder="新しいメモ" value={record?.title||''} maxLength={80} disabled={!record||notes.busy||importing||organizing||!!meta.trashedAt||meta.importState==='pending'} onChange={e=>doc&&notes.change(doc,e.target.value)}/>
       <button onClick={()=>{setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}} aria-label="全メモを横断検索" title="横断検索（Ctrl+Shift+F）"><Search size={19}/></button>
       <span className="notes-save-status" role="status">{attaching?'添付を送信中…':notes.status}</span>
