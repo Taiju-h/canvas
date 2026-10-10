@@ -92,9 +92,11 @@ function UpdateBadge() {
     let live=true;
     const check=async()=>{
       try{
-        const local=await fetch("/canvas/build-version.json",{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject());
-        const remote=await fetch("/canvas/build-version.json?remote=1&t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject());
-        if(live)setAvailable(!!local?.buildId&&!!remote?.buildId&&local.buildId!==remote.buildId);
+        // The currently running bundle's revision is injected during the server build.
+        // Fetching build-version.json twice compared the same remote value and never detected updates.
+        const runningCommit=import.meta.env.VITE_APP_COMMIT as string | undefined;
+        const remote=await fetch("/canvas/build-version.json?check="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject());
+        if(live)setAvailable(!!runningCommit&&!!remote?.commit&&runningCommit!==remote.commit);
       }catch{}
     };
     const timer=window.setTimeout(()=>void check(),800);
