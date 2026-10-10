@@ -242,10 +242,9 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     }
     if(effective==='hand'||e.button===1){e.preventDefault();e.stopPropagation();action.current={pointerId:e.pointerId,kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};e.currentTarget.setPointerCapture(e.pointerId);return;}
     if(effective==='select'||effective==='vertex'||effective==='magic'){
-      if(e.pointerType==='touch'){const p=position(e),matches=nearbyShapes(p);if(matches.length>1){clearOverlapTimer();hoverTimer.current=setTimeout(()=>{setOverlapItems(matches.map(i=>i.id));setOverlapAt(p);setOverlapOpen(false);},550);}}
-
       const id=target.closest('[data-note-block]')?.getAttribute('data-note-block')||target.closest('[data-stroke]')?.getAttribute('data-stroke');
       clearOverlapTimer();setOverlapItems([]);
+      if(e.pointerType==='touch'){const p=position(e),matches=nearbyShapes(p);if(matches.length>1){hoverTimer.current=setTimeout(()=>{setOverlapItems(matches.map(i=>i.id));setOverlapAt(p);setOverlapOpen(false);},550);}}
       if(id){
         if((e.shiftKey||multiMode)&&doc.items.some(i=>i.id===id)){setMultiSelected(old=>[...new Set([...old,selected].filter(v=>v&&v!==id))]);setSelected(id);return;}
         setMultiSelected([]);drag(e,id);
@@ -480,7 +479,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
             <small>{selectedShape?'選択中：'+(selectedShape.kind==='rect'?'四角形':selectedShape.kind==='ellipse'?'楕円':selectedShape.kind==='line'?'直線':selectedShape.kind==='image'?'画像':'パス'):'図形を選択するとハンドルを表示します'}</small>
             {selectedIds.length>=2&&<span className="notes-composite-actions">
               <strong>複数図形：{selectedIds.length}個</strong>
-              <button disabled={selectedIds.length!==2||selectedIds.some(id=>{const item=doc?.items.find(i=>i.id===id);return item?.kind!=='rect'||!!item.rotation;})} onClick={intersectSelectedRects} title="四角形2つの重複部分を残す">共通部分</button>
+              <button disabled={selectedIds.length!==2||selectedIds.some(id=>{const item=doc?.items.find(i=>i.id===id);return item?.kind!=='rect'||!!item?.rotation;})} onClick={intersectSelectedRects} title="四角形2つの重複部分を残す">共通部分</button>
               <button disabled={selectedIds.length!==2||!selectedIds.some(id=>doc?.items.find(i=>i.id===id)?.kind==='image')||!selectedIds.some(id=>doc?.items.find(i=>i.id===id)?.kind==='rect')||selectedIds.some(id=>!!doc?.items.find(i=>i.id===id)?.rotation)} onClick={clipImageByRect} title="四角形を画像の切り抜きマスクに使う">画像くり抜き</button>
             </span>}
           </div>}
