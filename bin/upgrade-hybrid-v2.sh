@@ -78,7 +78,7 @@ PY
   printf 'Node依存関係を確認します。\n'
   run_as_owner "$root" npm install --no-audit --no-fund --package-lock=false || stop 'npm install に失敗しました。'
   printf 'TypeScript確認・本番ビルドを実行します。\n'
-  run_as_owner "$root" npm run build || stop 'Canvasのビルドに失敗しました。上のTypeScript/Viteエラーを貼ってください。'
+  run_as_owner "$root" env VITE_APP_COMMIT="$(git -C "$root" rev-parse --short HEAD)" npm run build || stop 'Canvasのビルドに失敗しました。上のTypeScript/Viteエラーを貼ってください。'
 
   restore_editor
   trap cleanup EXIT
