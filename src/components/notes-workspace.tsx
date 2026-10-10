@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
+import { PanelLeft, Plus, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
@@ -8,7 +8,7 @@ import { useNotes } from '@/lib/use-notes';
 import { api, blankNote, block, cleanHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
 import { readJex, type JexArchive } from '@/lib/jex';
 import { importJex } from '@/lib/import-jex';
-import type { Point, Item } from '@/lib/canvas';
+import { inverseTransformPoint, type Point, type Item } from '@/lib/canvas';
 import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, type CellRange, type ChartItem, type SheetData, type StudioNoteDoc } from './note-studio-layers';
 import '../notes.css';
 import { getLocalImage, getLocalDoc } from '@/lib/local-docs';
@@ -42,14 +42,43 @@ function ColorStudio({color,onChange}:{color:string;onChange:(color:string)=>voi
     <div className="notes-color-current"><span style={{background:color}}/><code>{color.toUpperCase()}</code><input type="color" value={color} onChange={e=>onChange(e.target.value)}/></div>
   </div>;
 }
-type Action={pointerId:number;verticalOnly?:boolean;kind:'move'|'resize'|'ink'|'pan'|'shape';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
+
+type ShapeBox={x:number;y:number;w:number;h:number};
+function shapeBox(item:Item):ShapeBox{
+  if(item.points?.length){const xs=item.points.map(p=>p.x),ys=item.points.map(p=>p.y);return{x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)};}
+  return{x:Math.min(item.x,item.x+item.w),y:Math.min(item.y,item.y+item.h),w:Math.abs(item.w),h:Math.abs(item.h)};
+}
+function shapeVertices(item:Item):Point[]{
+  if(item.kind==='path'||item.kind==='polygon')return item.points||[];
+  if(item.kind==='line')return[{x:item.x,y:item.y},{x:item.x+item.w,y:item.y+item.h}];
+  if(item.kind==='rect'){const b=shapeBox(item);return[{x:b.x,y:b.y},{x:b.x+b.w,y:b.y},{x:b.x+b.w,y:b.y+b.h},{x:b.x,y:b.y+b.h}];}
+  return[];
+}
+function resizedShape(item:Item,from:ShapeBox,to:ShapeBox):Item{
+  const px=(x:number)=>to.x+(x-from.x)*(to.w/Math.max(0.0001,from.w));
+  const py=(y:number)=>to.y+(y-from.y)*(to.h/Math.max(0.0001,from.h));
+  return{...item,x:px(item.x),y:py(item.y),w:px(item.x+item.w)-px(item.x),h:py(item.y+item.h)-py(item.y),
+    points:item.points?.map(p=>({...p,x:px(p.x),y:py(p.y)}))};
+}
+function changedVertex(item:Item,index:number,point:Point):Item{
+  const vertices=shapeVertices(item).map((p,i)=>i===index?{...p,x:point.x,y:point.y}:p);
+  if(item.kind==='line'&&vertices.length===2)return{...item,x:vertices[0].x,y:vertices[0].y,w:vertices[1].x-vertices[0].x,h:vertices[1].y-vertices[0].y};
+  if(!vertices.length)return item;
+  const xs=vertices.map(p=>p.x),ys=vertices.map(p=>p.y),x=Math.min(...xs),y=Math.min(...ys);
+  return{...item,kind:item.kind==='rect'?'polygon':item.kind,points:vertices,x,y,w:Math.max(...xs)-x,h:Math.max(...ys)-y};
+}
+function translateShape(item:Item,dx:number,dy:number):Item{
+  return{...item,x:item.x+dx,y:item.y+dy,points:item.points?.map(p=>({...p,x:p.x+dx,y:p.y+dy})),
+    clip:item.clip?{...item.clip,x:item.clip.x+dx,y:item.clip.y+dy}:undefined};
+}
+type Action={pointerId:number;verticalOnly?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId}:{accountId:string}){
   const notes=useNotes(accountId);const {record}=notes;
   const [sidebar,setSidebar]=useState(storedSidebar);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
-  const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
+  const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
-  const [selected,setSelected]=useState('');const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
+  const [selected,setSelected]=useState('');const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
   const [focusMode,setFocusMode]=useState(false);const [focusFloat,setFocusFloat]=useState({x:0,y:0});const [focusDrag,setFocusDrag]=useState<{dx:number;dy:number}|null>(null);const [drawer,setDrawer]=useState<'top'|'left'|'right'|''>('');const [colorOpen,setColorOpen]=useState(false);const [colorFading,setColorFading]=useState(false);
   const [archive,setArchive]=useState<JexArchive|null>(null);const [importOpen,setImportOpen]=useState(false);const [importMessage,setImportMessage]=useState('');const [importing,setImporting]=useState(false);
   const [attaching,setAttaching]=useState(false);
@@ -61,13 +90,13 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const [deleteOpen,setDeleteOpen]=useState(false);
   useEffect(()=>{void api('/api/note-workspace').then(r=>r.json()).then(setWorkspace).catch(()=>{});},[]);
   const [draft,setDraft]=useState<Point[]>([]);const [sizes,setSizes]=useState<Record<string,number>>({});
-  const scroll=useRef<HTMLDivElement>(null);const plane=useRef<HTMLDivElement>(null);const action=useRef<Action|null>(null);
+  const hoverTimer=useRef<ReturnType<typeof setTimeout>|null>(null);const scroll=useRef<HTMLDivElement>(null);const plane=useRef<HTMLDivElement>(null);const action=useRef<Action|null>(null);
   const fittedViewport=useRef({id:'',width:0});const extent=useRef({id:'',width:1800,height:1400});const suppressClick=useRef(false);
   const current=useRef(record);current.current=record;const cancelImport=useRef(false);const fileInput=useRef<HTMLInputElement>(null);const imageInput=useRef<HTMLInputElement>(null);const jexInput=useRef<HTMLInputElement>(null);const organizationInput=useRef<HTMLInputElement>(null);
   const undoStack=useRef<NoteDoc[]>([]);const redoStack=useRef<NoteDoc[]>([]);const typing=useRef<{id:string;at:number}|null>(null);const [,redraw]=useState(0);const lastPen=useRef(0);const previousId=useRef('');const focusRestore=useRef({sidebar:false,layersOpen:true});const colorFadeTimer=useRef<number|undefined>(undefined);const colorCloseTimer=useRef<number|undefined>(undefined);
-  const doc=record?.content;const selectedShape=doc?.items.find(i=>i.id===selected);const studio=doc as StudioNoteDoc|undefined;const meta=doc?.note||{category:'',tags:[]};
+  const doc=record?.content;const selectedShape=doc?.items.find(i=>i.id===selected);const selectedIds=selected?[...new Set([selected,...multiSelected.filter(id=>doc?.items.some(i=>i.id===id))])]:[];const studio=doc as StudioNoteDoc|undefined;const meta=doc?.note||{category:'',tags:[]};
   const fixedNote=studio?.fixedNote||{html:'',visible:true,locked:false};const sheet=studio?.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};const sheetHasData=Object.values(sheet.cells||{}).some(value=>String(value).trim()!=='');const sheetForView=sheetPreviewOpen&&!sheet.visible?{...sheet,visible:true}:sheet;const charts=studio?.charts||[];
-  useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setSelected('');setFocus('');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool('note');setWorkspaceMode('note');setSheetSelection(undefined);setSheetPreviewOpen(false);const layers=(record.content as StudioNoteDoc).layers;setActiveLayer(layers.find(l=>(l.studioKind||'canvas')==='canvas'&&l.visible&&!l.locked)?.id||layers.find(l=>l.visible&&!l.locked)?.id||layers[0]?.id||'');scroll.current?.scrollTo(0,0);},[record?.id]);
+  useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setSelected('');setMultiSelected([]);setHoveredShape('');setOverlapItems([]);setOverlapAt(null);setFocus('');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool('note');setWorkspaceMode('note');setSheetSelection(undefined);setSheetPreviewOpen(false);const layers=(record.content as StudioNoteDoc).layers;setActiveLayer(layers.find(l=>(l.studioKind||'canvas')==='canvas'&&l.visible&&!l.locked)?.id||layers.find(l=>l.visible&&!l.locked)?.id||layers[0]?.id||'');scroll.current?.scrollTo(0,0);},[record?.id]);
   useEffect(()=>{const fit=()=>{
     const d=current.current;if(!d)return;const viewportWidth=scroll.current?.clientWidth||innerWidth;
     const previous=fittedViewport.current;const promoted=previous.id.startsWith('local-')&&!d.id.startsWith('local-');
@@ -96,7 +125,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(next==='note'||next==='text'){setWorkspaceMode('note');setTool(next);return;}
     if(next==='sheet'){useSheetLayer();return;}
     if(next==='pen'||next==='eraser'){activateFamily('canvas');setTool(next);setFocus('');return;}
-    if(next==='select'||next==='magic'||next==='line'||next==='rect'||next==='ellipse'){activateFamily('layout');setTool(next);setFocus('');return;}
+    if(next==='select'||next==='vertex'||next==='magic'||next==='line'||next==='rect'||next==='ellipse'){activateFamily('layout');setTool(next);setFocus('');return;}
     setTool(next);setFocus('');
   }
   function toggleFocusMode(){setFocusMode(v=>{const next=!v;if(next){focusRestore.current={sidebar,layersOpen};setSidebar(false);setLayersOpen(false);setFocusFloat({x:Math.max(16,innerWidth-76),y:72});setDrawer('');}else{setSidebar(focusRestore.current.sidebar);setLayersOpen(focusRestore.current.layersOpen);setDrawer('');setFocusDrag(null);}return next;});}
@@ -155,6 +184,9 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   }
   function createChart(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!sheetSelection)return;
     const range=sheetSelection.start+(sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:'');const chart:ChartItem={id:id32(),layerId:'graph-root',x:120+(scroll.current?.scrollLeft||0)/scale,y:120+(scroll.current?.scrollTop||0)/scale,w:520,h:310,type:chartType,range,visible:true,locked:false,name:'グラフ '+((d.charts||[]).length+1)};commit({...d,charts:[...(d.charts||[]),chart]} as NoteDoc);setSelected(chart.id);setChartOpen(false);setTool('select');}
+  function editSelectedShape(updater:(i:Item)=>Item){const d=current.current?.content;if(!d||!selectedShape)return;commit({...d,items:d.items.map(i=>i.id===selected?updater(i):i)});}
+  function clearOverlapTimer(){if(hoverTimer.current!==null){clearTimeout(hoverTimer.current);hoverTimer.current=null;}}
+  function nearbyShapes(p:Point){const d=current.current?.content;return(d?.items||[]).filter(i=>d?.layers.find(l=>l.id===i.layerId)?.visible!==false).filter(i=>{const b=shapeBox(i),pad=Math.max(9,i.width/2);return p.x>=b.x-pad&&p.x<=b.x+b.w+pad&&p.y>=b.y-pad&&p.y<=b.y+b.h+pad;}).reverse();}
   function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc||action.current||(!e.isPrimary&&e.pointerType==='touch'))return;setSelected(id);setFocus('');typing.current=null;
     action.current={pointerId:e.pointerId,kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
   function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
@@ -162,6 +194,8 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     suppressClick.current=false;
     const target=e.target as Element;
     if(target.closest('button,.notes-sheet-layer,.notes-fixed-layer'))return;
+    const control=target.closest('[data-shape-handle]');
+    if(control&&selectedShape){const handle=control.getAttribute('data-shape-handle')||'';e.preventDefault();e.stopPropagation();clearOverlapTimer();setOverlapItems([]);action.current={pointerId:e.pointerId,kind:handle==='rotate'?'shapeRotate':handle.startsWith('vertex:')?'vertexMove':'shapeResize',handle,id:selectedShape.id,start:position(e),original:doc};e.currentTarget.setPointerCapture(e.pointerId);return;}
     if(e.pointerType==='touch'&&Date.now()-lastPen.current<700){e.preventDefault();return;}
     const pen=e.pointerType==='pen';if(pen)lastPen.current=Date.now();
     const penEraser=pen&&(e.button===5||(e.buttons&32)!==0);const effective=pen?(penEraser||tool==='eraser'?'eraser':'pen'):tool;
@@ -185,22 +219,61 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       if(id){const d=doc as StudioNoteDoc;commit({...d,items:d.items.filter(i=>i.id!==id),paintStrokes:d.paintStrokes?.filter(stroke=>stroke.id!==id),charts:(d.charts||[]).filter(c=>c.id!==id)} as NoteDoc);}return;
     }
     if(effective==='hand'||e.button===1){e.preventDefault();e.stopPropagation();action.current={pointerId:e.pointerId,kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};e.currentTarget.setPointerCapture(e.pointerId);return;}
-    if(effective==='select'||effective==='magic'){
+    if(effective==='select'||effective==='vertex'||effective==='magic'){
       const id=target.closest('[data-note-block]')?.getAttribute('data-note-block')||target.closest('[data-stroke]')?.getAttribute('data-stroke');
-      if(id)drag(e,id);else setSelected('');return;
+      clearOverlapTimer();setOverlapItems([]);
+      if(id){
+        if((e.shiftKey||multiMode)&&doc.items.some(i=>i.id===id)){setMultiSelected(old=>[...new Set([...old,selected].filter(v=>v&&v!==id))]);setSelected(id);return;}
+        setMultiSelected([]);drag(e,id);
+      }else{setSelected('');setMultiSelected([]);}
+      return;
     }
     if(effective==='text'&&!target.closest('[data-note-block]')){
       e.preventDefault();const p=position(e);const b=block(p.x,p.y);commit({...doc,blocks:[...(doc.blocks||[]),b]});setFocus(b.id);setSelected(b.id);
     }
   }
-  function move(e:ReactPointerEvent<HTMLDivElement>){const a=action.current;if(!a||a.pointerId!==e.pointerId)return;e.preventDefault();
+  function move(e:ReactPointerEvent<HTMLDivElement>){
+    const a=action.current;
+    if(!a){
+      if((tool==='select'||tool==='vertex'||tool==='magic')&&workspaceMode==='layout'){
+        const p=position(e);const hit=(e.target as Element).closest('[data-stroke]')?.getAttribute('data-stroke')||'';
+        const matches=nearbyShapes(p);
+        setHoveredShape(hit||matches[0]?.id||'');
+        clearOverlapTimer();
+        if(matches.length>1){hoverTimer.current=setTimeout(()=>{setOverlapItems(matches.map(i=>i.id));setOverlapAt(p);},600);}
+        else{setOverlapItems([]);setOverlapAt(null);}
+      }
+      return;
+    }
+    if(a.pointerId!==e.pointerId)return;e.preventDefault();
     if(a.pen)lastPen.current=Date.now();
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
     const p=position(e);if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
     if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
-    const dx=p.x-a.start.x,dy=p.y-a.start.y;const original=a.original as StudioNoteDoc;
+    const original=a.original as StudioNoteDoc;
+    if(a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'){
+      const originalItem=original.items.find(i=>i.id===a.id);if(!originalItem)return;
+      const b=shapeBox(originalItem),center={x:b.x+b.w/2,y:b.y+b.h/2};
+      let altered:Item=originalItem;
+      if(a.kind==='shapeRotate'){
+        const initialAngle=Math.atan2(a.start.y-center.y,a.start.x-center.x),angle=Math.atan2(p.y-center.y,p.x-center.x);
+        altered={...originalItem,rotation:(originalItem.rotation||0)+(angle-initialAngle)*180/Math.PI};
+      }else{
+        const start=inverseTransformPoint(originalItem,a.start),end=inverseTransformPoint(originalItem,p),dx=end.x-start.x,dy=end.y-start.y;
+        if(a.kind==='shapeResize'){
+          const h=a.handle||'',edge={left:b.x,right:b.x+b.w,top:b.y,bottom:b.y+b.h};
+          if(h.includes('w'))edge.left=Math.min(edge.right-6,edge.left+dx);
+          if(h.includes('e'))edge.right=Math.max(edge.left+6,edge.right+dx);
+          if(h.includes('n'))edge.top=Math.min(edge.bottom-6,edge.top+dy);
+          if(h.includes('s'))edge.bottom=Math.max(edge.top+6,edge.bottom+dy);
+          altered=resizedShape(originalItem,b,{x:edge.left,y:edge.top,w:edge.right-edge.left,h:edge.bottom-edge.top});
+        }else altered=changedVertex(originalItem,Number((a.handle||'').split(':')[1]),{x:start.x+dx,y:start.y+dy});
+      }
+      notes.change({...original,items:original.items.map(i=>i.id===a.id?altered:i)} as NoteDoc);return;
+    }
+    const dx=p.x-a.start.x,dy=p.y-a.start.y;
     const next={...original,blocks:original.blocks?.map(b=>b.id===a.id?a.kind==='resize'?{...b,w:Math.max(220,Math.min(1800,b.w+dx))}:{...b,x:Math.max(0,b.x+dx),y:Math.max(0,b.y+dy)}:b),
-      items:original.items.map(i=>i.id===a.id?{...i,x:i.x+dx,y:i.y+dy,points:i.points?.map(point=>({...point,x:point.x+dx,y:point.y+dy}))}:i),
+      items:original.items.map(i=>i.id===a.id?translateShape(i,dx,dy):i),
       paintStrokes:original.paintStrokes?.map(stroke=>(stroke.id===a.id || (stroke.blockId===a.id && a.kind==='move'))?{...stroke,points:stroke.points.map(point=>({...point,x:point.x+dx,y:point.y+dy}))}:stroke),
       charts:(original.charts||[]).map(c=>c.id===a.id?{...c,x:c.x+dx,y:c.y+dy}:c)};
     notes.change(next as NoteDoc);
@@ -214,7 +287,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       setDraft([]);if(a.pen)lastPen.current=Date.now();return;
     }
     if(a.kind==='shape'){const shape=draftShape;setDraftShape(null);if(!cancel&&shape&&Math.hypot(shape.w,shape.h)>2){commit({...a.original,items:[...a.original.items,shape]});setSelected(shape.id);setActiveLayer(shape.layerId);}return;}
-    if(a.kind==='move'||a.kind==='resize'){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
+    if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
   }
   function format(command:string,value?:string){typing.current=null;document.execCommand(command,false,value);const el=document.activeElement as HTMLElement;
     const id=el.closest('[data-note-block]')?.getAttribute('data-note-block');if(id)updateBlock(id,el.innerHTML,el.scrollHeight+54);}
