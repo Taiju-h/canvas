@@ -78,7 +78,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const [sidebar,setSidebar]=useState(storedSidebar);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
-  const [selected,setSelected]=useState('');const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
+  const [selected,setSelected]=useState('');const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
   const [focusMode,setFocusMode]=useState(false);const [focusFloat,setFocusFloat]=useState({x:0,y:0});const [focusDrag,setFocusDrag]=useState<{dx:number;dy:number}|null>(null);const [drawer,setDrawer]=useState<'top'|'left'|'right'|''>('');const [colorOpen,setColorOpen]=useState(false);const [colorFading,setColorFading]=useState(false);
   const [archive,setArchive]=useState<JexArchive|null>(null);const [importOpen,setImportOpen]=useState(false);const [importMessage,setImportMessage]=useState('');const [importing,setImporting]=useState(false);
   const [attaching,setAttaching]=useState(false);
@@ -220,6 +220,8 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     }
     if(effective==='hand'||e.button===1){e.preventDefault();e.stopPropagation();action.current={pointerId:e.pointerId,kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};e.currentTarget.setPointerCapture(e.pointerId);return;}
     if(effective==='select'||effective==='vertex'||effective==='magic'){
+      if(e.pointerType==='touch'){const p=position(e),matches=nearbyShapes(p);if(matches.length>1){clearOverlapTimer();hoverTimer.current=setTimeout(()=>{setOverlapItems(matches.map(i=>i.id));setOverlapAt(p);setOverlapOpen(false);},550);}}
+
       const id=target.closest('[data-note-block]')?.getAttribute('data-note-block')||target.closest('[data-stroke]')?.getAttribute('data-stroke');
       clearOverlapTimer();setOverlapItems([]);
       if(id){
@@ -240,7 +242,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         const matches=nearbyShapes(p);
         setHoveredShape(hit||matches[0]?.id||'');
         clearOverlapTimer();
-        if(matches.length>1){hoverTimer.current=setTimeout(()=>{setOverlapItems(matches.map(i=>i.id));setOverlapAt(p);},600);}
+        if(matches.length>1){hoverTimer.current=setTimeout(()=>{setOverlapItems(matches.map(i=>i.id));setOverlapAt(p);setOverlapOpen(false);},600);}
         else{setOverlapItems([]);setOverlapAt(null);}
       }
       return;
@@ -250,6 +252,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
     const p=position(e);if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
     if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
+    if(hoverTimer.current&&Math.hypot(p.x-a.start.x,p.y-a.start.y)>7)clearOverlapTimer();
     const original=a.original as StudioNoteDoc;
     if(a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'){
       const originalItem=original.items.find(i=>i.id===a.id);if(!originalItem)return;
@@ -447,6 +450,13 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         </div>
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
         <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：色・太さ・透明度は上のツールから変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>固定ノート：通常のワープロ入力です。下のキャンバスをズーム・移動しても文字サイズと位置は変わりません。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：キャンバス上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
+          {workspaceMode==='layout'&&<div className="notes-shape-tools" role="toolbar" aria-label="図形の選択ツール">
+            <strong>図形編集 v0.4.1</strong>
+            <button className={tool==='select'?'active':''} onClick={()=>chooseTool('select')} title="図形全体を選択して移動・拡縮・回転"><MousePointer2 size={16}/> 黒矢印</button>
+            <button className={tool==='vertex'?'active':''} onClick={()=>chooseTool('vertex')} title="頂点と線分を個別編集"><MousePointer size={16}/> 白矢印</button>
+            <button className={multiMode?'active':''} onClick={()=>{setMultiMode(v=>!v);setMultiSelected([]);}} title="複数選択：タッチまたはShift+クリック">複数選択 {multiMode?'ON':'OFF'}</button>
+            <small>{selectedShape?'選択中：'+(selectedShape.kind==='rect'?'四角形':selectedShape.kind==='ellipse'?'楕円':selectedShape.kind==='line'?'直線':selectedShape.kind==='image'?'画像':'パス'):'図形を選択するとハンドルを表示します'}</small>
+          </div>}
           {workspaceMode==='layout'&&selectedShape&&<div className="notes-shape-inspector" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'4px 8px'}}>
             <label>線色 <input type="color" value={/^#[0-9a-f]{6}$/i.test(selectedShape.color)?selectedShape.color:'#263443'} onChange={e=>{if(doc)commit({...doc,items:doc.items.map(i=>i.id===selected?{...i,color:e.target.value}:i)});}}/></label>
             <label>塗り <input type="color" value={selectedShape.fill&&/^#[0-9a-f]{6}$/i.test(selectedShape.fill)?selectedShape.fill:'#ffffff'} onChange={e=>{if(doc)commit({...doc,items:doc.items.map(i=>i.id===selected?{...i,fill:e.target.value}:i)});}}/></label>
@@ -485,7 +495,8 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
               <button className={tool==='hand'?'active':''} onClick={()=>chooseTool('hand')}><Hand size={20}/><small>移動</small></button>
             </>}
             {workspaceMode==='layout'&&<>
-              <button className={tool==='select'?'active':''} onClick={()=>chooseTool('select')}><MousePointer2 size={20}/><small>選択</small></button>
+              <button className={tool==='select'?'active':''} onClick={()=>chooseTool('select')} title="黒矢印：図形全体・拡縮・回転"><MousePointer2 size={20}/><small>黒矢印</small></button>
+              <button className={tool==='vertex'?'active':''} onClick={()=>chooseTool('vertex')} title="白矢印：頂点・線分を編集"><MousePointer size={20}/><small>白矢印</small></button>
               <button className={tool==='magic'?'active':''} onClick={()=>chooseTool('magic')}><span className="studio-glyph">W</span><small>マジック</small></button>
               <button className={tool==='line'?'active':''} onClick={()=>chooseTool('line')}><span className="studio-glyph">╱</span><small>直線</small></button>
               <button className={tool==='rect'?'active':''} onClick={()=>chooseTool('rect')}><span className="studio-glyph">□</span><small>四角</small></button>
@@ -503,17 +514,35 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                   <SpreadsheetLayer sheet={sheetForView} active={tool==='sheet'} selection={sheetSelection} onChange={updateSheet} onSelect={setSheetSelection}/>
                   <svg className="notes-ink" width={width} height={height}>
                     {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><LegacyImage key={l.id} docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/>)}
-                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={i.opacity??1} fill={i.fill||'none'}>
-                      {i.kind==='path'?<polyline points={stroke(i.points||[])} fill="none" strokeLinecap="round"/>:i.kind==='rect'?<rect x={Math.min(i.x,i.x+i.w)} y={Math.min(i.y,i.y+i.h)} width={Math.abs(i.w)} height={Math.abs(i.h)}/>:i.kind==='ellipse'?<ellipse cx={i.x+i.w/2} cy={i.y+i.h/2} rx={Math.abs(i.w/2)} ry={Math.abs(i.h/2)}/>:i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h}/>:i.kind==='image'&&i.imageId?(i.imageId.startsWith('file:')?<image href={fileURL(record.id,i.imageId.slice(5))} x={i.x} y={i.y} width={i.w} height={i.h}/>:<LegacyImage docId={record.id} imageId={i.imageId} x={i.x} y={i.y} w={i.w} h={i.h}/>):null}
+                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={i.opacity??1} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined}>
+                      {i.kind==='path'?<polyline points={stroke(i.points||[])} fill="none" strokeLinecap="round"/>:i.kind==='polygon'?<polygon points={stroke(i.points||[])} strokeLinejoin="round"/>:i.kind==='rect'?<rect x={Math.min(i.x,i.x+i.w)} y={Math.min(i.y,i.y+i.h)} width={Math.abs(i.w)} height={Math.abs(i.h)}/>:i.kind==='ellipse'?<ellipse cx={i.x+i.w/2} cy={i.y+i.h/2} rx={Math.abs(i.w/2)} ry={Math.abs(i.h/2)}/>:i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h}/>:i.kind==='image'&&i.imageId?(i.imageId.startsWith('file:')?<image href={fileURL(record.id,i.imageId.slice(5))} x={i.x} y={i.y} width={i.w} height={i.h}/>:<LegacyImage docId={record.id} imageId={i.imageId} x={i.x} y={i.y} w={i.w} h={i.h}/>):null}
                     </g>)}
-                    {selectedShape&&workspaceMode==='layout'&&<g pointerEvents="none" stroke="#1686f7" fill="none" strokeWidth={1.5}>
-                      <rect x={Math.min(selectedShape.x,selectedShape.x+selectedShape.w)-5} y={Math.min(selectedShape.y,selectedShape.y+selectedShape.h)-5} width={Math.abs(selectedShape.w)+10} height={Math.abs(selectedShape.h)+10} strokeDasharray="5 3"/>
-                      {[[Math.min(selectedShape.x,selectedShape.x+selectedShape.w)-5,Math.min(selectedShape.y,selectedShape.y+selectedShape.h)-5],[Math.max(selectedShape.x,selectedShape.x+selectedShape.w)+5,Math.min(selectedShape.y,selectedShape.y+selectedShape.h)-5],[Math.min(selectedShape.x,selectedShape.x+selectedShape.w)-5,Math.max(selectedShape.y,selectedShape.y+selectedShape.h)+5],[Math.max(selectedShape.x,selectedShape.x+selectedShape.w)+5,Math.max(selectedShape.y,selectedShape.y+selectedShape.h)+5]].map(([x,y],idx)=><rect key={idx} x={x-4} y={y-4} width={8} height={8} fill="white"/>)}
-                    </g>}
+                    {workspaceMode==='layout'&&hoveredShape&&hoveredShape!==selected&&(()=>{
+                      const item=doc?.items.find(i=>i.id===hoveredShape);if(!item)return null;const b=shapeBox(item);
+                      return <g pointerEvents="none" stroke="#65b5ed" strokeWidth={2} fill="none"><rect x={b.x-5} y={b.y-5} width={b.w+10} height={b.h+10} rx={3} strokeDasharray="3 4"/></g>;
+                    })()}
+                    {workspaceMode==='layout'&&selectedIds.map(id=>{
+                      const item=doc?.items.find(i=>i.id===id);if(!item)return null;
+                      const b=shapeBox(item),cx=b.x+b.w/2,cy=b.y+b.h/2;
+                      const handles:[string,number,number][]=[['nw',b.x,b.y],['n',cx,b.y],['ne',b.x+b.w,b.y],['e',b.x+b.w,cy],['se',b.x+b.w,b.y+b.h],['s',cx,b.y+b.h],['sw',b.x,b.y+b.h],['w',b.x,cy]];
+                      return <g key={'selection-'+id} stroke="#1686f7" strokeWidth={1.5} transform={item.rotation?`rotate(${item.rotation} ${cx} ${cy})`:undefined}>
+                        <rect pointerEvents="none" x={b.x-3} y={b.y-3} width={b.w+6} height={b.h+6} fill="none" strokeDasharray="5 3"/>
+                        {id===selected&&(tool==='select'||tool==='magic')&&<>
+                          {handles.map(([handle,x,y])=><rect key={handle} data-shape-handle={handle} className="notes-shape-handle" x={x-5} y={y-5} width={10} height={10} fill="#ffffff"/>)}
+                          <line pointerEvents="none" x1={cx} y1={b.y} x2={cx} y2={b.y-30}/>
+                          <circle data-shape-handle="rotate" className="notes-shape-handle" cx={cx} cy={b.y-30} r={7} fill="#ffffff"/>
+                        </>}
+                        {id===selected&&tool==='vertex'&&shapeVertices(item).map((p,index)=><circle key={index} data-shape-handle={'vertex:'+index} className="notes-shape-handle" cx={p.x} cy={p.y} r={6} fill="#ffffff"/>)}
+                      </g>;
+                    })}
                     {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false).map(paintStrokeView)}
                     {draft.length>0&&(brush!=='marker'?<g stroke={inkColor} strokeLinecap="round" opacity={inkOpacity} pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(inkWidth,point.p)}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={.32*inkOpacity} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
                     {draftShape&&<g stroke={draftShape.color} strokeWidth={draftShape.width} fill="none" pointerEvents="none">{draftShape.kind==='line'?<line x1={draftShape.x} y1={draftShape.y} x2={draftShape.x+draftShape.w} y2={draftShape.y+draftShape.h}/>:draftShape.kind==='rect'?<rect x={Math.min(draftShape.x,draftShape.x+draftShape.w)} y={Math.min(draftShape.y,draftShape.y+draftShape.h)} width={Math.abs(draftShape.w)} height={Math.abs(draftShape.h)}/>:<ellipse cx={draftShape.x+draftShape.w/2} cy={draftShape.y+draftShape.h/2} rx={Math.abs(draftShape.w/2)} ry={Math.abs(draftShape.h/2)}/>}</g>}
                   </svg>
+                  {overlapAt&&overlapItems.length>1&&workspaceMode==='layout'&&<div className="notes-overlap-picker" style={{left:Math.min(width-160,overlapAt.x+14),top:Math.max(8,overlapAt.y-10)}}>
+                    <button type="button" onClick={()=>setOverlapOpen(v=>!v)}>重なり {overlapItems.length}件 ▾</button>
+                    {overlapOpen&&<div role="listbox" aria-label="重なった図形の選択候補">{overlapItems.map((id,index)=>{const item=doc?.items.find(i=>i.id===id);return item?<button key={id} type="button" role="option" aria-selected={selected===id} onClick={()=>{setSelected(id);setMultiSelected([]);setOverlapItems([]);setOverlapOpen(false);setHoveredShape(id);}}>{index+1}. {item.kind==='rect'?'四角形':item.kind==='ellipse'?'楕円':item.kind==='line'?'直線':item.kind==='image'?'画像':'図形'} {id.slice(0,5)}</button>:null;})}</div>}
+                  </div>}
                   <ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/>
                   {doc?.blocks?.map(noteBlock=><EditableBlock key={noteBlock.id} block={noteBlock} readOnly={tool!=='text'||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
@@ -524,6 +553,13 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
             {record&&<FixedNoteLayer html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
           </div>
           {!focusMode&&layersOpen&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
+          {workspaceMode==='layout'&&selectedShape&&<div className="notes-fine-panel" role="group" aria-label="図形の微調整">
+            <strong>図形の微調整</strong>
+            <label>横移動 <input type="range" min="-20" max="20" step="1" value={fineX} onChange={e=>{const v=Number(e.target.value);editSelectedShape(i=>translateShape(i,v-fineX,0));setFineX(v);}} onPointerUp={()=>setFineX(0)}/><span>±20px</span></label>
+            <label>縦移動 <input type="range" min="-20" max="20" step="1" value={fineY} onChange={e=>{const v=Number(e.target.value);editSelectedShape(i=>translateShape(i,0,v-fineY));setFineY(v);}} onPointerUp={()=>setFineY(0)}/><span>±20px</span></label>
+            <label>回転 <input type="range" min="-30" max="30" step="1" value={fineAngle} onChange={e=>{const v=Number(e.target.value);editSelectedShape(i=>({...i,rotation:(i.rotation||0)+v-fineAngle}));setFineAngle(v);}} onPointerUp={()=>setFineAngle(0)}/><span>{Math.round(selectedShape.rotation||0)}°</span></label>
+            <div className="notes-fine-buttons"><button onClick={()=>editSelectedShape(i=>translateShape(i,-1,0))}>←1</button><button onClick={()=>editSelectedShape(i=>translateShape(i,1,0))}>1→</button><button onClick={()=>editSelectedShape(i=>translateShape(i,0,-1))}>↑1</button><button onClick={()=>editSelectedShape(i=>translateShape(i,0,1))}>↓1</button></div>
+          </div>}
         </div>
         {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
