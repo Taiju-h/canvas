@@ -125,7 +125,7 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
         settings.setGeolocationEnabled(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " CanvasAndroidShell/0.4.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " KaeruNoteAndroid/0.4.0");
 
         view.setBackgroundColor(Color.rgb(250, 250, 248));
         view.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -197,7 +197,7 @@ public final class MainActivity extends Activity {
             ) {
                 if (request.isForMainFrame()) {
                     String message = error != null ? String.valueOf(error.getDescription()) : "読み込みエラー";
-                    showError("Canvas を開けません。\n" + message);
+                    showError("KaeruNote を開けません。\n" + message);
                 }
             }
         });
@@ -227,7 +227,7 @@ public final class MainActivity extends Activity {
                     request.addRequestHeader("Referer", CANVAS_URL);
                     request.setMimeType(mimeType);
                     request.setTitle(fileName);
-                    request.setDescription("Canvas からダウンロード");
+                    request.setDescription("KaeruNote からダウンロード");
                     request.setNotificationVisibility(
                         DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
                     );
@@ -366,7 +366,7 @@ public final class MainActivity extends Activity {
         panel.setBackgroundColor(Color.rgb(250, 250, 248));
 
         TextView title = new TextView(this);
-        title.setText("Canvas");
+        title.setText("KaeruNote");
         title.setTextSize(24);
         title.setTextColor(Color.rgb(32, 42, 52));
         title.setGravity(Gravity.CENTER);
