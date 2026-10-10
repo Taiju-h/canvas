@@ -1,1 +1,4 @@
-<resources><string name="app_name">KaeruNote</string></resources>
+<resources>
+    <string name="app_name">KaeruNote</string>
+    <string name="app_full_name">KaeruNote（カエルノート）</string>
+</resources>
