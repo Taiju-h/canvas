@@ -50,7 +50,7 @@ function VisitorGate({ session, onReady }: { session: Session; onReady: (next: S
   return <main className="visitor-gate" aria-labelledby="visitor-title">
     <section className="visitor-card">
       <div className="visitor-mark">C</div>
-      <h1 id="visitor-title">キャンバスを使う方</h1>
+      <h1 id="visitor-title">KaeruNoteを使う方</h1>
       <p>会員登録は不要です。ニックネームを入力して開始してください。</p>
       <form onSubmit={async event => {
         event.preventDefault();
@@ -77,7 +77,7 @@ function VisitorGate({ session, onReady }: { session: Session; onReady: (next: S
         <input id="visitor-nickname" value={nickname} onChange={event => setNickname(event.target.value)} maxLength={40} autoFocus required />
         <p className="visitor-note">利用状況の確認のため、ニックネーム・IPアドレス・利用日時を記録します。</p>
         {error && <p className="visitor-error" role="alert">{error}</p>}
-        <button type="submit" disabled={busy}>{busy ? "確認中…" : "キャンバスを開始"}</button>
+        <button type="submit" disabled={busy}>{busy ? "確認中…" : "KaeruNoteを開始"}</button>
       </form>
     </section>
   </main>;
@@ -105,7 +105,7 @@ function UpdateBadge() {
   },[]);
   if(!available&&!message)return null;
   return <div className="canvas-update-status">
-    {available&&<button title="新しいCanvasがあります" disabled={updating} onClick={()=>{
+    {available&&<button title="新しいKaeruNoteがあります" disabled={updating} onClick={()=>{
       setUpdating(true);setMessage("");
       const bridge=(window as Window & {CanvasApp?:{applyWebUpdate?:()=>void}}).CanvasApp;
       if(bridge?.applyWebUpdate) bridge.applyWebUpdate();
