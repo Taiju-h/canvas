@@ -1,13 +1,18 @@
 {
-  "name": "UZERO キャンバス",
-  "short_name": "キャンバス",
-  "description": "描く・考える・共有する",
+  "name": "KaeruNote",
+  "short_name": "KaeruNote",
+  "description": "書く・描く・整理する、オフライン対応ノート",
   "start_url": "/canvas/",
   "scope": "/canvas/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#172337",
   "icons": [
-    { "src": "/canvas/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    {
+      "src": "/canvas/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
   ]
 }
