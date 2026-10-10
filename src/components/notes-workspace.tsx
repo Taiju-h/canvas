@@ -184,6 +184,28 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   }
   function createChart(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!sheetSelection)return;
     const range=sheetSelection.start+(sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:'');const chart:ChartItem={id:id32(),layerId:'graph-root',x:120+(scroll.current?.scrollLeft||0)/scale,y:120+(scroll.current?.scrollTop||0)/scale,w:520,h:310,type:chartType,range,visible:true,locked:false,name:'グラフ '+((d.charts||[]).length+1)};commit({...d,charts:[...(d.charts||[]),chart]} as NoteDoc);setSelected(chart.id);setChartOpen(false);setTool('select');}
+  function intersectSelectedRects(){
+    const d=current.current?.content;if(!d||selectedIds.length!==2)return;
+    const [a,b]=selectedIds.map(id=>d.items.find(i=>i.id===id));
+    if(!a||!b||a.kind!=='rect'||b.kind!=='rect'||a.rotation||b.rotation)return;
+    const x=Math.max(shapeBox(a).x,shapeBox(b).x),y=Math.max(shapeBox(a).y,shapeBox(b).y);
+    const right=Math.min(shapeBox(a).x+shapeBox(a).w,shapeBox(b).x+shapeBox(b).w);
+    const bottom=Math.min(shapeBox(a).y+shapeBox(a).h,shapeBox(b).y+shapeBox(b).h);
+    if(right<=x||bottom<=y){notes.setError('この2つの四角形は重なっていません');return;}
+    commit({...d,items:d.items.filter(i=>i.id!==b.id).map(i=>i.id===a.id?{...i,x,y,w:right-x,h:bottom-y}:i)});
+    setSelected(a.id);setMultiSelected([]);
+  }
+  function clipImageByRect(){
+    const d=current.current?.content;if(!d||selectedIds.length!==2)return;
+    const pair=selectedIds.map(id=>d.items.find(i=>i.id===id));
+    const image=pair.find(i=>i?.kind==='image'),rect=pair.find(i=>i?.kind==='rect');
+    if(!image||!rect||image.rotation||rect.rotation)return;
+    const a=shapeBox(image),b=shapeBox(rect),x=Math.max(a.x,b.x),y=Math.max(a.y,b.y);
+    const w=Math.min(a.x+a.w,b.x+b.w)-x,h=Math.min(a.y+a.h,b.y+b.h)-y;
+    if(w<=0||h<=0){notes.setError('画像と四角形の範囲が重なっていません');return;}
+    commit({...d,items:d.items.filter(i=>i.id!==rect.id).map(i=>i.id===image.id?{...i,clip:{x,y,w,h}}:i)});
+    setSelected(image.id);setMultiSelected([]);
+  }
   function editSelectedShape(updater:(i:Item)=>Item){const d=current.current?.content;if(!d||!selectedShape)return;commit({...d,items:d.items.map(i=>i.id===selected?updater(i):i)});}
   function clearOverlapTimer(){if(hoverTimer.current!==null){clearTimeout(hoverTimer.current);hoverTimer.current=null;}}
   function nearbyShapes(p:Point){const d=current.current?.content;return(d?.items||[]).filter(i=>d?.layers.find(l=>l.id===i.layerId)?.visible!==false).filter(i=>{const b=shapeBox(i),pad=Math.max(9,i.width/2);return p.x>=b.x-pad&&p.x<=b.x+b.w+pad&&p.y>=b.y-pad&&p.y<=b.y+b.h+pad;}).reverse();}
@@ -456,6 +478,11 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
             <button className={tool==='vertex'?'active':''} onClick={()=>chooseTool('vertex')} title="頂点と線分を個別編集"><MousePointer size={16}/> 白矢印</button>
             <button className={multiMode?'active':''} onClick={()=>{setMultiMode(v=>!v);setMultiSelected([]);}} title="複数選択：タッチまたはShift+クリック">複数選択 {multiMode?'ON':'OFF'}</button>
             <small>{selectedShape?'選択中：'+(selectedShape.kind==='rect'?'四角形':selectedShape.kind==='ellipse'?'楕円':selectedShape.kind==='line'?'直線':selectedShape.kind==='image'?'画像':'パス'):'図形を選択するとハンドルを表示します'}</small>
+            {selectedIds.length>=2&&<span className="notes-composite-actions">
+              <strong>複数図形：{selectedIds.length}個</strong>
+              <button disabled={selectedIds.length!==2||selectedIds.some(id=>{const item=doc?.items.find(i=>i.id===id);return item?.kind!=='rect'||!!item.rotation;})} onClick={intersectSelectedRects} title="四角形2つの重複部分を残す">共通部分</button>
+              <button disabled={selectedIds.length!==2||!selectedIds.some(id=>doc?.items.find(i=>i.id===id)?.kind==='image')||!selectedIds.some(id=>doc?.items.find(i=>i.id===id)?.kind==='rect')||selectedIds.some(id=>!!doc?.items.find(i=>i.id===id)?.rotation)} onClick={clipImageByRect} title="四角形を画像の切り抜きマスクに使う">画像くり抜き</button>
+            </span>}
           </div>}
           {workspaceMode==='layout'&&selectedShape&&<div className="notes-shape-inspector" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'4px 8px'}}>
             <label>線色 <input type="color" value={/^#[0-9a-f]{6}$/i.test(selectedShape.color)?selectedShape.color:'#263443'} onChange={e=>{if(doc)commit({...doc,items:doc.items.map(i=>i.id===selected?{...i,color:e.target.value}:i)});}}/></label>
@@ -513,8 +540,16 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                   onPasteCapture={pasteWorkspace} onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
                   <SpreadsheetLayer sheet={sheetForView} active={tool==='sheet'} selection={sheetSelection} onChange={updateSheet} onSelect={setSheetSelection}/>
                   <svg className="notes-ink" width={width} height={height}>
+                    <defs>{doc?.items.filter(i=>i.kind==='image'&&i.clip).map(i=><clipPath key={i.id} id={'kn-clip-'+i.id} clipPathUnits="userSpaceOnUse"><rect x={i.clip!.x} y={i.clip!.y} width={i.clip!.w} height={i.clip!.h}/></clipPath>)}</defs>
                     {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><LegacyImage key={l.id} docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/>)}
-                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={i.opacity??1} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined}>
+                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={i.opacity??1} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined} clipPath={i.kind==='image'&&i.clip?'url(#kn-clip-'+i.id+')':undefined}>
+                      {workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')&&(()=>{
+                        const b=shapeBox(i);
+                        return i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h} stroke="transparent" strokeWidth={Math.max(16,i.width)} pointerEvents="stroke"/>:
+                          i.kind==='path'?<polyline points={stroke(i.points||[])} stroke="transparent" strokeWidth={Math.max(16,i.width)} fill="none" pointerEvents="stroke"/>:
+                          i.kind==='ellipse'?<ellipse cx={b.x+b.w/2} cy={b.y+b.h/2} rx={b.w/2} ry={b.h/2} fill="transparent" stroke="none" pointerEvents="all"/>:
+                          <rect x={b.x} y={b.y} width={Math.max(6,b.w)} height={Math.max(6,b.h)} fill="transparent" stroke="none" pointerEvents="all"/>;
+                      })()}
                       {i.kind==='path'?<polyline points={stroke(i.points||[])} fill="none" strokeLinecap="round"/>:i.kind==='polygon'?<polygon points={stroke(i.points||[])} strokeLinejoin="round"/>:i.kind==='rect'?<rect x={Math.min(i.x,i.x+i.w)} y={Math.min(i.y,i.y+i.h)} width={Math.abs(i.w)} height={Math.abs(i.h)}/>:i.kind==='ellipse'?<ellipse cx={i.x+i.w/2} cy={i.y+i.h/2} rx={Math.abs(i.w/2)} ry={Math.abs(i.h/2)}/>:i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h}/>:i.kind==='image'&&i.imageId?(i.imageId.startsWith('file:')?<image href={fileURL(record.id,i.imageId.slice(5))} x={i.x} y={i.y} width={i.w} height={i.h}/>:<LegacyImage docId={record.id} imageId={i.imageId} x={i.x} y={i.y} w={i.w} h={i.h}/>):null}
                     </g>)}
                     {workspaceMode==='layout'&&hoveredShape&&hoveredShape!==selected&&(()=>{
