@@ -31,7 +31,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
     const target=nodesByPath.get(selected)?.children.length
       ? selected : parts.slice(0,-1).join(' / ');
     setOpenedPath(target);
-    setPeekDepth(null);
+    // Preserve an intentional breadcrumb/parent-peek action while selection updates.
   },[selected,nodesByPath]);
 
   const panes=useMemo(()=>{
