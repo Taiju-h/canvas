@@ -252,3 +252,48 @@
 .notes-category-cascade-stage.multilevel .notes-category-inline-choice.active{background:#e4d3ae;color:#433521;font-weight:700}
 .notes-category-cascade-stage.multilevel .notes-category-expanded-icon{transform:rotate(90deg)}
 @media(max-width:760px){.notes-category-cascade-stage.multilevel .notes-category-inline-choice{min-height:39px;font-size:12px}}
+
+
+/* KaeruNote compact Figma-inspired header and sharing workspace. */
+.notes-app .notes-header-compact{height:44px!important;min-height:44px;padding:0 12px!important;gap:9px!important;align-items:center}
+.notes-header-compact .notes-brand{font-size:15px;line-height:1;font-weight:750;letter-spacing:-.4px}
+.notes-header-compact .notes-brand span{font-size:11px}
+.notes-header-compact .notes-header-divider{height:18px;margin:0 3px}
+.notes-header-compact>input{flex:0 1 345px!important;min-width:80px;max-width:345px;font-size:13px!important;font-weight:600;padding:4px 7px;border-radius:5px;text-overflow:ellipsis}
+.notes-header-compact>input:focus{background:#fff;border:1px solid #b7b2a7}
+.notes-header-actions{margin-left:auto;display:flex;align-items:center;gap:5px;min-width:0}
+.notes-header-compact .notes-header-icon{display:grid;place-items:center;min-width:31px;width:31px;min-height:31px;height:31px;padding:5px;flex-shrink:0;border-radius:6px}
+.notes-header-compact .notes-header-share{min-height:30px;padding:5px 10px;gap:5px;border:1px solid #b9ad91;background:#eee5d2;color:#624b22;font-size:11px;white-space:nowrap;font-weight:650}
+.notes-header-compact .notes-header-share:hover{background:#e3d4b7}
+.notes-header-compact .notes-save-status{font-size:10px;max-width:110px;overflow:hidden;text-overflow:ellipsis;color:#8b856e}
+.notes-shared-indicator{border:1px solid #b6d4d0;background:#e8f4f0;color:#416b60;padding:5px 8px;border-radius:5px;white-space:nowrap;font-size:10px}
+.notes-shared-board .notes-editor{min-width:0;width:100%}
+.notes-shared-board .notes-layout{width:100%}
+.notes-share-dialog{max-width:500px;display:grid;gap:12px}
+.notes-share-dialog .notes-settings-title h2{display:flex;align-items:center;gap:8px;font-size:17px}
+.notes-share-dialog p{line-height:1.65;color:#666152;font-size:12px;margin:0}
+.notes-share-link{display:grid;gap:8px}
+.notes-share-link label{font-size:11px;font-weight:700}
+.notes-share-link input{width:100%;font-size:12px;padding:12px;border-radius:7px;border:1px solid #d5c9b6;background:#f9f6ef;color:#253447}
+.notes-share-link button{justify-self:start}
+.notes-share-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:5px}
+.notes-share-dialog .notes-share-hint{color:#87602d;background:#fff3d9;padding:10px;border-radius:6px}
+.notes-share-dialog .notes-share-error{color:#ad352b;background:#fff0ef;padding:9px;border-radius:6px}
+.notes-share-dialog .notes-share-footnote{font-size:10px;color:#8d8271}
+@media(max-width:760px){
+  .notes-app .notes-header-compact{height:44px!important;min-height:44px;padding:0 6px!important;gap:3px!important}
+  .notes-header-compact .notes-brand{font-size:12px}
+  .notes-header-compact .notes-brand span{display:none}
+  .notes-header-compact .notes-header-divider{display:none}
+  .notes-header-compact>input{flex:1 1 80px!important;min-width:55px;max-width:none;font-size:11px!important;padding:4px}
+  .notes-header-actions{gap:1px}
+  .notes-header-compact .notes-header-icon{min-width:29px;width:29px}
+  .notes-header-compact .notes-header-share{padding:6px;font-size:11px}
+  .notes-header-compact .notes-header-share span{display:none}
+  .notes-header-compact .notes-save-status{display:none}
+  .notes-shared-indicator{display:none}
+}
+@media(max-width:390px){
+  .notes-header-compact .notes-brand{display:none}
+  .notes-header-compact>input{min-width:50px}
+}
