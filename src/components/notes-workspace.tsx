@@ -176,7 +176,7 @@ function editableVertexIndices(g:Graphic,limit=24):number[]{
   const indices=[0];for(let i=1;i<limit-1;i++)indices.push(Math.round(i*(points.length-1)/(limit-1)));
   indices.push(points.length-1);return [...new Set(indices)];
 }
-type Action={pointerId:number;verticalOnly?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove'|'segmentMove';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
+type Action={pointerId:number;verticalOnly?:boolean;moved?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove'|'segmentMove';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId}:{accountId:string}){
   const notes=useNotes(accountId);const {record}=notes;
@@ -422,7 +422,10 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
     const p=position(e);if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
     if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
-    if(hoverTimer.current&&Math.hypot(p.x-a.start.x,p.y-a.start.y)>7)clearOverlapTimer();
+    const distance=Math.hypot(p.x-a.start.x,p.y-a.start.y);
+    if(hoverTimer.current&&distance>7)clearOverlapTimer();
+    if(distance<.7&&!a.moved)return;
+    a.moved=true;
     const original=a.original as StudioNoteDoc;
     if(a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){
       const originalGraphic:Graphic|undefined=original.items.find(i=>i.id===a.id)||original.paintStrokes?.find(i=>i.id===a.id);
@@ -467,7 +470,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       setDraft([]);if(a.pen)lastPen.current=Date.now();return;
     }
     if(a.kind==='shape'){const shape=draftShape;setDraftShape(null);if(!cancel&&shape&&Math.hypot(shape.w,shape.h)>2){commit({...a.original,items:[...a.original.items,shape]});setSelected(shape.id);setActiveLayer(shape.layerId);}return;}
-    if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
+    if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){if(cancel&&a.moved)notes.change(a.original);else if(a.moved){undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
   }
   function format(command:string,value?:string){typing.current=null;document.execCommand(command,false,value);const el=document.activeElement as HTMLElement;
     const id=el.closest('[data-note-block]')?.getAttribute('data-note-block');if(id)updateBlock(id,el.innerHTML,el.scrollHeight+54);}
