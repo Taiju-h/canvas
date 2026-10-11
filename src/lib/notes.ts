@@ -61,13 +61,13 @@ export async function api(path: string, init: RequestInit = {}) {
   }
   return response;
 }
-export async function uploadAttachment(docId: string, attachment: Attachment, blob: Blob, progress?: (done: number) => void) {
+export async function uploadAttachment(docId: string, attachment: Attachment, blob: Blob, progress?: (done: number) => void, shareToken?: string) {
   let offset = 0;
   while (offset < blob.size) {
     const form = new FormData();
     form.set('file', blob.slice(offset, offset + 1024 * 1024), attachment.name);
     form.set('offset', String(offset)); form.set('total', String(blob.size)); form.set('name', attachment.name);
-    const response = await api(`/api/documents/${docId}/files/${attachment.id}`, { method: 'POST', body: form });
+    const response = await api(`/api/documents/${docId}/files/${attachment.id}`, { method: 'POST', body: form, headers:shareToken?{'X-Share-Token':shareToken}:undefined });
     const next = (await response.json() as { nextOffset: number }).nextOffset;
     if (next <= offset || next > blob.size) throw new Error('添付の送信位置が不正です');
     offset = next; progress?.(offset);
