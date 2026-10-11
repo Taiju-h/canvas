@@ -186,6 +186,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [shareBusy,setShareBusy]=useState(false);
   const [shareError,setShareError]=useState('');
   const [shareCopied,setShareCopied]=useState(false);
+  const lastShareDoc=useRef('');
   const [sidebar,setSidebar]=useState(()=>sharedAccess?false:storedSidebar());const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
@@ -238,7 +239,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   useEffect(()=>{
     if(!shareOpen||!record||record.id.startsWith('local-')||sharedAccess)return;
     let mounted=true;
-    setShareLink('');setShareCopied(false);setShareError('');
+    if(lastShareDoc.current!==record.id){
+      lastShareDoc.current=record.id;
+      setShareLink('');setShareCopied(false);
+    }
+    setShareError('');
     void api('/api/documents/'+record.id+'/share').then(r=>r.json()).then((res:{enabled:boolean})=>{
       if(mounted)setShareEnabled(!!res.enabled);
     }).catch(err=>{if(mounted)setShareError(err instanceof Error?err.message:'共有状態を確認できません');});
