@@ -213,7 +213,7 @@
 .notes-category-cascade-stage.multilevel .notes-category-level-label{display:flex;align-items:center;justify-content:flex-start;flex-shrink:0;gap:5px;min-height:29px;width:100%;padding:5px 8px;background:#e8dfcc!important;color:#64533c!important;border-bottom:1px solid #d6ccb8;font-size:11px;text-align:left}
 .notes-category-cascade-stage.multilevel .notes-category-level-label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .notes-category-cascade-stage.multilevel .notes-category-level-label small{font-size:9px;color:#95866a}
-.notes-category-cascade-stage.multilevel .notes-category-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;padding:5px 4px 5px 7px}
+.notes-category-cascade-stage.multilevel .notes-category-scroll{position:relative;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;padding:5px 4px 5px 7px}
 .notes-category-cascade-stage.multilevel .notes-category-choice{width:100%;min-height:34px;padding:6px 5px;display:flex;align-items:center;gap:5px;text-align:left;color:#655c50;border-radius:5px;font-size:11px}
 .notes-category-cascade-stage.multilevel .notes-category-choice>svg{flex-shrink:0}
 .notes-category-cascade-stage.multilevel .notes-category-choice>span{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
