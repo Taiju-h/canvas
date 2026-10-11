@@ -1,11 +1,9 @@
 name: Web build
 
 on:
-  push:
-    branches:
-      - main
-      - feature/**
-  pull_request:
+  # Web UI is already verified on every main push by kaerunote-check.yml.
+  # Run artifact packaging only when explicitly requested.
+  workflow_dispatch:
 
 jobs:
   build:
