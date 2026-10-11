@@ -189,13 +189,19 @@ try {
     if (!$doc) canvas_json(['error' => 'この作品を開く権限がありません'], 403);
     $owner = $actor && hash_equals($doc['owner_id'], $actor);
     $token = (string)($_SERVER['HTTP_X_SHARE_TOKEN'] ?? '');
-    // HTML/SVG images and attachments cannot attach custom headers.
-    // Only GET on authorized document resources may use a query token.
-    if ($token === '' && $method === 'GET' && in_array($operation, ['images','files'], true)) {
-        $token = (string)($_GET['share_token'] ?? '');
-    }
+    $shareHash = is_string($doc['share_hash']) ? $doc['share_hash'] : '';
     $guest = !$owner && preg_match('/^[a-f0-9]{64}$/D', $token) &&
-        is_string($doc['share_hash']) && hash_equals($doc['share_hash'], hash('sha256', $token));
+        $shareHash !== '' && hash_equals($shareHash, hash('sha256', $token));
+    // The guest's first authenticated document GET enables session-scoped access
+    // for embedded SVG/HTML images and attachments (which cannot send custom headers).
+    // The session grant is always checked against the live hash, so revocation works.
+    if (!$owner && !$guest && $method === 'GET' && in_array($operation, ['images','files'], true)) {
+        $grant = $_SESSION['canvas_shared_resource_grants'][$id] ?? '';
+        $guest = $shareHash !== '' && is_string($grant) && hash_equals($shareHash, $grant);
+    }
+    if (!$owner && $guest && $token !== '' && $method === 'GET') {
+        $_SESSION['canvas_shared_resource_grants'][$id] = $shareHash;
+    }
     if (!$owner && !$guest) canvas_json(['error' => 'この作品を開く権限がありません'], 403);
 
     if ($operation === 'files') {
