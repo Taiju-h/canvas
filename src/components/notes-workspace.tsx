@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
+import { PanelLeft, Plus, MoreHorizontal, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
@@ -180,7 +180,7 @@ type Action={pointerId:number;verticalOnly?:boolean;moved?:boolean;handle?:strin
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId}:{accountId:string}){
   const notes=useNotes(accountId);const {record}=notes;
-  const [sidebar,setSidebar]=useState(storedSidebar);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
+  const [sidebar,setSidebar]=useState(storedSidebar);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [activeAnchor,setActiveAnchor]=useState<ActiveAnchor|null>(null);const [activeSegment,setActiveSegment]=useState<ActiveAnchor|null>(null);const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
@@ -604,7 +604,17 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     </header>
     <div className="notes-layout">
       {sidebar&&<><button className="notes-sidebar-backdrop" aria-label="メモ一覧を閉じる" onClick={toggleSidebar}/><aside className="notes-sidebar">
-        <div className="notes-sidebar-head"><div><small>MY WORKSPACE</small><h1>メモ</h1></div><div className="notes-sidebar-head-actions"><button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button><button className="notes-sidebar-close" onClick={toggleSidebar} aria-label="サイドバーを閉じる" title="閉じる"><X size={20}/></button></div></div>
+        <div className="notes-sidebar-head"><small>MY WORKSPACE</small><div className="notes-sidebar-head-actions">
+          <button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button>
+          <div className="notes-sidebar-more">
+            <button className="notes-sidebar-menu-toggle" aria-label="メモメニュー" aria-expanded={sidebarMenuOpen} onClick={()=>setSidebarMenuOpen(open=>!open)} title="メニュー"><MoreHorizontal size={20}/></button>
+            {sidebarMenuOpen&&<div className="notes-sidebar-menu" role="menu">
+              <button role="menuitem" disabled={organizing||importing||attaching} onClick={()=>{setSidebarMenuOpen(false);setImportOpen(true);}}><Upload size={16}/>Joplinから取り込む</button>
+              <button role="menuitem" onClick={()=>{setSidebarMenuOpen(false);setSettings(true);}}><Settings2 size={16}/>メモの整理・設定</button>
+            </div>}
+          </div>
+          <button className="notes-sidebar-close" onClick={()=>{setSidebarMenuOpen(false);toggleSidebar();}} aria-label="サイドバーを閉じる" title="閉じる"><X size={20}/></button>
+        </div></div>
         <label className="notes-search"><Search size={17}/><input ref={searchInput} placeholder="全メモの本文・タグを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)} onBlur={()=>rememberSearch()} onKeyDown={e=>{if(e.key==='Enter')rememberSearch();}}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
         {!!recentSearches.length&&<div className="notes-search-history" aria-label="最近の検索">{recentSearches.map(value=><button key={value} title={value} onClick={()=>{setQuery(value);setSearchScope('all');}}>{value}</button>)}</div>}
         <div className="notes-search-options"><label>検索範囲<select aria-label="検索範囲" value={searchScope} onChange={e=>setSearchScope(e.target.value as 'all'|'filtered')}><option value="all">全カテゴリ横断</option><option value="filtered">選択中のカテゴリ・タグ</option></select></label><small>{trash?'ゴミ箱内を検索':'タイトル・本文・タグ・添付名'} · 空白でAND検索</small></div>
@@ -615,7 +625,6 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         <div className="notes-list">{filtered.map(n=><button key={n.id} className={`notes-list-item ${n.id===record?.id?'active':''}`} disabled={importing||attaching||notes.busy||organizing} onClick={()=>{void notes.open(n.id);if(innerWidth<=760)setSidebar(false);}}>
           <strong>{n.note?.pinned&&<Pin size={13}/>} {n.title||'新しいメモ'}</strong><p>{searching?searchExcerpt(n.searchText||n.excerpt||'',query):n.excerpt||'テキストのないメモ'}</p><footer><time>{new Date(n.updated_at).toLocaleDateString('ja-JP',{month:'short',day:'numeric'})}</time><span title={n.note?.category}>{n.note?.category||'未分類'}</span>{n.note?.importState==='pending'&&<em>取込途中</em>}</footer></button>)}
           {!filtered.length&&<p className="notes-empty">該当するメモはありません</p>}</div>
-        <button disabled={organizing||attaching} className="notes-import-button" onClick={()=>setImportOpen(true)}><Upload size={16}/> Joplinから取り込む</button>
       </aside></>}
       <section className="notes-editor">
         <div inert={!!meta.trashedAt||organizing||meta.importState==='pending'} className={`notes-toolbar ${workspaceMode==='note'?'notes-toolbar-word':''} ${meta.importState==='pending'||meta.trashedAt||organizing?'notes-disabled':''}`} role="toolbar" aria-label="編集オプション">
