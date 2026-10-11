@@ -89,7 +89,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
       <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層">
         <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>
         {trail.map((path,index)=><button key={path} disabled={disabled} title={path} className={selected===path?'active':''}
-          onClick={()=>reveal(path)}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
+          onClick={()=>{reveal(path);if(index<trail.length-1)setPeekDepth(0);}}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
       </nav>
       <div className={'notes-category-cascade-stage multilevel '+(peekDepth!==null?'parent-peek':'')} role="group" aria-label="カテゴリの選択"
         onMouseLeave={()=>setPeekDepth(null)}>
@@ -104,8 +104,8 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
             style={{left:left+'%',width:(100-left)+'%',zIndex,transform:isPeeking?'translateX(70%)':'translateX(0)',opacity:isPeeking?.55:1}}
             onMouseEnter={()=>setPeekDepth(isLast?null:i)}>
             {pane.parent&&<button type="button" className="notes-category-level-label" disabled={disabled}
-              title={pane.parent} onClick={()=>reveal(pane.parent)}>
-              <ChevronLeft size={14}/><span>{categoryParts(pane.parent).at(-1)}</span><small>このカテゴリ</small>
+              title="タップで一つ上の階層を前面に出す" onClick={()=>setPeekDepth(Math.max(0,i-1))}>
+              <ChevronLeft size={14}/><span>{categoryParts(pane.parent).at(-1)}</span><small>親を表示</small>
             </button>}
             <div className="notes-category-scroll" ref={el=>{panelRefs.current[pane.parent||'root']=el;}}>
               {pane.nodes.map(node=><button key={node.path} type="button" disabled={disabled} data-category-path={node.path}
