@@ -112,7 +112,7 @@ function UpdateBadge() {
       setUpdating(true);setMessage("");
       const bridge=(window as Window & {CanvasApp?:{applyWebUpdate?:()=>void}}).CanvasApp;
       if(bridge?.applyWebUpdate) bridge.applyWebUpdate();
-      else { location.href="/canvas/?remoteui=1&update="+Date.now(); }
+      else { const url=new URL(location.href);url.searchParams.set('remoteui','1');url.searchParams.set('update',String(Date.now()));location.assign(url.toString()); }
     }}><b>!</b><span>{updating?"更新中…":"更新あり"}</span></button>}
     {message&&<button className="error" onClick={()=>setMessage("")}>{message}</button>}
   </div>;
