@@ -205,7 +205,7 @@ try {
     if (!$owner && !$guest) canvas_json(['error' => 'この作品を開く権限がありません'], 403);
 
     if ($operation === 'files') {
-        if (!$owner && !($guest && $method === 'GET')) canvas_json(['error' => '添付を開く権限がありません'], 403);
+        if (!$owner && !$guest) canvas_json(['error' => '添付を開く権限がありません'], 403);
         canvas_note_file($id, $imageId, $method);
     }
 
