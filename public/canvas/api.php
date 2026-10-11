@@ -189,17 +189,24 @@ try {
     if (!$doc) canvas_json(['error' => 'この作品を開く権限がありません'], 403);
     $owner = $actor && hash_equals($doc['owner_id'], $actor);
     $token = (string)($_SERVER['HTTP_X_SHARE_TOKEN'] ?? '');
+    // HTML/SVG images and attachments cannot attach custom headers.
+    // Only GET on authorized document resources may use a query token.
+    if ($token === '' && $method === 'GET' && in_array($operation, ['images','files'], true)) {
+        $token = (string)($_GET['share_token'] ?? '');
+    }
     $guest = !$owner && preg_match('/^[a-f0-9]{64}$/D', $token) &&
         is_string($doc['share_hash']) && hash_equals($doc['share_hash'], hash('sha256', $token));
     if (!$owner && !$guest) canvas_json(['error' => 'この作品を開く権限がありません'], 403);
 
     if ($operation === 'files') {
-        if (!$owner) canvas_json(['error' => '添付を開く権限がありません'], 403);
+        if (!$owner && !($guest && $method === 'GET')) canvas_json(['error' => '添付を開く権限がありません'], 403);
         canvas_note_file($id, $imageId, $method);
     }
 
     if ($operation === 'share') {
-        if ($method !== 'POST' || !$owner) canvas_json(['error' => '権限がありません'], 403);
+        if (!$owner) canvas_json(['error' => '権限がありません'], 403);
+        if ($method === 'GET') canvas_json(['enabled' => !empty($doc['share_hash']), 'canEdit' => true]);
+        if ($method !== 'POST') canvas_json(['error' => '操作が不正です'], 405);
         $action = canvas_body()['action'] ?? '';
         if ($action === 'revoke') {
             $db->prepare('UPDATE canvas_documents SET share_hash = NULL WHERE id = ?')->execute([$id]);
@@ -263,8 +270,15 @@ try {
     if ($json === false || strlen($json) > 8000000) canvas_json(['error' => '作品が大きすぎます'], 413);
     $title = canvas_title($body['title'] ?? null);
     $now = canvas_now();
-    $update = $db->prepare('UPDATE canvas_documents SET title = ?, content_json = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?');
-    $update->execute([$title, $json, $now, $id, $body['revision']]);
+    // Validate a guest's token again during the write, including after a revoke.
+    $sql = 'UPDATE canvas_documents SET title = ?, content_json = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?';
+    $params = [$title, $json, $now, $id, $body['revision']];
+    if (!$owner) {
+        $sql .= ' AND share_hash = ?';
+        $params[] = hash('sha256', $token);
+    }
+    $update = $db->prepare($sql);
+    $update->execute($params);
     if ($update->rowCount() !== 1) canvas_json(['error' => 'ほかの端末の変更が先に保存されました'], 409);
     canvas_json(['id' => $id, 'title' => $title, 'revision' => $body['revision'] + 1, 'updated_at' => $now]);
 } catch (Throwable $error) {
