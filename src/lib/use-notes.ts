@@ -107,7 +107,10 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
             }catch{/* When a merge fails, preserve the unsaved draft below. */}
           }
           if ((err as {status?:number}).status===409) { blocked.current.add(key); if (active.current===key) setConflict(true); report(shared?'同じ箇所が競合しました。画面の内容はまだ残っています':'他端末と競合・この端末の内容は保持しています',key); }
-          else { report('端末保存済み・同期待ち',key); setError(err instanceof Error?err.message:'同期できません'); }
+          else {
+            report(shared?'共有先に保存できません（この画面に編集内容が残っています）':'端末保存済み・同期待ち',key);
+            setError(shared?'共同編集の保存に失敗しました。接続・共有権限を確認し、必要なら編集内容を退避してください。':err instanceof Error?err.message:'同期できません');
+          }
           break;
         }
       }
@@ -211,7 +214,9 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
         const updated={...remote,content:normalizeNote(remote.content),accountId,dirty:false};
         synced.current.set(id,{revision:updated.revision,content:updated.content,title:updated.title});
         show(updated);await persist(updated);report('最新の変更を反映しました',id);
-      }catch{/* Temporary disconnection must not discard a local draft. */}
+      }catch(err){
+        if(shared&&(err as {status?:number}).status===403)setError('共有リンクが無効になった可能性があります。所有者に再共有を依頼してください。');
+      }
       finally{refreshing=false;}
     },2500);
     return()=>{live=false;clearInterval(poll);removeEventListener('online',online);removeEventListener('beforeunload',before);};
