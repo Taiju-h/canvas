@@ -9,7 +9,10 @@ function directCount(notes:NoteIndex[],path:string){
 }
 
 export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;disabled:boolean}){
-  const tree=useMemo(()=>categoryTree(paths),[paths]);
+  // The parent recalculates the paths array on each render; memoize by content so
+  // a hover preview is not reset whenever React renders an unrelated control.
+  const pathSignature=paths.join('\u001f');
+  const tree=useMemo(()=>categoryTree(paths),[pathSignature]);
   const nodesByPath=useMemo(()=>{
     const nodes=new Map<string,CategoryNode>();
     const visit=(entries:CategoryNode[])=>{for(const n of entries){nodes.set(n.path,n);visit(n.children);}};
@@ -45,7 +48,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
 
   // At most three side-by-side panes remain visible; the full ancestry is always
   // accessible from the breadcrumb row, even for four or more nesting levels.
-  const visible=panes.slice(-3),visibleOffset=panes.length-visible.length;
+  const visible=panes.slice(-3);
   const trail=categoryParts(selected||openedPath).map((_,index,all)=>all.slice(0,index+1).join(' / '));
 
   useEffect(()=>{
@@ -62,7 +65,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
       }
     });
     return()=>cancelAnimationFrame(raf);
-  },[selected,openedPath,paths]);
+  },[selected,openedPath,pathSignature]);
 
   function choose(node:CategoryNode){
     setPeekDepth(null);
@@ -91,13 +94,13 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
       <div className={'notes-category-cascade-stage multilevel '+(peekDepth!==null?'parent-peek':'')} role="group" aria-label="カテゴリの選択"
         onMouseLeave={()=>setPeekDepth(null)}>
         {visible.map((pane,i)=>{
-          const depth=i+visibleOffset,isLast=i===visible.length-1;
+          const isLast=i===visible.length-1;
           const left=i===0?0:visible.length===2?20: i===1?12:24;
           const isPeeking=peekDepth!==null&&i>peekDepth;
           const zIndex=peekDepth===null?10+i: i===peekDepth?30:i>peekDepth?20+i:10+i;
           const isFocused=peekDepth===null?isLast:peekDepth===i;
           return <section key={pane.parent||'root'} className={'notes-category-pane notes-category-multi-pane '+(isFocused?'is-focused ':'')+(isPeeking?'is-muted':'')}
-            aria-label={pane.title} aria-hidden={isPeeking}
+            aria-label={pane.title}
             style={{left:left+'%',width:(100-left)+'%',zIndex,transform:isPeeking?'translateX(70%)':'translateX(0)',opacity:isPeeking?.55:1}}
             onMouseEnter={()=>setPeekDepth(isLast?null:i)}>
             {pane.parent&&<button type="button" className="notes-category-level-label" disabled={disabled}
