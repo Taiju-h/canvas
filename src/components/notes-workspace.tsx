@@ -194,6 +194,16 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   const searchInput=useRef<HTMLInputElement>(null);const scaleRef=useRef(scale);scaleRef.current=scale;
   const [deleteOpen,setDeleteOpen]=useState(false);
   useEffect(()=>{void api('/api/note-workspace').then(r=>r.json()).then(setWorkspace).catch(()=>{});},[]);
+  useEffect(()=>{
+    if(!sidebarMenuOpen)return;
+    const closeOutside=(event:PointerEvent)=>{
+      if(!(event.target as Element).closest?.('.notes-sidebar-more'))setSidebarMenuOpen(false);
+    };
+    const closeEscape=(event:KeyboardEvent)=>{if(event.key==='Escape')setSidebarMenuOpen(false);};
+    document.addEventListener('pointerdown',closeOutside);
+    document.addEventListener('keydown',closeEscape);
+    return()=>{document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',closeEscape);};
+  },[sidebarMenuOpen]);
   const [draft,setDraft]=useState<Point[]>([]);const [sizes,setSizes]=useState<Record<string,number>>({});
   const hoverTimer=useRef<ReturnType<typeof setTimeout>|null>(null);const scroll=useRef<HTMLDivElement>(null);const plane=useRef<HTMLDivElement>(null);const action=useRef<Action|null>(null);
   const fittedViewport=useRef({id:'',width:0});const extent=useRef({id:'',width:1800,height:1400});const suppressClick=useRef(false);
