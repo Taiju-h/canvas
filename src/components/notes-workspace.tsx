@@ -742,7 +742,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           {sharedAccess?<button onClick={()=>{if(record)download('KaeruNote-競合バックアップ.json',JSON.stringify({title:record.title,content:record.content},null,2),'application/json');}}>編集内容を保存</button>:
           <button onClick={()=>void notes.recover()}>今の内容を別メモに保存</button>}
         </div>}
-        {notes.error&&<div className="notes-warning" role="alert">{notes.error}<button onClick={()=>notes.setError('')} aria-label="通知を閉じる"><X size={15}/></button></div>}
+        {notes.error&&<div className="notes-warning" role="alert">
+          {notes.error}
+          {sharedAccess&&record?.dirty&&<button onClick={()=>download('KaeruNote-未保存バックアップ.json',JSON.stringify({title:record.title,content:record.content},null,2),'application/json')}>編集内容を保存</button>}
+          <button onClick={()=>notes.setError('')} aria-label="通知を閉じる"><X size={15}/></button>
+        </div>}
         <div className={`notes-stage ${layersOpen?'layers-open':''} ${focusMode?'focus-mode':''}`}>
           {focusMode&&<button className="notes-focus-float floating" style={{left:focusFloat.x,top:focusFloat.y}} title="通常表示へ戻る" onClick={toggleFocusMode} onPointerDown={focusButtonDown} onPointerMove={focusButtonMove} onPointerUp={focusButtonUp} onPointerCancel={focusButtonUp}><Minimize2 size={20}/><small>戻る</small></button>}
           {focusMode&&<>
