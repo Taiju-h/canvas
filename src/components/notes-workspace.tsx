@@ -52,6 +52,7 @@ function shapeVertices(item:Item):Point[]{
   if(item.kind==='path'||item.kind==='polygon')return item.points||[];
   if(item.kind==='line')return[{x:item.x,y:item.y},{x:item.x+item.w,y:item.y+item.h}];
   if(item.kind==='rect'){const b=shapeBox(item);return[{x:b.x,y:b.y},{x:b.x+b.w,y:b.y},{x:b.x+b.w,y:b.y+b.h},{x:b.x,y:b.y+b.h}];}
+  if(item.kind==='ellipse'){const b=shapeBox(item);return[{x:b.x+b.w/2,y:b.y},{x:b.x+b.w,y:b.y+b.h/2},{x:b.x+b.w/2,y:b.y+b.h},{x:b.x,y:b.y+b.h/2}];}
   return[];
 }
 function resizedShape(item:Item,from:ShapeBox,to:ShapeBox):Item{
@@ -61,6 +62,14 @@ function resizedShape(item:Item,from:ShapeBox,to:ShapeBox):Item{
     points:item.points?.map(p=>({...p,x:px(p.x),y:py(p.y)}))};
 }
 function changedVertex(item:Item,index:number,point:Point):Item{
+  if(item.kind==='ellipse'){
+    const b=shapeBox(item);let left=b.x,right=b.x+b.w,top=b.y,bottom=b.y+b.h;
+    if(index===0)top=Math.min(bottom-6,point.y);
+    if(index===1)right=Math.max(left+6,point.x);
+    if(index===2)bottom=Math.max(top+6,point.y);
+    if(index===3)left=Math.min(right-6,point.x);
+    return{...item,x:left,y:top,w:right-left,h:bottom-top};
+  }
   const vertices=shapeVertices(item).map((p,i)=>i===index?{...p,x:point.x,y:point.y}:p);
   if(item.kind==='line'&&vertices.length===2)return{...item,x:vertices[0].x,y:vertices[0].y,w:vertices[1].x-vertices[0].x,h:vertices[1].y-vertices[0].y};
   if(!vertices.length)return item;
@@ -74,14 +83,23 @@ function translateShape(item:Item,dx:number,dy:number):Item{
 
 type PaintStroke=NonNullable<NoteDoc['paintStrokes']>[number];
 type Graphic=Item|PaintStroke;
+const graphicBoundsCache=new WeakMap<Graphic,ShapeBox>();
 type ActiveAnchor={id:string;index:number};
 function isItemGraphic(value:Graphic):value is Item{return 'kind' in value;}
 function graphicBox(g:Graphic):ShapeBox{
-  if(isItemGraphic(g))return shapeBox(g);
-  const points=g.points;if(!points.length)return{x:0,y:0,w:0,h:0};
-  let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
-  for(const p of points){left=Math.min(left,p.x);top=Math.min(top,p.y);right=Math.max(right,p.x);bottom=Math.max(bottom,p.y);}
-  return{x:left,y:top,w:right-left,h:bottom-top};
+  const cached=graphicBoundsCache.get(g);if(cached)return cached;
+  let b:ShapeBox;
+  if(isItemGraphic(g))b=shapeBox(g);
+  else {
+    const points=g.points;
+    if(!points.length)b={x:0,y:0,w:0,h:0};
+    else {
+      let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
+      for(const p of points){left=Math.min(left,p.x);top=Math.min(top,p.y);right=Math.max(right,p.x);bottom=Math.max(bottom,p.y);}
+      b={x:left,y:top,w:right-left,h:bottom-top};
+    }
+  }
+  graphicBoundsCache.set(g,b);return b;
 }
 function graphicVertices(g:Graphic):Point[]{return isItemGraphic(g)?shapeVertices(g):g.points;}
 function graphicName(g:Graphic){if(!isItemGraphic(g))return 'フリーハンド';return g.kind==='rect'?'四角形':g.kind==='ellipse'?'楕円':g.kind==='line'?'直線':g.kind==='image'?'画像':g.kind==='path'?'パス':'図形';}
@@ -100,7 +118,7 @@ function distanceToLine(p:Point,a:Point,b:Point){
 }
 function nearestSegment(g:Graphic,point:Point):{index:number;distance:number}|null{
   const vertices=graphicVertices(g),isClosed=isItemGraphic(g)&&(g.kind==='rect'||g.kind==='polygon');
-  if(vertices.length<2)return null;
+  if(vertices.length<2)return vertices.length===1?{index:0,distance:Math.hypot(point.x-vertices[0].x,point.y-vertices[0].y)}:null;
   let closest={index:0,distance:Infinity};
   for(let i=0;i<vertices.length-(isClosed?0:1);i++){
     const d=distanceToLine(point,vertices[i],vertices[(i+1)%vertices.length]);
@@ -123,8 +141,8 @@ function graphicDistance(g:Graphic,screenPoint:Point):number{
 }
 function resizedGraphic(g:Graphic,from:ShapeBox,to:ShapeBox):Graphic{
   if(isItemGraphic(g))return resizedShape(g,from,to);
-  const px=(x:number)=>to.x+(x-from.x)*(to.w/Math.max(.0001,from.w));
-  const py=(y:number)=>to.y+(y-from.y)*(to.h/Math.max(.0001,from.h));
+  const px=(x:number)=>from.w<1?x+to.x-from.x:to.x+(x-from.x)*(to.w/from.w);
+  const py=(y:number)=>from.h<1?y+to.y-from.y:to.y+(y-from.y)*(to.h/from.h);
   return{...g,points:g.points.map(p=>({...p,x:px(p.x),y:py(p.y)}))};
 }
 function moveGraphic(g:Graphic,dx:number,dy:number):Graphic{
