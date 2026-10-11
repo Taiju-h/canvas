@@ -196,3 +196,35 @@
 .notes-overlap-picker{padding-right:27px;min-width:175px}
 .notes-overlap-picker>button.notes-overlap-dismiss{position:absolute;right:0;top:0;width:25px;min-width:25px;min-height:27px;border-radius:5px;padding:2px;line-height:1;background:#f2f5f8;color:#596677;font-size:17px}
 .notes-overlap-picker .notes-overlap-list{grid-column:1}
+
+
+/* KaeruNote layered category chooser — restored Oct 8 interaction, multi-depth. */
+.notes-category-cascade.is-multilevel{padding-top:3px!important;padding-bottom:6px!important}
+.notes-category-breadcrumb{display:flex;align-items:center;gap:3px;overflow-x:auto;scrollbar-width:thin;max-width:100%;padding:6px 0 9px}
+.notes-category-breadcrumb button{display:inline-flex;align-items:center;gap:2px;white-space:nowrap;flex-shrink:0;min-height:27px;max-width:145px;padding:3px 6px;border-radius:5px;background:#e8e4db;color:#82745f;font-size:10px}
+.notes-category-breadcrumb button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.notes-category-breadcrumb button.active{background:#dfd2b3;color:#4e3b21;font-weight:700}
+.notes-category-breadcrumb button:hover,.notes-category-breadcrumb button:focus-visible{background:#d9e8f0;color:#205b7a}
+.notes-category-cascade-stage.multilevel{height:clamp(185px,27vh,280px);isolation:isolate;overflow:hidden}
+.notes-category-cascade-stage.multilevel .notes-category-multi-pane{display:flex;flex-direction:column;overflow:hidden;padding:0;background:#f4f1ea;box-shadow:-9px 0 18px #34322e26;border-left:1px solid #d0c6b3;transition:transform .19s ease,opacity .19s ease}
+.notes-category-cascade-stage.multilevel .notes-category-multi-pane:first-child{border-left:0}
+.notes-category-cascade-stage.multilevel .notes-category-multi-pane.is-focused{background:#fbfaf6}
+.notes-category-cascade-stage.multilevel .notes-category-multi-pane.is-muted{filter:saturate(.7)}
+.notes-category-cascade-stage.multilevel .notes-category-level-label{display:flex;align-items:center;justify-content:flex-start;flex-shrink:0;gap:5px;min-height:29px;width:100%;padding:5px 8px;background:#e8dfcc!important;color:#64533c!important;border-bottom:1px solid #d6ccb8;font-size:11px;text-align:left}
+.notes-category-cascade-stage.multilevel .notes-category-level-label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.notes-category-cascade-stage.multilevel .notes-category-level-label small{font-size:9px;color:#95866a}
+.notes-category-cascade-stage.multilevel .notes-category-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;padding:5px 4px 5px 7px}
+.notes-category-cascade-stage.multilevel .notes-category-choice{width:100%;min-height:34px;padding:6px 5px;display:flex;align-items:center;gap:5px;text-align:left;color:#655c50;border-radius:5px;font-size:11px}
+.notes-category-cascade-stage.multilevel .notes-category-choice>svg{flex-shrink:0}
+.notes-category-cascade-stage.multilevel .notes-category-choice>span{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.notes-category-cascade-stage.multilevel .notes-category-choice>small{flex-shrink:0;color:#968773;min-width:17px;text-align:right;font-size:10px}
+.notes-category-cascade-stage.multilevel .notes-category-choice:hover,.notes-category-cascade-stage.multilevel .notes-category-choice:focus-visible{background:#e8e1d2}
+.notes-category-cascade-stage.multilevel .notes-category-choice.active{background:#e5d7b4;color:#4e3e23;font-weight:700}
+.notes-category-cascade-stage.multilevel .notes-category-choice.ancestor:not(.active){color:#836231}
+.notes-category-cascade-stage.multilevel .notes-category-empty{padding:14px 8px;font-size:11px;color:#867f74}
+.notes-category-cascade.is-multilevel .notes-category-help{font-size:9px;line-height:1.4;color:#8e8475;margin:5px 3px 0}
+@media(max-width:760px){
+  .notes-category-cascade-stage.multilevel{height:clamp(185px,30vh,260px)}
+  .notes-category-cascade-stage.multilevel .notes-category-choice{min-height:39px;padding:7px 4px;font-size:12px}
+  .notes-category-breadcrumb button{min-height:32px;font-size:11px}
+}
