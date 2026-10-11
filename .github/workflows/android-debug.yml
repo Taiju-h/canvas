@@ -1,16 +1,9 @@
 name: KaeruNote debug APK
 
 on:
+  # KaeruNote is web-first. Rebuild the Android wrapper only by explicit request,
+  # never on ordinary src/ or web UI updates.
   workflow_dispatch:
-  push:
-    paths:
-      - "clients/android/**"
-      - "src/**"
-      - "public/**"
-      - "scripts/**"
-      - "package.json"
-      - "vite.config.ts"
-      - ".github/workflows/android-debug.yml"
 
 jobs:
   build:
