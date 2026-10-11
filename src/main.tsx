@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import NotesWorkspace from "@/components/notes-workspace";
+import type { SharedAccess } from "@/lib/use-notes";
 import "./styles.css";
 import "./visitor.css";
 
@@ -117,7 +118,14 @@ function UpdateBadge() {
   </div>;
 }
 
+function sharedLink():SharedAccess|undefined{
+  const token=new URLSearchParams(location.hash.replace(/^#/, '')).get('share')||'';
+  const id=new URLSearchParams(location.search).get('d')||'';
+  if(/^[a-f0-9]{32}$/i.test(id)&&/^[a-f0-9]{64}$/i.test(token))return{id:id.toLowerCase(),token:token.toLowerCase()};
+  return undefined;
+}
 function App() {
+  const shared=sharedLink();
   const [session, setSession] = useState<Session | null>(null);
   const [fatal, setFatal] = useState("");
   useEffect(() => {
@@ -128,6 +136,8 @@ function App() {
   }, []);
   if (fatal) return <main className="visitor-gate"><section className="visitor-card"><h1>接続できません</h1><p>{fatal}</p></section></main>;
   if (!session) return <main className="hybrid-loading"><div className="hybrid-spinner" />起動しています…</main>;
+  // An invited collaborator opens exactly one shared board and never sees the owner's notes.
+  if (shared)return <><NotesWorkspace accountId={'shared:'+shared.id} sharedAccess={shared} /><UpdateBadge /></>;
   if (!session.authenticated) return <><VisitorGate session={session} onReady={setSession} /><UpdateBadge /></>;
   return <><NotesWorkspace accountId={session.accountId || ""} /><UpdateBadge /></>;
 }
