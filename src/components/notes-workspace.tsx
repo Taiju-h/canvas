@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, MoreHorizontal, Search, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
+import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
-import { useNotes } from '@/lib/use-notes';
+import { useNotes, type SharedAccess } from '@/lib/use-notes';
 import { api, blankNote, block, cleanHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
 import { readJex, type JexArchive } from '@/lib/jex';
 import { importJex } from '@/lib/import-jex';
@@ -178,9 +178,15 @@ function editableVertexIndices(g:Graphic,limit=24):number[]{
 }
 type Action={pointerId:number;verticalOnly?:boolean;moved?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove'|'segmentMove';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
-export default function NotesWorkspace({accountId}:{accountId:string}){
-  const notes=useNotes(accountId);const {record}=notes;
-  const [sidebar,setSidebar]=useState(storedSidebar);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
+export default function NotesWorkspace({accountId,sharedAccess}:{accountId:string;sharedAccess?:SharedAccess}){
+  const notes=useNotes(accountId,sharedAccess);const {record}=notes;
+  const [shareOpen,setShareOpen]=useState(false);
+  const [shareLink,setShareLink]=useState('');
+  const [shareEnabled,setShareEnabled]=useState(false);
+  const [shareBusy,setShareBusy]=useState(false);
+  const [shareError,setShareError]=useState('');
+  const [shareCopied,setShareCopied]=useState(false);
+  const [sidebar,setSidebar]=useState(()=>sharedAccess?false:storedSidebar());const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [activeAnchor,setActiveAnchor]=useState<ActiveAnchor|null>(null);const [activeSegment,setActiveSegment]=useState<ActiveAnchor|null>(null);const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
@@ -228,7 +234,45 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     typing.current={id,at:Date.now()};commit({...d,blocks:d.blocks?.map(b=>b.id===id?{...b,html,h:height}:b)},newGroup);}
   function undo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const previous=undoStack.current.pop();if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
   function redo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const next=redoStack.current.pop();if(!d||!next)return;undoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(next);redraw(v=>v+1);}
-  function toggleSidebar(){setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
+  function toggleSidebar(){if(sharedAccess)return;setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
+  useEffect(()=>{
+    if(!shareOpen||!record||record.id.startsWith('local-')||sharedAccess)return;
+    let mounted=true;
+    setShareLink('');setShareCopied(false);setShareError('');
+    void api('/api/documents/'+record.id+'/share').then(r=>r.json()).then((res:{enabled:boolean})=>{
+      if(mounted)setShareEnabled(!!res.enabled);
+    }).catch(err=>{if(mounted)setShareError(err instanceof Error?err.message:'共有状態を確認できません');});
+    return()=>{mounted=false;};
+  },[shareOpen,record?.id,!!sharedAccess]);
+
+  async function createShare(){
+    if(!record||sharedAccess||record.id.startsWith('local-'))return;
+    if(shareEnabled&&!window.confirm('新しい共有リンクを発行すると、以前の共有リンクは使えなくなります。続けますか？'))return;
+    setShareBusy(true);setShareError('');
+    try{
+      await notes.save();
+      if(notes.conflict)throw new Error('未解決の保存競合があります。共有前に競合を解消してください');
+      const result=await(await api('/api/documents/'+record.id+'/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create'})})).json() as {token:string};
+      const url=new URL('/canvas/',location.origin);
+      url.searchParams.set('d',record.id);url.hash=new URLSearchParams({share:result.token}).toString();
+      setShareLink(url.toString());setShareEnabled(true);setShareCopied(false);
+    }catch(e){setShareError(e instanceof Error?e.message:'リンクを発行できません');}
+    finally{setShareBusy(false);}
+  }
+  async function revokeShare(){
+    if(!record||sharedAccess)return;
+    setShareBusy(true);setShareError('');
+    try{
+      await api('/api/documents/'+record.id+'/share',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'revoke'})});
+      setShareEnabled(false);setShareLink('');setShareCopied(false);
+    }catch(e){setShareError(e instanceof Error?e.message:'共有を停止できません');}
+    finally{setShareBusy(false);}
+  }
+  async function copyShare(){
+    try{
+      await navigator.clipboard.writeText(shareLink);setShareCopied(true);
+    }catch{setShareError('コピーできませんでした。上のURL欄を選択してコピーしてください。');}
+  }
   function rememberSearch(value=query){const q=value.trim();if(!q)return;setRecentSearches(old=>{const next=[q,...old.filter(v=>v!==q)].slice(0,12);try{localStorage.setItem('canvas-search-history',JSON.stringify(next));}catch{}return next;});}
   function activateFamily(kind:'canvas'|'layout'){
     const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return'';
@@ -602,18 +646,25 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       <polyline points={stroke(value.points)} stroke="transparent" strokeWidth={Math.max(18,value.width)} pointerEvents={workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')||tool==='eraser'?'stroke':'none'}/>
     </g>;
   }
-  return <main className={`notes-app ${sidebar?'sidebar-open':''}`}>
-    <header className="notes-header">
-      <button onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={21}/></button>
-      <strong className="notes-brand">Kaeru<span>Note</span></strong><span className="notes-header-divider"/>
+  return <main className={`notes-app ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''}`}>
+    <header className="notes-header notes-header-compact">
+      {!sharedAccess&&<button className="notes-header-icon" onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={19}/></button>}
+      <strong className="notes-brand">Kaeru<span>Note</span></strong>
+      <span className="notes-header-divider"/>
       <input aria-label="メモのタイトル" placeholder="新しいメモ" value={record?.title||''} maxLength={80} disabled={!record||notes.busy||importing||organizing||!!meta.trashedAt||meta.importState==='pending'} onChange={e=>doc&&notes.change(doc,e.target.value)}/>
-      <button onClick={()=>{setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}} aria-label="全メモを横断検索" title="横断検索（Ctrl+Shift+F）"><Search size={19}/></button>
-      <span className="notes-save-status" role="status">{attaching?'添付を送信中…':notes.status}</span>
-      <button onClick={()=>void notes.save()} disabled={!record} title="保存">保存</button>
-      <button onClick={()=>setSettings(!settings)} aria-label="メモ設定と書き出し" aria-expanded={settings}><Settings2 size={19}/></button>
+      <div className="notes-header-actions">
+        {sharedAccess?<span className="notes-shared-indicator" title="このリンクの作品だけが表示されています">共有作品を編集中</span>:
+          <>
+            <button className="notes-header-icon" onClick={()=>{setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}} aria-label="全メモを横断検索" title="メモを検索"><Search size={18}/></button>
+            <button className="notes-header-share" disabled={!record||record.id.startsWith('local-')||notes.conflict} onClick={()=>setShareOpen(true)} aria-label="作品を共有" title="リンクを発行して共同編集"><Share2 size={16}/><span>共有</span></button>
+          </>}
+        <span className="notes-save-status" role="status" title={attaching?'添付を送信中…':notes.status}>{attaching?'添付中':notes.status}</span>
+        <button className="notes-header-icon" onClick={()=>void notes.save()} disabled={!record} title="今すぐ保存" aria-label="保存"><Save size={18}/></button>
+        {!sharedAccess&&<button className="notes-header-icon" onClick={()=>setSettings(!settings)} aria-label="環境設定と書き出し" title="環境設定" aria-expanded={settings}><Settings2 size={19}/></button>}
+      </div>
     </header>
     <div className="notes-layout">
-      {sidebar&&<><button className="notes-sidebar-backdrop" aria-label="メモ一覧を閉じる" onClick={toggleSidebar}/><aside className="notes-sidebar">
+      {!sharedAccess&&sidebar&&<><button className="notes-sidebar-backdrop" aria-label="メモ一覧を閉じる" onClick={toggleSidebar}/><aside className="notes-sidebar">
         <div className="notes-sidebar-head"><small>MY WORKSPACE</small><div className="notes-sidebar-head-actions">
           <button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button>
           <div className="notes-sidebar-more">
@@ -686,7 +737,11 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         {workspaceMode!=='note'&&<><div className="notes-viewbar" role="toolbar" aria-label="表示倍率"><strong>ズーム</strong><button aria-label="縮小" onClick={()=>zoomTo(scale-.1)} disabled={scale<=.2}><ZoomOut size={19}/>−</button><select aria-label="ズーム倍率" value={Math.round(scale*100)} onChange={e=>zoomTo(Number(e.target.value)/100)}>{[...new Set([20,25,50,75,100,125,150,200,300,400,Math.round(scale*100)])].sort((a,b)=>a-b).map(p=><option key={p} value={p}>{p}%</option>)}</select><button aria-label="拡大" onClick={()=>zoomTo(scale+.1)} disabled={scale>=4}><ZoomIn size={19}/>＋</button><button onClick={()=>zoomTo(1)}>100%</button><button onClick={fitContent}>画面に合わせる</button><small>Ctrl＋ホイール</small><div className="notes-viewbar-spacer"/><button className="notes-focus-inline" title="作業エリアだけ拡大" onClick={toggleFocusMode}><Maximize2 size={16}/>作業拡大</button><button className="notes-delete" disabled={!record||organizing||attaching||importing||notes.busy||meta.importState==='pending'} onClick={()=>meta.trashedAt?setTrashed(false):setDeleteOpen(true)}><Trash2 size={16}/>{meta.trashedAt?'メモを復元':'メモを削除'}</button></div></>}
         {meta.trashedAt&&<div className="notes-warning">このメモはゴミ箱にあります。本文・添付は保持されています。<button onClick={()=>setTrashed(false)}>元に戻す</button></div>}
         {meta.importState==='pending'&&<div className="notes-warning">取り込み途中のメモです。同じJEXを選んで取り込みを再開してください。</div>}
-        {notes.conflict&&<div className="notes-warning">他端末の更新と競合しています。今の内容は端末に保持しています。<button onClick={()=>void notes.recover()}>今の内容を別メモに保存</button></div>}
+        {notes.conflict&&<div className="notes-warning" role="alert">
+          {sharedAccess?'同じ箇所が別の人と競合しました。リロードせず、変更内容を保存用ファイルに退避してください。':'他端末の更新と競合しています。今の内容は端末に保持しています。'}
+          {sharedAccess?<button onClick={()=>{if(record)download('KaeruNote-競合バックアップ.json',JSON.stringify({title:record.title,content:record.content},null,2),'application/json');}}>編集内容を保存</button>:
+          <button onClick={()=>void notes.recover()}>今の内容を別メモに保存</button>}
+        </div>
         {notes.error&&<div className="notes-warning" role="alert">{notes.error}<button onClick={()=>notes.setError('')} aria-label="通知を閉じる"><X size={15}/></button></div>}
         <div className={`notes-stage ${layersOpen?'layers-open':''} ${focusMode?'focus-mode':''}`}>
           {focusMode&&<button className="notes-focus-float floating" style={{left:focusFloat.x,top:focusFloat.y}} title="通常表示へ戻る" onClick={toggleFocusMode} onPointerDown={focusButtonDown} onPointerMove={focusButtonMove} onPointerUp={focusButtonUp} onPointerCancel={focusButtonUp}><Minimize2 size={20}/><small>戻る</small></button>}
@@ -810,7 +865,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         </div>
         {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
-      {settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
+      {!sharedAccess&&settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
         <label>カテゴリ（ / で入れ子）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':category:'+meta.category} defaultValue={meta.category} maxLength={200} onBlur={e=>{e.target.value=categoryPath(e.target.value);changeMeta({category:e.target.value});}} list="note-categories"/></label><datalist id="note-categories">{categories.map(c=><option key={c} value={c}/>)}</datalist>
         <button disabled={organizing||importing||attaching} onClick={()=>setCategoryManager(true)}>カテゴリの追加・移動・タグ化</button>
         <label>タグ（カンマ区切り）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':tags:'+meta.tags.join(',')} defaultValue={meta.tags.join(', ')} onBlur={e=>changeMeta({tags:[...new Set(e.target.value.split(/[,、]/).map(t=>t.trim()).filter(Boolean))].slice(0,50)})}/></label>
@@ -825,6 +880,28 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
         {meta.sourceNotebook&&<p>元のノートブック<br/>{meta.sourceNotebook}</p>}
       </aside>}
     </div>
+    {!sharedAccess&&shareOpen&&<div className="notes-modal" onMouseDown={e=>{if(e.target===e.currentTarget)setShareOpen(false);}}>
+      <section role="dialog" aria-modal="true" aria-labelledby="notes-share-title" className="notes-share-dialog">
+        <div className="notes-settings-title">
+          <h2 id="notes-share-title"><Share2 size={19}/> 作品を共有</h2>
+          <button aria-label="共有画面を閉じる" onClick={()=>setShareOpen(false)}><X size={19}/></button>
+        </div>
+        <p>共有リンクを知っている人は、この作品を開いて編集できます。相手の画面には、あなたのメモ一覧は表示されません。</p>
+        <p>変更は約2.5秒ごとに反映されます。異なる図形への編集は統合しますが、同じ箇所を同時に変更すると競合確認が必要です。</p>
+        {shareLink&&<div className="notes-share-link">
+          <label htmlFor="notes-share-url">編集用リンク</label>
+          <input id="notes-share-url" readOnly value={shareLink} onFocus={e=>e.currentTarget.select()}/>
+          <button className="notes-primary" onClick={()=>void copyShare()}>{shareCopied?'コピーしました':'リンクをコピー'}</button>
+        </div>}
+        {!shareLink&&shareEnabled&&<p className="notes-share-hint">すでに共有リンクが発行されています。新しいリンクを発行すると、古いリンクは無効になります。</p>}
+        {shareError&&<p role="alert" className="notes-share-error">{shareError}</p>}
+        <div className="notes-share-actions">
+          <button disabled={shareBusy} className="notes-primary" onClick={()=>void createShare()}>{shareBusy?'処理中…':shareEnabled?'新しい共有リンクを発行':'共有リンクを発行'}</button>
+          {shareEnabled&&<button disabled={shareBusy} onClick={()=>void revokeShare()}>共有を停止</button>}
+        </div>
+        <p className="notes-share-footnote">※ リンクの扱いに注意してください。未公開の情報を含む作品は、必要な相手だけに渡してください。</p>
+      </section>
+    </div>}
     {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
     {deleteOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">メモをゴミ箱へ移動</h2><p>「{record?.title}」をゴミ箱へ移動します。あとから復元できます。</p><button onClick={()=>setDeleteOpen(false)}>キャンセル</button><button className="notes-primary" onClick={()=>setTrashed(true)}>ゴミ箱へ移動</button></section></div>}
     {chartOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="chart-title"><div className="notes-settings-title"><h2 id="chart-title">グラフを作成</h2><button onClick={()=>setChartOpen(false)} aria-label="閉じる"><X size={18}/></button></div><p>Excelレイヤーで選択した範囲を参照する、グラフレイヤーの子オブジェクトを作成します。元データを変更するとグラフも更新されます。</p><label>種類<select value={chartType} onChange={e=>setChartType(e.target.value as ChartItem['type'])}><option value="bar">棒グラフ</option><option value="line">折れ線グラフ</option><option value="pie">円グラフ</option></select></label><div className="notes-dialog-actions"><button onClick={()=>setChartOpen(false)}>キャンセル</button><button className="notes-primary" onClick={createChart}>作成</button></div></section></div>}
