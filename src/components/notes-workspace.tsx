@@ -335,7 +335,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       let layer=writableLayer(working,'layout');if(!layer){const id=id32();layer={id,name:'レイアウト '+(working.layers.filter(l=>l.studioKind==='layout').length+1),visible:true,locked:false,studioKind:'layout'};working={...working,layers:[...working.layers,layer]};}setActiveLayer(layer.id);setWorkspaceMode('layout');
       let x=100+(scroll.current?.scrollLeft||0)/scale,y=100+(scroll.current?.scrollTop||0)/scale;
       for(const file of files){if(!file.type.startsWith('image/'))continue;if(file.size===0||file.size>512*1024*1024)throw new Error('画像は1バイト～512MBです');
-        const a:Attachment={id:id32(),name:file.name,mime:file.type||'image/*',size:file.size};await uploadAttachment(r.id,a,file);
+        const a:Attachment={id:id32(),name:file.name,mime:file.type||'image/*',size:file.size};await uploadAttachment(r.id,a,file,undefined,sharedAccess?.token);
         let w=640,h=420;const url=URL.createObjectURL(file);try{const dims=await new Promise<{w:number;h:number}>(resolve=>{const image=new Image();image.onload=()=>resolve({w:image.naturalWidth||640,h:image.naturalHeight||420});image.onerror=()=>resolve({w:640,h:420});image.src=url;});const ratio=Math.min(1,720/Math.max(1,dims.w),520/Math.max(1,dims.h));w=Math.max(80,Math.round(dims.w*ratio));h=Math.max(60,Math.round(dims.h*ratio));}finally{URL.revokeObjectURL(url);}
         const item:Item={id:id32(),kind:'image',layerId:layer.id,x,y,w,h,color:'#000000',width:1,opacity:1,imageId:'file:'+a.id};working={...working,items:[...working.items,item],attachments:[...(working.attachments||[]),a]};x+=36;y+=36;
       }
@@ -536,7 +536,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       const targetId=r.id;
       for(const file of files){if(file.size===0||file.size>512*1024*1024)throw new Error('添付は1バイト～512MBです');
         const a:Attachment={id:id32(),name:file.name,mime:file.type||'application/octet-stream',size:file.size};
-        await uploadAttachment(targetId,a,file);
+        await uploadAttachment(targetId,a,file,undefined,sharedAccess?.token);
         if(current.current?.id!==targetId)throw new Error('元のメモに戻って添付してください');
         const d=current.current.content;const url=fileURL(targetId,a.id);const html=file.type.startsWith('image/')?`<p><img src="${escapeHTML(url)}" alt="${escapeHTML(file.name)}"></p>`:`<p><a href="${escapeHTML(url)}">${escapeHTML(file.name)}</a></p>`;
         const y=Math.max(80,...(d.blocks||[]).map(b=>b.y+(sizes[b.id]||b.h)+30));const b=block(80,y,html);
