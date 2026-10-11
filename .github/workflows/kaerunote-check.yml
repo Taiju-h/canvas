@@ -21,6 +21,16 @@ jobs:
         run: npm install --no-audit --no-fund --package-lock=false
       - name: Typecheck and build
         run: npm run build
+      - name: Shared document merge tests
+        run: node --experimental-strip-types --test tests/shared-merge.test.mjs
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+      - name: PHP shared API syntax
+        run: |
+          php -l public/canvas/api.php
+          php -l server/bootstrap.php
+          php -l server/notes.php
       - name: Report build status
         if: always()
         env:
