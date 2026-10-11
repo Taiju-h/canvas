@@ -1,8 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage } from './local-docs';
 import { api, blankNote, id32, indexOf, normalizeNote, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
+import { mergeSharedNotes, mergeSharedTitle } from './shared-merge';
 
-export function useNotes(accountId: string) {
+export type SharedAccess={id:string;token:string};
+export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
+  const shared=!!sharedAccess;
+  const synced=useRef(new Map<string,{title:string;content:NoteDoc;revision:number}>());
+  const documentApi=(path:string,init:RequestInit={})=>{
+    if(!sharedAccess)return api(path,init);
+    const headers=new Headers(init.headers);headers.set('X-Share-Token',sharedAccess.token);
+    return api(path,{...init,headers});
+  };
   const [record,setRecord] = useState<NoteRecord | null>(null);
   const [list,setList] = useState<NoteIndex[]>([]);
   const [status,setStatus] = useState('準備中');
@@ -19,11 +28,13 @@ export function useNotes(accountId: string) {
   function show(next: NoteRecord) { records.current.set(next.id,next); if (active.current === next.id) { setRecord(next); setConflict(blocked.current.has(next.id)); }
     setList(old => [indexOf(next), ...old.filter(n=>n.id!==next.id)].sort((a,b)=>b.updated_at-a.updated_at)); }
   function persist(next: NoteRecord) {
+    if(shared)return Promise.resolve(); // Do not cache invited collaborators' private data in the document library.
     localJobs.current = localJobs.current.catch(()=>{}).then(async()=> { await putLocalDoc({ ...next, base: next.content, dirty: !!next.dirty, owner: true, accountId }); });
     return localJobs.current;
   }
   function report(message: string, id: string) { if (active.current === id) setStatus(message); }
   async function refresh(strict=false) {
+    if(shared)return [...records.current.values()].map(indexOf);
     const local = (await listLocalDocs()).filter(n=>n.accountId===accountId);
     const merged = new Map<string,NoteIndex>();
     if (navigator.onLine) {
@@ -47,6 +58,7 @@ export function useNotes(accountId: string) {
     if (jobs.current.has(id)) return jobs.current.get(id)!;
     if (blocked.current.has(id)) return Promise.resolve();
     const job = (async()=> {
+      let attempts=0;
       let key=id;
       while (navigator.onLine) {
         let sent=records.current.get(key); if (!sent?.dirty) break;
@@ -58,16 +70,17 @@ export function useNotes(accountId: string) {
             for (const imageId of ids) {
               const blob=await getLocalImage(imageId);if(!blob)throw new Error('端末の手書き画像を取得できません。元の端末から同期してください');
               const form=new FormData();form.set('file',blob,'drawing.png');
-              const uploaded=await(await api('/api/documents/'+key+'/images',{method:'POST',body:form})).json() as {imageId:string};
+              const uploaded=await(await documentApi('/api/documents/'+key+'/images',{method:'POST',body:form})).json() as {imageId:string};
               await putLocalImage(uploaded.imageId,blob);
               const latest=records.current.get(key)!;
               const content={...latest.content,layers:latest.content.layers.map(l=>l.rasterImageId===imageId?{...l,rasterImageId:uploaded.imageId}:l),items:latest.content.items.map(i=>i.imageId===imageId?{...i,imageId:uploaded.imageId}:i)};
               sent={...latest,content};show(sent);await persist(sent);
             }
           }
-          const response=await api('/api/documents'+(isNew?'':'/'+key), { method:isNew?'POST':'PUT', headers:{'Content-Type':'application/json'},
+          const response=await documentApi('/api/documents'+(isNew?'':'/'+key), { method:isNew?'POST':'PUT', headers:{'Content-Type':'application/json'},
             body:JSON.stringify({ title:sent.title,content:sent.content,revision:sent.revision }) });
           const result=await response.json() as {id:string;revision:number};
+          synced.current.set(result.id,{revision:result.revision,content:sent.content,title:sent.title});
           const latest=records.current.get(key)!;
           const next={...latest,id:result.id,revision:result.revision,dirty:latest.content!==sent.content || latest.title!==sent.title || (isNew && [...latest.content.layers.map(l=>l.rasterImageId),...latest.content.items.map(i=>i.imageId)].some(id=>id?.startsWith('local-')))};
           if (isNew) {
@@ -77,7 +90,23 @@ export function useNotes(accountId: string) {
           }
           show(next); await persist(next); report(next.dirty?'同期待ち':'保存済み',key);
         } catch (err) {
-          if ((err as {status?:number}).status===409) { blocked.current.add(key); if (active.current===key) setConflict(true); report('他端末と競合・この端末の内容は保持しています',key); }
+          if ((err as {status?:number}).status===409&&attempts<2){
+            try{
+              const base=synced.current.get(key);
+              const remote=await(await documentApi('/api/documents/'+key)).json() as NoteRecord;
+              const draft=records.current.get(key);
+              if(base&&draft&&base.revision<remote.revision){
+                const merged=mergeSharedNotes(base.content,draft.content,normalizeNote(remote.content));
+                const title=mergeSharedTitle(base.title,draft.title,remote.title);
+                if(merged&&title!==null){
+                  const next={...draft,content:merged,title,revision:remote.revision,dirty:true};
+                  synced.current.set(key,{revision:remote.revision,content:normalizeNote(remote.content),title:remote.title});
+                  show(next);await persist(next);attempts++;report('別の編集を統合して保存中…',key);continue;
+                }
+              }
+            }catch{/* When a merge fails, preserve the unsaved draft below. */}
+          }
+          if ((err as {status?:number}).status===409) { blocked.current.add(key); if (active.current===key) setConflict(true); report(shared?'同じ箇所が競合しました。画面の内容はまだ残っています':'他端末と競合・この端末の内容は保持しています',key); }
           else { report('端末保存済み・同期待ち',key); setError(err instanceof Error?err.message:'同期できません'); }
           break;
         }
@@ -97,13 +126,16 @@ export function useNotes(accountId: string) {
     if (id === active.current && records.current.get(id)?.dirty) return;
     const seq=++openSeq.current;setBusy(true);setError('');
     try {
-      const cached=await getLocalDoc(id); let next=records.current.get(id);
+      const cached=shared?undefined:await getLocalDoc(id); let next=records.current.get(id);
       if (!next && cached?.accountId===accountId) next={...cached,content:normalizeNote(cached.content)};
       if (navigator.onLine && !id.startsWith('local-')) {
         try {
-          const remote=await (await api('/api/documents/'+id)).json() as NoteRecord;
+          const remote=await (await documentApi('/api/documents/'+id)).json() as NoteRecord;
           if (next?.dirty) { if(next.revision!==remote.revision)blocked.current.add(id); }
-          else next={...remote,content:normalizeNote(remote.content),accountId,dirty:false};
+          else {
+            next={...remote,content:normalizeNote(remote.content),accountId,dirty:false};
+            synced.current.set(id,{revision:remote.revision,content:next.content,title:remote.title});
+          }
         } catch(err) { if(!next)throw err;setError('サーバーに接続できないため端末のメモを開きました'); }
       }
       if (!next)throw new Error('この端末にメモがありません');
@@ -113,12 +145,14 @@ export function useNotes(accountId: string) {
     }catch(err){setError(err instanceof Error?err.message:'開けません');}finally{if(seq===openSeq.current)setBusy(false);}
   }
   async function create(content=blankNote(),title='新しいメモ') {
+    if(shared)throw new Error('共有画面では新しいメモは作成できません');
     ++openSeq.current;
     const next:NoteRecord={id:'local-'+id32(),title,revision:0,updated_at:Date.now(),content,accountId,dirty:true};
     active.current=next.id;show(next);setURL(next.id);setConflict(false);setBusy(false);
     await persist(next);setStatus('端末に保存済み');await save(next.id);
   }
   async function flushAll() {
+    if(shared)return;
     await localJobs.current;
     for(const [id,timer] of timers.current){clearTimeout(timer);timers.current.delete(id);}
     await Promise.all([...jobs.current.values()]);
@@ -139,7 +173,8 @@ export function useNotes(accountId: string) {
   useEffect(()=>{
     let live=true;
     void (async()=>{
-      const wanted=new URLSearchParams(location.search).get('d')||rememberedOpen();
+      const wanted=sharedAccess?.id||new URLSearchParams(location.search).get('d')||rememberedOpen();
+      if(sharedAccess){await open(sharedAccess.id);return;}
       // Fast path for APK/WebView startup: restore the last cached document first,
       // then refresh the remote index in the background.
       if(wanted){
@@ -160,7 +195,26 @@ export function useNotes(accountId: string) {
     const online=()=>{for(const n of records.current.values())if(n.dirty)void save(n.id);};
     const before=(e:BeforeUnloadEvent)=>{if([...records.current.values()].some(n=>n.dirty)){e.preventDefault();e.returnValue='';}};
     addEventListener('online',online);addEventListener('beforeunload',before);
-    return()=>{live=false;removeEventListener('online',online);removeEventListener('beforeunload',before);};
+    // Near-live changes are pulled without ever replacing a dirty local draft.
+    // A concurrent write is merged only if the affected objects do not overlap.
+    let refreshing=false;
+    const poll=window.setInterval(async()=>{
+      if(!live||refreshing||!navigator.onLine)return;
+      const id=active.current,local=records.current.get(id);
+      if(!id||id.startsWith('local-')||!local||local.dirty||blocked.current.has(id)||jobs.current.has(id))return;
+      if((document.activeElement as HTMLElement|null)?.closest?.('[contenteditable=true]'))return;
+      refreshing=true;
+      try{
+        const remote=await(await documentApi('/api/documents/'+id)).json() as NoteRecord;
+        const current=records.current.get(id);
+        if(!live||active.current!==id||!current||current.dirty||remote.revision<=current.revision)return;
+        const updated={...remote,content:normalizeNote(remote.content),accountId,dirty:false};
+        synced.current.set(id,{revision:updated.revision,content:updated.content,title:updated.title});
+        show(updated);await persist(updated);report('最新の変更を反映しました',id);
+      }catch{/* Temporary disconnection must not discard a local draft. */}
+      finally{refreshing=false;}
+    },2500);
+    return()=>{live=false;clearInterval(poll);removeEventListener('online',online);removeEventListener('beforeunload',before);};
   },[]);
   return {record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
