@@ -698,25 +698,36 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                       })()}
                       {i.kind==='path'?<polyline points={stroke(i.points||[])} fill="none" strokeLinecap="round"/>:i.kind==='polygon'?<polygon points={stroke(i.points||[])} strokeLinejoin="round"/>:i.kind==='rect'?<rect x={Math.min(i.x,i.x+i.w)} y={Math.min(i.y,i.y+i.h)} width={Math.abs(i.w)} height={Math.abs(i.h)}/>:i.kind==='ellipse'?<ellipse cx={i.x+i.w/2} cy={i.y+i.h/2} rx={Math.abs(i.w/2)} ry={Math.abs(i.h/2)}/>:i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h}/>:i.kind==='image'&&i.imageId?(i.imageId.startsWith('file:')?<image href={fileURL(record.id,i.imageId.slice(5))} x={i.x} y={i.y} width={i.w} height={i.h}/>:<LegacyImage docId={record.id} imageId={i.imageId} x={i.x} y={i.y} w={i.w} h={i.h}/>):null}
                     </g>)}
-                    {workspaceMode==='layout'&&hoveredShape&&hoveredShape!==selected&&(()=>{
-                      const item=doc?.items.find(i=>i.id===hoveredShape);if(!item)return null;const b=shapeBox(item);
-                      return <g pointerEvents="none" stroke="#65b5ed" strokeWidth={2} fill="none"><rect x={b.x-5} y={b.y-5} width={b.w+10} height={b.h+10} rx={3} strokeDasharray="3 4"/></g>;
+                    {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false).map(paintStrokeView)}
+                    {workspaceMode==='layout'&&hoveredShape&&!selectedIds.includes(hoveredShape)&&(()=>{
+                      const graphic:Graphic|undefined=doc?.items.find(i=>i.id===hoveredShape)||doc?.paintStrokes?.find(i=>i.id===hoveredShape);
+                      if(!graphic)return null;const b=graphicBox(graphic),cx=b.x+b.w/2,cy=b.y+b.h/2;
+                      return <g pointerEvents="none" transform={graphic.rotation?'rotate('+graphic.rotation+' '+cx+' '+cy+')':undefined} stroke="#65b5ed" strokeWidth={2} fill="none"><rect x={b.x-6} y={b.y-6} width={b.w+12} height={b.h+12} rx={3} strokeDasharray="3 4"/></g>;
                     })()}
                     {workspaceMode==='layout'&&selectedIds.map(id=>{
-                      const item=doc?.items.find(i=>i.id===id);if(!item)return null;
-                      const b=shapeBox(item),cx=b.x+b.w/2,cy=b.y+b.h/2;
+                      const graphic:Graphic|undefined=doc?.items.find(i=>i.id===id)||doc?.paintStrokes?.find(i=>i.id===id);
+                      if(!graphic)return null;
+                      const b=graphicBox(graphic),cx=b.x+b.w/2,cy=b.y+b.h/2,points=graphicVertices(graphic);
                       const handles:[string,number,number][]=[['nw',b.x,b.y],['n',cx,b.y],['ne',b.x+b.w,b.y],['e',b.x+b.w,cy],['se',b.x+b.w,b.y+b.h],['s',cx,b.y+b.h],['sw',b.x,b.y+b.h],['w',b.x,cy]];
-                      return <g key={'selection-'+id} stroke="#1686f7" strokeWidth={1.5} transform={item.rotation?`rotate(${item.rotation} ${cx} ${cy})`:undefined}>
-                        <rect pointerEvents="none" x={b.x-3} y={b.y-3} width={b.w+6} height={b.h+6} fill="none" strokeDasharray="5 3"/>
+                      const currentSegment=activeSegment?.id===id?activeSegment.index:-1;
+                      const segFrom=currentSegment>=0?points[currentSegment]:undefined;
+                      const segTo=currentSegment>=0?points[(currentSegment+1)%points.length]:undefined;
+                      return <g key={'selection-'+id} stroke="#1686f7" strokeWidth={1.5} transform={graphic.rotation?'rotate('+graphic.rotation+' '+cx+' '+cy+')':undefined}>
+                        <rect pointerEvents="none" x={b.x-4} y={b.y-4} width={b.w+8} height={b.h+8} fill="none" strokeDasharray="5 3"/>
                         {id===selected&&(tool==='select'||tool==='magic')&&<>
                           {handles.map(([handle,x,y])=><rect key={handle} data-shape-handle={handle} className="notes-shape-handle" x={x-5} y={y-5} width={10} height={10} fill="#ffffff"/>)}
                           <line pointerEvents="none" x1={cx} y1={b.y} x2={cx} y2={b.y-30}/>
                           <circle data-shape-handle="rotate" className="notes-shape-handle" cx={cx} cy={b.y-30} r={7} fill="#ffffff"/>
                         </>}
-                        {id===selected&&tool==='vertex'&&shapeVertices(item).map((p,index)=><circle key={index} data-shape-handle={'vertex:'+index} className="notes-shape-handle" cx={p.x} cy={p.y} r={6} fill="#ffffff"/>)}
+                        {id===selected&&tool==='vertex'&&<g>
+                          {segFrom&&segTo&&<line x1={segFrom.x} y1={segFrom.y} x2={segTo.x} y2={segTo.y} pointerEvents="none" stroke="#f59e0b" strokeWidth={4}/>}
+                          {editableVertexIndices(graphic,isItemGraphic(graphic)?100:22).map(index=>{
+                            const p=points[index],active=activeAnchor?.id===id&&activeAnchor.index===index;
+                            return <circle key={index} data-shape-handle={'vertex:'+index} className={'notes-shape-handle notes-vertex-anchor '+(active?'active':'')} cx={p.x} cy={p.y} r={active?7:5.5} stroke={active?'#ac5900':'#1686f7'} strokeWidth={active?2.5:1.5} fill={active?'#ffb62d':'#ffffff'}/>;
+                          })}
+                        </g>}
                       </g>;
                     })}
-                    {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false).map(paintStrokeView)}
                     {draft.length>0&&(brush!=='marker'?<g stroke={inkColor} strokeLinecap="round" opacity={inkOpacity} pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(inkWidth,point.p)}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={.32*inkOpacity} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
                     {draftShape&&<g stroke={draftShape.color} strokeWidth={draftShape.width} fill="none" pointerEvents="none">{draftShape.kind==='line'?<line x1={draftShape.x} y1={draftShape.y} x2={draftShape.x+draftShape.w} y2={draftShape.y+draftShape.h}/>:draftShape.kind==='rect'?<rect x={Math.min(draftShape.x,draftShape.x+draftShape.w)} y={Math.min(draftShape.y,draftShape.y+draftShape.h)} width={Math.abs(draftShape.w)} height={Math.abs(draftShape.h)}/>:<ellipse cx={draftShape.x+draftShape.w/2} cy={draftShape.y+draftShape.h/2} rx={Math.abs(draftShape.w/2)} ry={Math.abs(draftShape.h/2)}/>}</g>}
                   </svg>
