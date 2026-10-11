@@ -427,7 +427,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
     const distance=Math.hypot(p.x-a.start.x,p.y-a.start.y);
     if(hoverTimer.current&&distance>7)clearOverlapTimer();
-    if(distance<.7&&!a.moved)return;
+    if(distance<(e.pointerType==='touch'?5/scale:.7)&&!a.moved)return;
     a.moved=true;
     const original=a.original as StudioNoteDoc;
     if(a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){
