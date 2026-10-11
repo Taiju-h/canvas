@@ -191,3 +191,8 @@
 .notes-overlap-picker .notes-overlap-list button small{font-size:9px;color:#66798a;max-width:90px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
 .notes-overlap-picker .notes-overlap-list button[aria-pressed=true],.notes-overlap-picker .notes-overlap-list button:hover{background:#d7ecff;color:#124b83}
 @media(pointer:coarse){.notes-overlap-picker>button{min-height:40px;min-width:148px;font-size:13px}.notes-overlap-picker .notes-overlap-list button{min-height:42px;font-size:12px}}
+
+/* Keep the dense-selection choice button and its dismiss control reachable. */
+.notes-overlap-picker{padding-right:27px;min-width:175px}
+.notes-overlap-picker>button.notes-overlap-dismiss{position:absolute;right:0;top:0;width:25px;min-width:25px;min-height:27px;border-radius:5px;padding:2px;line-height:1;background:#f2f5f8;color:#596677;font-size:17px}
+.notes-overlap-picker .notes-overlap-list{grid-column:1}
