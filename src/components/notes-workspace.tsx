@@ -348,7 +348,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       else setActiveSegment(null);
       action.current={pointerId:e.pointerId,kind:handle==='rotate'?'shapeRotate':handle.startsWith('vertex:')?'vertexMove':'shapeResize',handle,id:selectedGraphic.id,start:position(e),original:doc};
       e.currentTarget.setPointerCapture(e.pointerId);return;}
-    if(e.pointerType==='touch'&&Date.now()-lastPen.current<700){e.preventDefault();return;}
+    if(e.pointerType==='touch'&&(tool==='pen'||tool==='eraser')&&Date.now()-lastPen.current<700){e.preventDefault();return;}
     const pen=e.pointerType==='pen';if(pen)lastPen.current=Date.now();
     const penEraser=pen&&(e.button===5||(e.buttons&32)!==0);const effective=penEraser?'eraser':pen&&(tool==='note'||tool==='text')?'pen':tool;
     if(effective==='line'||effective==='rect'||effective==='ellipse'){
@@ -407,7 +407,10 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     const a=action.current;
     if(!a){
       if((tool==='select'||tool==='vertex'||tool==='magic')&&workspaceMode==='layout'&&!(e.target as Element).closest('.notes-overlap-picker')){
-        const p=position(e),hit=nearbyShapes(p,Math.max(10,13/scale)),matches=nearbyShapes(p,35/scale);
+        const p=position(e);
+        // Keep the nearby-object button alive while the user moves the cursor toward it.
+        if(overlapAt&&overlapItems.length>1&&Math.hypot(p.x-overlapAt.x,p.y-overlapAt.y)<110/scale)return;
+        const hit=nearbyShapes(p,Math.max(10,13/scale)),matches=nearbyShapes(p,35/scale);
         setHoveredShape(hit[0]?.id||'');
         clearOverlapTimer();
         if(matches.length>1){
@@ -753,7 +756,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                     {draftShape&&<g stroke={draftShape.color} strokeWidth={draftShape.width} fill="none" pointerEvents="none">{draftShape.kind==='line'?<line x1={draftShape.x} y1={draftShape.y} x2={draftShape.x+draftShape.w} y2={draftShape.y+draftShape.h}/>:draftShape.kind==='rect'?<rect x={Math.min(draftShape.x,draftShape.x+draftShape.w)} y={Math.min(draftShape.y,draftShape.y+draftShape.h)} width={Math.abs(draftShape.w)} height={Math.abs(draftShape.h)}/>:<ellipse cx={draftShape.x+draftShape.w/2} cy={draftShape.y+draftShape.h/2} rx={Math.abs(draftShape.w/2)} ry={Math.abs(draftShape.h/2)}/>}</g>}
                   </svg>
                   {overlapAt&&overlapItems.length>1&&workspaceMode==='layout'&&<div className="notes-overlap-picker" style={{left:Math.max(8,Math.min(width-190,overlapAt.x+14)),top:Math.max(8,overlapAt.y-10)}}>
-                    <button type="button" title="密集した線や図形から選ぶ" aria-expanded={overlapOpen} onPointerDown={e=>e.stopPropagation()} onClick={()=>setOverlapOpen(v=>!v)}>近くの図形 {overlapItems.length}件 ▾</button>
+                    <button type="button" title="密集した線や図形から選ぶ" aria-expanded={overlapOpen} onPointerDown={e=>e.stopPropagation()} onClick={()=>setOverlapOpen(v=>!v)}>近くの図形 {overlapItems.length}件 ▾</button><button className="notes-overlap-dismiss" type="button" title="候補を閉じる" aria-label="候補リストを閉じる" onPointerDown={e=>e.stopPropagation()} onClick={()=>{clearOverlapTimer();setOverlapItems([]);setOverlapAt(null);setOverlapOpen(false);}}>×</button>
                     {overlapOpen&&<div className="notes-overlap-list" role="group" aria-label="密集部分の図形候補">{overlapItems.map((id,index)=>{const graphic:Graphic|undefined=doc?.items.find(i=>i.id===id)||doc?.paintStrokes?.find(i=>i.id===id);
                       if(!graphic)return null;const layer=doc?.layers.find(l=>l.id===graphic.layerId);
                       return <button key={id} type="button" aria-pressed={selectedIds.includes(id)} onPointerDown={e=>e.stopPropagation()} onPointerEnter={()=>setHoveredShape(id)} onClick={()=>{selectGraphic(id,multiMode);setOverlapItems([]);setOverlapAt(null);setOverlapOpen(false);setHoveredShape(id);}}>{index+1}. {graphicName(graphic)} <small>{layer?.name||'レイヤー'}</small></button>;
