@@ -406,25 +406,32 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
     if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
     if(hoverTimer.current&&Math.hypot(p.x-a.start.x,p.y-a.start.y)>7)clearOverlapTimer();
     const original=a.original as StudioNoteDoc;
-    if(a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'){
-      const originalItem=original.items.find(i=>i.id===a.id);if(!originalItem)return;
-      const b=shapeBox(originalItem),center={x:b.x+b.w/2,y:b.y+b.h/2};
-      let altered:Item=originalItem;
+    if(a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){
+      const originalGraphic:Graphic|undefined=original.items.find(i=>i.id===a.id)||original.paintStrokes?.find(i=>i.id===a.id);
+      if(!originalGraphic)return;
+      const b=graphicBox(originalGraphic),center={x:b.x+b.w/2,y:b.y+b.h/2};
+      let altered:Graphic=originalGraphic;
       if(a.kind==='shapeRotate'){
         const initialAngle=Math.atan2(a.start.y-center.y,a.start.x-center.x),angle=Math.atan2(p.y-center.y,p.x-center.x);
-        altered={...originalItem,rotation:(originalItem.rotation||0)+(angle-initialAngle)*180/Math.PI};
+        altered={...originalGraphic,rotation:(originalGraphic.rotation||0)+(angle-initialAngle)*180/Math.PI};
       }else{
-        const start=inverseTransformPoint(originalItem,a.start),end=inverseTransformPoint(originalItem,p),dx=end.x-start.x,dy=end.y-start.y;
+        const start=graphicInversePoint(originalGraphic,a.start),end=graphicInversePoint(originalGraphic,p);
+        const dx=end.x-start.x,dy=end.y-start.y;
         if(a.kind==='shapeResize'){
           const h=a.handle||'',edge={left:b.x,right:b.x+b.w,top:b.y,bottom:b.y+b.h};
           if(h.includes('w'))edge.left=Math.min(edge.right-6,edge.left+dx);
           if(h.includes('e'))edge.right=Math.max(edge.left+6,edge.right+dx);
           if(h.includes('n'))edge.top=Math.min(edge.bottom-6,edge.top+dy);
           if(h.includes('s'))edge.bottom=Math.max(edge.top+6,edge.bottom+dy);
-          altered=resizedShape(originalItem,b,{x:edge.left,y:edge.top,w:edge.right-edge.left,h:edge.bottom-edge.top});
-        }else altered=changedVertex(originalItem,Number((a.handle||'').split(':')[1]),{x:start.x+dx,y:start.y+dy});
+          altered=resizedGraphic(originalGraphic,b,{x:edge.left,y:edge.top,w:edge.right-edge.left,h:edge.bottom-edge.top});
+        }else if(a.kind==='vertexMove'){
+          const index=Number((a.handle||'').split(':')[1]),vertex=graphicVertices(originalGraphic)[index];
+          if(!vertex)return;
+          altered=updateGraphicVertex(originalGraphic,index,{x:vertex.x+dx,y:vertex.y+dy});
+        }else altered=updateGraphicSegment(originalGraphic,Number((a.handle||'').split(':')[1]),dx,dy);
       }
-      notes.change({...original,items:original.items.map(i=>i.id===a.id?altered:i)} as NoteDoc);return;
+      notes.change({...original,items:original.items.map(i=>i.id===a.id?altered as Item:i),
+        paintStrokes:original.paintStrokes?.map(i=>i.id===a.id?altered as PaintStroke:i)} as NoteDoc);return;
     }
     const dx=p.x-a.start.x,dy=p.y-a.start.y;
     const next={...original,blocks:original.blocks?.map(b=>b.id===a.id?a.kind==='resize'?{...b,w:Math.max(220,Math.min(1800,b.w+dx))}:{...b,x:Math.max(0,b.x+dx),y:Math.max(0,b.y+dy)}:b),
@@ -442,7 +449,7 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
       setDraft([]);if(a.pen)lastPen.current=Date.now();return;
     }
     if(a.kind==='shape'){const shape=draftShape;setDraftShape(null);if(!cancel&&shape&&Math.hypot(shape.w,shape.h)>2){commit({...a.original,items:[...a.original.items,shape]});setSelected(shape.id);setActiveLayer(shape.layerId);}return;}
-    if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
+    if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
   }
   function format(command:string,value?:string){typing.current=null;document.execCommand(command,false,value);const el=document.activeElement as HTMLElement;
     const id=el.closest('[data-note-block]')?.getAttribute('data-note-block');if(id)updateBlock(id,el.innerHTML,el.scrollHeight+54);}
@@ -552,7 +559,15 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
   width=extent.current.width;height=extent.current.height;
   function stroke(points:Point[]){return points.map(p=>`${p.x},${p.y}`).join(' ');}
   function pressureWidth(base:number,p?:number){const pressure=p&&p>0?p:.5;return Math.max(.8,base*(.38+pressure*1.05));}
-  function paintStrokeView(value:NonNullable<NoteDoc['paintStrokes']>[number]){const mode=(value as any).brush||'pen';if(mode!=='marker'&&value.points.length>1)return <g key={value.id} data-stroke={value.id} stroke={value.color} opacity={value.opacity} strokeLinecap="round">{value.points.slice(1).map((point,index)=><line key={index} x1={value.points[index].x} y1={value.points[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(value.width,point.p)}/>)}</g>;return <polyline key={value.id} data-stroke={value.id} points={stroke(value.points)} stroke={value.color} strokeWidth={value.width} opacity={value.opacity} strokeLinecap="round" strokeLinejoin="round" fill="none"/>;}
+  function paintStrokeView(value:PaintStroke){
+    const mode=value.brush||'pen',b=graphicBox(value),cx=b.x+b.w/2,cy=b.y+b.h/2;
+    return <g key={value.id} data-stroke={value.id} transform={value.rotation?`rotate(${value.rotation} ${cx} ${cy})`:undefined} strokeLinecap="round" strokeLinejoin="round" fill="none">
+      {mode!=='marker'&&value.points.length>1?
+        <g stroke={value.color} opacity={value.opacity}>{value.points.slice(1).map((point,index)=><line key={index} x1={value.points[index].x} y1={value.points[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(value.width,point.p)}/>)}</g>:
+        <polyline points={stroke(value.points)} stroke={value.color} strokeWidth={value.width} opacity={value.opacity}/>}
+      <polyline points={stroke(value.points)} stroke="transparent" strokeWidth={Math.max(18,value.width)} pointerEvents={workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')||tool==='eraser'?'stroke':'none'}/>
+    </g>;
+  }
   return <main className={`notes-app ${sidebar?'sidebar-open':''}`}>
     <header className="notes-header">
       <button onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={21}/></button>
