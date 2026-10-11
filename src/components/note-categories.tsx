@@ -40,7 +40,11 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
     for(const part of categoryParts(openedPath)){
       const node=current.find(item=>item.label===part);
       if(!node||!node.children.length)break;
-      result.push({parent:node.path,title:node.label+' の小カテゴリ',nodes:node.children});
+      // Do not cover the parent folder with an almost-empty final pane.
+      // A leaf-only level is rendered immediately below its parent row.
+      if(node.children.some(child=>child.children.length)){
+        result.push({parent:node.path,title:node.label+' の小カテゴリ',nodes:node.children});
+      }
       current=node.children;
     }
     return result;
@@ -108,19 +112,33 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
               <ChevronLeft size={14}/><span>{categoryParts(pane.parent).at(-1)}</span><small>親を表示</small>
             </button>}
             <div className="notes-category-scroll" ref={el=>{panelRefs.current[pane.parent||'root']=el;}}>
-              {pane.nodes.map(node=><button key={node.path} type="button" disabled={disabled} data-category-path={node.path}
-                className={'notes-category-choice '+(selected===node.path?'active ':'')+(inCategory(selected,node.path)&&selected!==node.path?'ancestor':'')}
-                title={node.path} aria-current={selected===node.path?'true':undefined}
-                onClick={()=>choose(node)}>
-                <Folder size={15}/><span>{node.label}</span><small>{directCount(notes,node.path)}</small>
-                {node.children.length>0&&<ChevronRight size={15}/>}
-              </button>)}
+              {pane.nodes.map(node=>{
+                const inlineChildren=node.children.length>0&&node.children.every(child=>!child.children.length);
+                const expanded=inlineChildren&&(selected===node.path||inCategory(selected,node.path)||openedPath===node.path);
+                return <div key={node.path} className={'notes-category-entry '+(expanded?'expanded':'')}>
+                  <button type="button" disabled={disabled} data-category-path={node.path}
+                    className={'notes-category-choice '+(selected===node.path?'active ':'')+(inCategory(selected,node.path)&&selected!==node.path?'ancestor':'')}
+                    title={node.path} aria-current={selected===node.path?'true':undefined}
+                    aria-expanded={node.children.length?expanded||(!inlineChildren&&inCategory(openedPath,node.path)):undefined}
+                    onClick={()=>choose(node)}>
+                    <Folder size={15}/><span>{node.label}</span><small>{directCount(notes,node.path)}</small>
+                    {node.children.length>0&&<ChevronRight className={expanded?'notes-category-expanded-icon':''} size={15}/>}
+                  </button>
+                  {expanded&&<div className="notes-category-inline-children" role="group" aria-label={node.label+' の子カテゴリ'}>
+                    {node.children.map(child=><button key={child.path} type="button" disabled={disabled} data-category-path={child.path}
+                      title={child.path} className={'notes-category-inline-choice '+(selected===child.path?'active':'')}
+                      aria-current={selected===child.path?'true':undefined} onClick={()=>choose(child)}>
+                      <Folder size={14}/><span>{child.label}</span><small>{directCount(notes,child.path)}</small>
+                    </button>)}
+                  </div>}
+                </div>;
+              })}
               {!pane.nodes.length&&<p className="notes-category-empty">子カテゴリはありません</p>}
             </div>
           </section>;
         })}
       </div>
-      <p className="notes-category-help">左側の階層にマウスを乗せる／タップすると前面に表示します。子カテゴリは右側に重なります。</p>
+      <p className="notes-category-help">上位階層は重ねて表示し、末端の子カテゴリは親フォルダの直下に表示します。</p>
     </>}
   </div>;
 }
