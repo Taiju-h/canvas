@@ -726,7 +726,16 @@ export default function NotesWorkspace({accountId}:{accountId:string}){
                     {workspaceMode==='layout'&&hoveredShape&&!selectedIds.includes(hoveredShape)&&(()=>{
                       const graphic:Graphic|undefined=doc?.items.find(i=>i.id===hoveredShape)||doc?.paintStrokes?.find(i=>i.id===hoveredShape);
                       if(!graphic)return null;const b=graphicBox(graphic),cx=b.x+b.w/2,cy=b.y+b.h/2;
-                      return <g pointerEvents="none" transform={graphic.rotation?'rotate('+graphic.rotation+' '+cx+' '+cy+')':undefined} stroke="#65b5ed" strokeWidth={2} fill="none"><rect x={b.x-6} y={b.y-6} width={b.w+12} height={b.h+12} rx={3} strokeDasharray="3 4"/></g>;
+                      return <g pointerEvents="none" transform={graphic.rotation?'rotate('+graphic.rotation+' '+cx+' '+cy+')':undefined} stroke="#44b5ff" strokeWidth={Math.max(3,graphic.width+2)} fill="none" opacity={.92}>
+                        {!isItemGraphic(graphic)?<polyline points={stroke(graphic.points)} strokeLinecap="round" strokeLinejoin="round"/>:
+                          graphic.kind==='rect'?<rect x={b.x} y={b.y} width={b.w} height={b.h}/>:
+                          graphic.kind==='ellipse'?<ellipse cx={cx} cy={cy} rx={b.w/2} ry={b.h/2}/>:
+                          graphic.kind==='line'?<line x1={graphic.x} y1={graphic.y} x2={graphic.x+graphic.w} y2={graphic.y+graphic.h}/>:
+                          graphic.kind==='path'?<polyline points={stroke(graphic.points||[])} strokeLinecap="round"/>:
+                          graphic.kind==='polygon'?<polygon points={stroke(graphic.points||[])}/>:
+                          <rect x={b.x} y={b.y} width={b.w} height={b.h}/>}
+                        <rect x={b.x-6} y={b.y-6} width={b.w+12} height={b.h+12} rx={3} stroke="#65b5ed" strokeWidth={1.5} strokeDasharray="3 4"/>
+                      </g>;
                     })()}
                     {workspaceMode==='layout'&&selectedIds.map(id=>{
                       const graphic:Graphic|undefined=doc?.items.find(i=>i.id===id)||doc?.paintStrokes?.find(i=>i.id===id);
