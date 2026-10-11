@@ -71,6 +71,93 @@ function translateShape(item:Item,dx:number,dy:number):Item{
   return{...item,x:item.x+dx,y:item.y+dy,points:item.points?.map(p=>({...p,x:p.x+dx,y:p.y+dy})),
     clip:item.clip?{...item.clip,x:item.clip.x+dx,y:item.clip.y+dy}:undefined};
 }
+
+type PaintStroke=NonNullable<NoteDoc['paintStrokes']>[number];
+type Graphic=Item|PaintStroke;
+type ActiveAnchor={id:string;index:number};
+function isItemGraphic(value:Graphic):value is Item{return 'kind' in value;}
+function graphicBox(g:Graphic):ShapeBox{
+  if(isItemGraphic(g))return shapeBox(g);
+  const points=g.points;if(!points.length)return{x:0,y:0,w:0,h:0};
+  let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
+  for(const p of points){left=Math.min(left,p.x);top=Math.min(top,p.y);right=Math.max(right,p.x);bottom=Math.max(bottom,p.y);}
+  return{x:left,y:top,w:right-left,h:bottom-top};
+}
+function graphicVertices(g:Graphic):Point[]{return isItemGraphic(g)?shapeVertices(g):g.points;}
+function graphicName(g:Graphic){if(!isItemGraphic(g))return 'フリーハンド';return g.kind==='rect'?'四角形':g.kind==='ellipse'?'楕円':g.kind==='line'?'直線':g.kind==='image'?'画像':g.kind==='path'?'パス':'図形';}
+function graphicRotate(point:Point,center:Point,degree:number):Point{
+  const angle=degree*Math.PI/180,dx=point.x-center.x,dy=point.y-center.y;
+  return{x:center.x+dx*Math.cos(angle)-dy*Math.sin(angle),y:center.y+dx*Math.sin(angle)+dy*Math.cos(angle)};
+}
+function graphicInversePoint(g:Graphic,point:Point):Point{
+  if(isItemGraphic(g))return inverseTransformPoint(g,point);
+  const b=graphicBox(g);return graphicRotate(point,{x:b.x+b.w/2,y:b.y+b.h/2},-(g.rotation||0));
+}
+function distanceToLine(p:Point,a:Point,b:Point){
+  const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
+  const t=length>0?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/length)):0;
+  return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);
+}
+function nearestSegment(g:Graphic,point:Point):{index:number;distance:number}|null{
+  const vertices=graphicVertices(g),isClosed=isItemGraphic(g)&&(g.kind==='rect'||g.kind==='polygon');
+  if(vertices.length<2)return null;
+  let closest={index:0,distance:Infinity};
+  for(let i=0;i<vertices.length-(isClosed?0:1);i++){
+    const d=distanceToLine(point,vertices[i],vertices[(i+1)%vertices.length]);
+    if(d<closest.distance)closest={index:i,distance:d};
+  }
+  return closest;
+}
+function graphicDistance(g:Graphic,screenPoint:Point):number{
+  const p=graphicInversePoint(g,screenPoint),b=graphicBox(g);
+  const outX=Math.max(b.x-p.x,0,p.x-b.x-b.w),outY=Math.max(b.y-p.y,0,p.y-b.y-b.h);
+  if(!isItemGraphic(g)||g.kind==='line'||g.kind==='path'||g.kind==='polygon'){
+    if(outX>24||outY>24)return Math.hypot(outX,outY);
+    return nearestSegment(g,p)?.distance??Infinity;
+  }
+  if(g.kind==='ellipse'){
+    const rx=Math.max(.001,b.w/2),ry=Math.max(.001,b.h/2),normalized=Math.hypot((p.x-b.x-rx)/rx,(p.y-b.y-ry)/ry);
+    return Math.max(0,normalized-1)*Math.min(rx,ry);
+  }
+  return Math.hypot(outX,outY);
+}
+function resizedGraphic(g:Graphic,from:ShapeBox,to:ShapeBox):Graphic{
+  if(isItemGraphic(g))return resizedShape(g,from,to);
+  const px=(x:number)=>to.x+(x-from.x)*(to.w/Math.max(.0001,from.w));
+  const py=(y:number)=>to.y+(y-from.y)*(to.h/Math.max(.0001,from.h));
+  return{...g,points:g.points.map(p=>({...p,x:px(p.x),y:py(p.y)}))};
+}
+function moveGraphic(g:Graphic,dx:number,dy:number):Graphic{
+  return isItemGraphic(g)?translateShape(g,dx,dy):{...g,points:g.points.map(p=>({...p,x:p.x+dx,y:p.y+dy}))};
+}
+function updateGraphicVertex(g:Graphic,index:number,point:Point):Graphic{
+  if(isItemGraphic(g))return changedVertex(g,index,point);
+  const before=g.points[index];if(!before)return g;
+  const dx=point.x-before.x,dy=point.y-before.y,spread=g.points.length>28?Math.max(3,Math.min(12,Math.round(g.points.length/50))):0;
+  return{...g,points:g.points.map((p,i)=>{const distance=Math.abs(i-index);
+    if(!spread&&i!==index)return p;
+    if(spread&&distance>spread*3)return p;
+    const weight=spread?Math.exp(-.5*(distance/spread)**2):1;
+    return{...p,x:p.x+dx*weight,y:p.y+dy*weight};})};
+}
+function updateGraphicSegment(g:Graphic,index:number,dx:number,dy:number):Graphic{
+  const vertices=graphicVertices(g);if(vertices.length<2)return g;
+  const other=(index+1)%vertices.length;
+  if(isItemGraphic(g)){
+    if(g.kind==='line')return{...g,x:g.x+dx,y:g.y+dy};
+    if(g.kind!=='rect'&&g.kind!=='path'&&g.kind!=='polygon')return g;
+    const first=changedVertex(g,index,{x:vertices[index].x+dx,y:vertices[index].y+dy});
+    return changedVertex(first,other,{x:vertices[other].x+dx,y:vertices[other].y+dy});
+  }
+  const a=updateGraphicVertex(g,index,{x:vertices[index].x+dx,y:vertices[index].y+dy});
+  return updateGraphicVertex(a,other,{x:vertices[other].x+dx,y:vertices[other].y+dy});
+}
+function editableVertexIndices(g:Graphic,limit=24):number[]{
+  const points=graphicVertices(g);
+  if(points.length<=limit)return points.map((_,index)=>index);
+  const indices=[0];for(let i=1;i<limit-1;i++)indices.push(Math.round(i*(points.length-1)/(limit-1)));
+  indices.push(points.length-1);return [...new Set(indices)];
+}
 type Action={pointerId:number;verticalOnly?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId}:{accountId:string}){
