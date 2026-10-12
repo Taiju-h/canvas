@@ -3,8 +3,9 @@ import type * as React from 'react';
 export function noteEditorKeyDown(event:React.KeyboardEvent<HTMLElement>,emit:()=>void){
   if(event.key!=='Tab')return;
   event.preventDefault();
-  const element=event.target as HTMLElement;
-  const withinList=!!element.closest('li');
+  const node=window.getSelection()?.anchorNode;
+  const element=node instanceof Element?node:node?.parentElement;
+  const withinList=!!element?.closest('li');
   if(withinList){
     document.execCommand(event.shiftKey?'outdent':'indent',false);
   }else if(!event.shiftKey){
