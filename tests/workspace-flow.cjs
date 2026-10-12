@@ -178,6 +178,9 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   // accidentally on the first tap that only brings its files back to the front.
   const tablet=await browser.newContext({viewport:{width:1100,height:900},hasTouch:true});const tp=await tablet.newPage();lastPage=tp;
   await tp.goto('http://127.0.0.1:5187/canvas/');await tp.getByLabel('メモのタイトル',{exact:true}).waitFor();
+  await tp.waitForFunction(()=>!!document.querySelector('[aria-label="メモのタイトル"]').value); // The initial Note is created asynchronously.
+  await tp.waitForFunction(()=>/^[0-9a-f]{32}$/.test(new URL(location.href).searchParams.get('d')||''));
+  const tabletDocumentCount=documents.size,tabletNoteId=new URL(tp.url()).searchParams.get('d');
   const tabletFolders=await tp.locator('.notes-category-cascade-stage').boundingBox();
   const tabletTitle=await tp.getByLabel('メモのタイトル',{exact:true}).inputValue();
   await tp.touchscreen.tap(tabletFolders.x+10,tabletFolders.y+65);
@@ -187,6 +190,8 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await tp.touchscreen.tap(tabletFiles.x+tabletFiles.width-12,tabletFiles.y+65);
   assert.equal(await tp.locator('.notes-category-files-layer.is-front').count(),1,'tap on the right edge restores the files');
   assert.equal(await tp.getByLabel('メモのタイトル',{exact:true}).inputValue(),tabletTitle,'bringing files forward does not open or create a Note');
+  assert.equal(documents.size,tabletDocumentCount,'restoring the file sheet does not create a document');
+  assert.equal(new URL(tp.url()).searchParams.get('d'),tabletNoteId,'restoring files keeps the current Note');
   await tp.screenshot({path:'/tmp/kaeru-workspace-tablet-picker.png'});
   await tp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).tap();
   await tp.waitForFunction(()=>!document.querySelector('.notes-sidebar'));
