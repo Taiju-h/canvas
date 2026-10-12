@@ -66,7 +66,13 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const parentPane=await page.locator('.notes-category-multi-pane').nth(1).boundingBox();
   await page.mouse.move(parentPane.x+5,parentPane.y+65);await page.waitForTimeout(240);
   assert.equal(await filePane.locator('.notes-list-item').count(),1,'previewing a parent does not cover or replace the selected folder files');
+  await filePane.locator('.notes-list-item').filter({hasText:'子カテゴリのノート'}).click();
+  await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='子カテゴリのノート'&&!document.querySelector('.notes-sidebar'));
+  await page.getByLabel('メモ一覧を開く',{exact:true}).click();
+  const reopenedParent=await page.locator('.notes-category-multi-pane').nth(1).boundingBox();await page.mouse.move(reopenedParent.x+5,reopenedParent.y+65);await page.waitForTimeout(240);
   await pick('仕事 / 開発 / KaeruNote');
+  await filePane.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA'&&!document.querySelector('.notes-sidebar'));
+  await page.getByLabel('メモ一覧を開く',{exact:true}).click();
   assert.equal(await page.locator('.notes-list-item').count(),3);
   await page.getByLabel('子カテゴリを含める',{exact:true}).uncheck();assert.equal(await page.locator('.notes-list-item').count(),2);
   await page.locator('.notes-fixed-editor').fill('切り替え前の日本語本文');
