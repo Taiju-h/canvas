@@ -142,4 +142,12 @@ function App() {
   return <><NotesWorkspace accountId={session.accountId || ""} /><UpdateBadge /></>;
 }
 
+// Install the prebuilt offline shell. Without registration, offline-assets.json
+// and sw.js existed but were never used, so a restarted browser could not work
+// without network access.
+if('serviceWorker' in navigator){
+  void navigator.serviceWorker.register('/canvas/sw.js',{scope:'/canvas/'}).catch(error=>{
+    console.warn('KaeruNote offline cache registration failed',error);
+  });
+}
 createRoot(document.getElementById("root")!).render(<App />);
