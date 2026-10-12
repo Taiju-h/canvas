@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES+'/playwright':'playwright');
 (async()=>{
- const ids=['1'.repeat(32),'2'.repeat(32),'3'.repeat(32)];let counter=10,available=true,workspaceRevision=1;
+ const ids=['1'.repeat(32),'2'.repeat(32),'3'.repeat(32)];let counter=10,available=true,workspaceRevision=1;const trace=[];
  let categories=['仕事 / 開発 / KaeruNote','仕事 / 開発 / KaeruNote / 子','空カテゴリ'];
  const blank=(category,html)=>({version:1,items:[],layers:[{id:'drawing',name:'描画 1',visible:true,locked:false}],grid:'none',snap:false,blocks:[],paintStrokes:[],attachments:[],fixedNote:{html,visible:true,locked:false},note:{category,tags:[]}});
  const images=new Map(),files=new Map();
@@ -22,7 +22,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   }
   if(url.pathname==='/canvas/api.php'){
    if(!available)return json(res,{error:'テスト用の通信停止'},503);
-   const api=url.searchParams.get('path');
+   const api=url.searchParams.get('path');if(api==='/api/note-workspace'||api==='/api/notes-index')trace.push({at:Date.now(),method:req.method,api,workspaceRevision,payload,categories:[...categories],notes:[...documents.values()].map(n=>({id:n.id,category:n.content.note.category,revision:n.revision}))});
    if(api==='/api/session')return json(res,{authenticated:true,accountId:'workspace-fixture',csrfToken:'fixture'});
    if(api==='/api/notes-index')return json(res,{documents:[...documents.values()].map(({content,...n})=>({...n,note:content.note,excerpt:content.fixedNote.html,searchText:content.fixedNote.html})),hasMore:false,nextOffset:documents.size});
    if(api==='/api/note-workspace'){
@@ -111,7 +111,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   // No network is needed to switch cached notes or create categories.
   if(!await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを管理',exact:true}).click();
   await page.getByLabel('カテゴリの操作').selectOption('move');await page.getByLabel('対象カテゴリ',{exact:true}).selectOption('仕事 / 開発 / KaeruNote');await page.getByLabel('新しいカテゴリ名',{exact:true}).fill('復旧テスト');await page.getByRole('button',{name:'カテゴリを保存',exact:true}).click();
-  const pending=await page.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')));assert.equal(pending.pending.length,1);assert.ok(pending.baseNotes.length);
+  const pending=await page.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')));assert.equal(pending.pending.length,1);assert.ok(pending.baseNotes.length);console.log('Before competing metadata',JSON.stringify(pending));
   // Competing remote metadata becomes a persistent choice, never a reload instruction.
   const remoteNote=documents.get(ids[0]);remoteNote.content.note.category='他端末';remoteNote.revision++;categories.push('他端末');workspaceRevision++;await context.setOffline(false);await page.reload();
   // Reconnect/reload may land on the 12s synchronization timer; allow one full interval.
@@ -143,5 +143,5 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const savedBeforeUpdate=await bp.evaluate(()=>new Promise(resolve=>{const q=indexedDB.open('canvas-offline-v1',2);q.onsuccess=()=>{const r=q.result.transaction('documents').objectStore('documents').getAll();r.onsuccess=()=>resolve(r.result.some(n=>n.content.fixedNote.html.includes('更新前に端末へ保存する本文')));};}));assert.ok(savedBeforeUpdate);
   assert.ok(await bp.locator('.notes-app').getAttribute('inert')!==null);await bp.evaluate(()=>dispatchEvent(new CustomEvent('canvas-update-failed',{detail:'取得失敗テスト'})));assert.equal(await bp.locator('.notes-app').getAttribute('inert'),null);
   assert.deepEqual(errors,[]);console.log('Workspace desktop, touch, offline restart, draft preservation, category conflict and details checks passed');
- }catch(error){if(lastPage){await lastPage.screenshot({path:'/tmp/kaeru-workspace-failure.png'});console.error(await lastPage.locator('.notes-warning').allTextContents());}console.error(error);throw error;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
+ }catch(error){if(lastPage){await lastPage.screenshot({path:'/tmp/kaeru-workspace-failure.png'});console.error(await lastPage.locator('.notes-warning').allTextContents());console.error('Workspace snapshot',await lastPage.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')||'null')));console.error('Request trace',JSON.stringify(trace.slice(-20)));}console.error(error);throw error;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(()=>process.exit(1));
