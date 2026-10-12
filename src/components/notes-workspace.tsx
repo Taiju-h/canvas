@@ -1223,7 +1223,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             if(value!==(meta.alias||''))changeMeta({alias:value});
           }}/>
         </label>
-        <p>Excel参照：同じノートは {{C1}}、別ノートは {{lN111:C5}} のように書きます。参照先のノートに上記の別名を設定してください。保存または「参照値を更新」で反映します。</p>
+        <p>Excel参照：同じノートは <code>{'{{C1}}'}</code>、別ノートは <code>{'{{lN111:C5}}'}</code> のように書きます。参照先のノートに上記の別名を設定してください。保存または「参照値を更新」で反映します。</p>
         <label>カテゴリ（ / で入れ子）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':category:'+meta.category} defaultValue={meta.category} maxLength={200} onBlur={e=>{e.target.value=categoryPath(e.target.value);changeMeta({category:e.target.value});}} list="note-categories"/></label><datalist id="note-categories">{categories.map(c=><option key={c} value={c}/>)}</datalist>
         <button disabled={organizing||importing||attaching} onClick={()=>setCategoryManager(true)}>カテゴリの追加・移動・タグ化</button>
         <label>タグ（カンマ区切り）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':tags:'+meta.tags.join(',')} defaultValue={meta.tags.join(', ')} onBlur={e=>changeMeta({tags:[...new Set(e.target.value.split(/[,、]/).map(t=>t.trim()).filter(Boolean))].slice(0,50)})}/></label>
