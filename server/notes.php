@@ -114,7 +114,7 @@ function canvas_note_workspace(PDO $db, string $actor, string $method): void
         $db->prepare("INSERT IGNORE INTO canvas_note_workspace (owner_id, categories_json, revision) VALUES (?, '[]', 0)")->execute([$actor]);
         $q = $db->prepare('SELECT revision FROM canvas_note_workspace WHERE owner_id = ? FOR UPDATE');
         $q->execute([$actor]);
-        if ((int)$q->fetchColumn() !== $body['revision']) { $db->rollBack(); canvas_json(['error' => 'カテゴリが他端末で更新されました。画面を再読み込みしてください'], 409); }
+        if ((int)$q->fetchColumn() !== $body['revision']) { $db->rollBack(); canvas_json(['error' => 'カテゴリが他端末で更新されました。分類の差分を確認して再同期してください'], 409); }
         $changed = [];
         // Stable lock order prevents simultaneous bulk changes from deadlocking.
         usort($updates, static fn($a, $b) => strcmp($a['id'], $b['id']));

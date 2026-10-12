@@ -1,0 +1,32 @@
+name: KaeruNote workspace flow
+on:
+  pull_request:
+    paths: ['src/**', 'tests/**', '.github/workflows/workspace-flow-check.yml']
+  push:
+    branches: [main]
+    paths: ['src/**', 'tests/**', '.github/workflows/workspace-flow-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          npm install --package-lock=false
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+      - run: npm test
+      - run: VITE_APP_COMMIT=1111111 npm run build
+      - run: node tests/workspace-flow.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-flow-views
+          path: /tmp/kaeru-workspace-*.png
+          if-no-files-found: ignore

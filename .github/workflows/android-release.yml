@@ -2,7 +2,15 @@ name: KaeruNote release installer
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'clients/android/app/build.gradle.kts'
+      - '.github/workflows/android-release.yml'
   push:
+    branches: [main]
+    paths:
+      - 'clients/android/app/build.gradle.kts'
+      - '.github/workflows/android-release.yml'
     tags:
       - "v*"
 
@@ -11,16 +19,17 @@ permissions:
 
 jobs:
   release:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Node 20
+      - name: Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Build bundled web UI
         run: |
@@ -56,17 +65,18 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          gradle --no-daemon assembleRelease bundleRelease
-          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/KaeruNote-0.4.1.apk"
-          cp app/build/outputs/bundle/release/app-release.aab "app/build/outputs/bundle/release/KaeruNote-0.4.1.aab"
+          gradle --no-daemon assembleDebug assembleRelease bundleRelease
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/KaeruNote-0.4.2.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "app/build/outputs/bundle/release/KaeruNote-0.4.2.aab"
 
       - name: Upload signed installer
         uses: actions/upload-artifact@v4
         with:
-          name: KaeruNote-0.4.1-release
+          name: KaeruNote-0.4.2-release
           path: |
-            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.1.apk
-            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.1.aab
+            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.2.apk
+            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.2.aab
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -74,6 +84,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.1.apk
-            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.1.aab
+            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.2.apk
+            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.2.aab
           generate_release_notes: true

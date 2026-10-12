@@ -31,6 +31,18 @@ export function mergeSharedNotes(base:NoteDoc,local:NoteDoc,remote:NoteDoc):Note
     if(collections.has(key)){
       const merged=mergeList(b,l,r);if(!merged)return null;
       result[key]=merged;
+    }else if(key==='note'){
+      const merged:Record<string,unknown>={};
+      const old=(b||{}) as Record<string,unknown>,left=(l||{}) as Record<string,unknown>,right=(r||{}) as Record<string,unknown>;
+      for(const field of new Set([...Object.keys(old),...Object.keys(left),...Object.keys(right)])){
+        if(same(left[field],old[field]))merged[field]=right[field];
+        else if(same(right[field],old[field])||same(left[field],right[field]))merged[field]=left[field];
+        else if(field==='tags'&&[old[field],left[field],right[field]].every(Array.isArray)){
+          const before=old[field] as string[],a=left[field] as string[],z=right[field] as string[];
+          merged[field]=[...new Set([...a.filter(x=>!before.includes(x)||z.includes(x)),...z.filter(x=>!before.includes(x)||a.includes(x))])];
+        }else return null;
+      }
+      result[key]=merged;
     }else return null;
   }
   return result as NoteDoc;

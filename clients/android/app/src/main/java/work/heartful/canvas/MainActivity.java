@@ -53,7 +53,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class MainActivity extends ComponentActivity {
     private static final String CANVAS_ROOT = "https://canvas.uzero.style/canvas/";
-    private static final String CANVAS_URL = CANVAS_ROOT + "?app=0.4.1";
+    private static final String CANVAS_URL = CANVAS_ROOT + "?app=0.4.2";
     private static final String CANVAS_HOST = "canvas.uzero.style";
     private static final int FILE_CHOOSER_REQUEST = 701;
 
@@ -83,6 +83,8 @@ public final class MainActivity extends ComponentActivity {
             deleteTree(new File(getFilesDir(), "canvas-web-old"));
             shell.edit().putInt("installedVersion", BuildConfig.VERSION_CODE).apply();
         }
+        // A process death before the new bundle confirms startup rolls back only static UI.
+        if (!shell.getString("pendingCommit", "").isEmpty()) rollbackWebUpdate();
         nativeDownloads = new NativeDownloads(this);
         File[] abandonedExports = getCacheDir().listFiles((dir, name) -> name.startsWith("kaeru-export-") && name.endsWith(".tmp"));
         if (abandonedExports != null) for (File export : abandonedExports) export.delete();
@@ -342,13 +344,14 @@ public final class MainActivity extends ComponentActivity {
     private String mimeType(String name) {
         String lower = name.toLowerCase(java.util.Locale.ROOT);
         if (lower.endsWith(".html")) return "text/html";
-        if (lower.endsWith(".js")) return "text/javascript";
+        if ((lower.endsWith(".js") || lower.endsWith(".mjs"))) return "text/javascript";
         if (lower.endsWith(".css")) return "text/css";
         if (lower.endsWith(".json") || lower.endsWith(".webmanifest")) return "application/json";
         if (lower.endsWith(".svg")) return "image/svg+xml";
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
         if (lower.endsWith(".woff2")) return "font/woff2";
+        if (lower.endsWith(".wasm")) return "application/wasm";
         return "application/octet-stream";
     }
 
@@ -362,7 +365,8 @@ public final class MainActivity extends ComponentActivity {
             new Thread(() -> {
                 try {
                     downloadWebUpdate();
-                    runOnUiThread(() -> webView.loadUrl(CANVAS_ROOT + "?updated=" + System.currentTimeMillis()));
+                    runOnUiThread(() -> webView.evaluateJavascript(
+                        "window.dispatchEvent(new CustomEvent('canvas-update-ready'))", null));
                 } catch (Exception error) {
                     String message = error.getMessage() == null ? "更新できませんでした" : error.getMessage();
                     String escaped = JSONObject.quote(message);
@@ -375,6 +379,61 @@ public final class MainActivity extends ComponentActivity {
                 }
             }).start();
         }
+
+        @JavascriptInterface
+        public void activateWebUpdate() {
+            runOnUiThread(() -> {
+                try {
+                    File staging = new File(getFilesDir(), "canvas-web-next");
+                    JSONObject version = new JSONObject(new String(java.nio.file.Files.readAllBytes(new File(staging, "build-version.json").toPath()), StandardCharsets.UTF_8));
+                    String commit = version.getString("commit");
+                    File current = new File(getFilesDir(), "canvas-web"), previous = new File(getFilesDir(), "canvas-web-old");
+                    deleteTree(previous);
+                    if (current.exists() && !current.renameTo(previous)) throw new IOException("旧UIを退避できません");
+                    if (!staging.renameTo(current)) {
+                        if (previous.exists()) previous.renameTo(current);
+                        throw new IOException("更新を適用できません");
+                    }
+                    getSharedPreferences("canvas-shell", MODE_PRIVATE).edit().putString("pendingCommit", commit).apply();
+                    String currentUrl = webView.getUrl();
+                    Uri.Builder url = Uri.parse(currentUrl == null ? CANVAS_URL : currentUrl).buildUpon().clearQuery();
+                    Uri old = Uri.parse(currentUrl == null ? CANVAS_URL : currentUrl);
+                    for (String name : old.getQueryParameterNames()) if (!name.equals("remoteui") && !name.equals("updated"))
+                        for (String value : old.getQueryParameters(name)) url.appendQueryParameter(name, value);
+                    url.appendQueryParameter("updated", String.valueOf(System.currentTimeMillis()));
+                    webView.loadUrl(url.build().toString());
+                    webView.postDelayed(() -> {
+                        if (!getSharedPreferences("canvas-shell", MODE_PRIVATE).getString("pendingCommit", "").isEmpty()) {
+                            rollbackWebUpdate(); webView.reload();
+                        }
+                    }, 45000);
+                } catch (Exception error) { reportUpdateFailure(error.getMessage()); }
+            });
+        }
+
+        @JavascriptInterface
+        public void confirmWebUpdate(String runningCommit) {
+            runOnUiThread(() -> {
+                android.content.SharedPreferences shell = getSharedPreferences("canvas-shell", MODE_PRIVATE);
+                String expected = shell.getString("pendingCommit", "");
+                if (expected.isEmpty()) return;
+                if (WebVersions.sameCommit(expected, runningCommit)) {
+                    shell.edit().remove("pendingCommit").apply();
+                    deleteTree(new File(getFilesDir(), "canvas-web-old"));
+                } else { rollbackWebUpdate(); webView.reload(); }
+            });
+        }
+    }
+
+    private void reportUpdateFailure(String message) {
+        webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('canvas-update-failed',{detail:" + JSONObject.quote(message == null ? "更新できませんでした" : message) + "}))", null);
+    }
+
+    private void rollbackWebUpdate() {
+        File current = new File(getFilesDir(), "canvas-web"), previous = new File(getFilesDir(), "canvas-web-old");
+        deleteTree(current);
+        if (previous.exists()) previous.renameTo(current);
+        getSharedPreferences("canvas-shell", MODE_PRIVATE).edit().remove("pendingCommit").apply();
     }
 
     private void downloadWebUpdate() throws Exception {
@@ -398,15 +457,15 @@ public final class MainActivity extends ComponentActivity {
             writeFile(staging, relative, fetchBytes("https://" + CANVAS_HOST + remotePath + "?native=" + System.currentTimeMillis()));
         }
 
-        File current = new File(getFilesDir(), "canvas-web");
-        File previous = new File(getFilesDir(), "canvas-web-old");
-        deleteTree(previous);
-        if (current.exists() && !current.renameTo(previous)) throw new IOException("旧UIを退避できません");
-        if (!staging.renameTo(current)) {
-            if (previous.exists()) previous.renameTo(current);
-            throw new IOException("更新を適用できません");
-        }
-        deleteTree(previous);
+        JSONObject version = new JSONObject(new String(java.nio.file.Files.readAllBytes(new File(staging, "build-version.json").toPath()), StandardCharsets.UTF_8));
+        JSONObject finalVersion = new JSONObject(new String(fetchBytes(CANVAS_ROOT + "build-version.json?native=" + System.currentTimeMillis()), StandardCharsets.UTF_8));
+        if (!version.getString("buildId").equals(finalVersion.getString("buildId")) ||
+            !version.getString("commit").equals(finalVersion.getString("commit")) ||
+            !version.getString("commit").matches("[a-fA-F0-9]{7,40}")) throw new IOException("取得中にWeb版が更新されました。もう一度更新してください");
+        String index = new String(java.nio.file.Files.readAllBytes(new File(staging, "index.html").toPath()), StandardCharsets.UTF_8);
+        if (!index.contains("assets/") || !index.contains("<html")) throw new IOException("更新画面が不正です");
+        // Keep staging separate until JavaScript acknowledges durable local storage.
+
     }
 
     private byte[] fetchBytes(String value) throws Exception {
@@ -419,6 +478,7 @@ public final class MainActivity extends ComponentActivity {
         String cookie = CookieManager.getInstance().getCookie(CANVAS_ROOT);
         if (cookie != null && !cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
         int code = connection.getResponseCode();
+        long expectedLength = connection.getContentLengthLong();
         if (code < 200 || code >= 300) {
             connection.disconnect();
             throw new IOException("更新サーバー応答: " + code);
@@ -431,6 +491,7 @@ public final class MainActivity extends ComponentActivity {
                 if (output.size() + count > 64 * 1024 * 1024) throw new IOException("更新ファイルが大きすぎます");
                 output.write(buffer, 0, count);
             }
+            if (expectedLength >= 0 && output.size() != expectedLength) throw new IOException("更新ファイルを最後まで取得できませんでした");
             return output.toByteArray();
         } finally {
             connection.disconnect();

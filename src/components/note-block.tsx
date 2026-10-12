@@ -5,9 +5,9 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { cleanHTML, fileURL, type NoteBlock } from '@/lib/notes';
 import {getLocalImage} from '@/lib/local-docs';
 
-type Props={docId:string;block:NoteBlock;readOnly?:boolean;focused:boolean;selected:boolean;onFocus:()=>void;onChange:(html:string,height:number)=>void;
+type Props={docId:string;block:NoteBlock;opacity?:number;readOnly?:boolean;focused:boolean;selected:boolean;onFocus:()=>void;onChange:(html:string,height:number)=>void;
   onDrag:(event:ReactPointerEvent,resize?:boolean)=>void;onSize:(height:number)=>void;onPaste:(files:File[])=>void;onNavigate:(id:string)=>void};
-export default function EditableBlock({docId,block,readOnly,focused,selected,onFocus,onChange,onDrag,onSize,onPaste,onNavigate}:Props){
+export default function EditableBlock({docId,block,opacity=1,readOnly,focused,selected,onFocus,onChange,onDrag,onSize,onPaste,onNavigate}:Props){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);const callback=useRef(onSize);callback.current=onSize;
   useLayoutEffect(()=>{const el=ref.current;if(!el)return;const html=cleanHTML(block.html);
     if(document.activeElement!==el && el.innerHTML!==html)el.innerHTML=html;
@@ -29,7 +29,7 @@ export default function EditableBlock({docId,block,readOnly,focused,selected,onF
   useEffect(()=>{if(focused&&!readOnly)ref.current?.focus({preventScroll:true});},[focused,readOnly]);
   useEffect(()=>{const el=ref.current;if(!el)return;const observer=new ResizeObserver(()=>callback.current(Math.max(140,el.scrollHeight+54)));observer.observe(el);return()=>observer.disconnect();},[]);
   function emit(){if(readOnly)return;const el=ref.current;if(el){flowNoteColumns(el);onChange(cleanHTML(el.innerHTML),Math.max(140,el.scrollHeight+54));}}
-  return <section data-note-block={block.id} className={`note-block ${selected?'selected':''}`} style={{left:block.x,top:block.y,width:block.w,minHeight:140,background:block.background||'#fff'}}>
+  return <section data-note-block={block.id} data-layer-id={block.layerId} className={`note-block ${selected?'selected':''}`} style={{opacity,left:block.x,top:block.y,width:block.w,minHeight:140,background:block.background||'#fff'}}>
     <button className="note-block-handle" title="ドラッグして移動" aria-label="文章ブロックを移動" onPointerDown={e=>onDrag(e)}>⠿</button>
     <div ref={ref} className="note-content" contentEditable={!readOnly} suppressContentEditableWarning role="textbox" aria-label="メモ本文" aria-multiline="true" data-placeholder="ここから書き始める…" spellCheck
       onFocus={onFocus} onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}}

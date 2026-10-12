@@ -83,9 +83,9 @@ export async function exportDocx(record:NoteRecord){
   a.href=url;a.download=(record.title||'KaeruNote').replace(/[\\/:*?"<>|]/g,'_')+'.docx';a.click();
   window.setTimeout(()=>URL.revokeObjectURL(url),20000);
 }
-export async function exportPng(element:HTMLElement,name:string){
+export async function exportPng(element:HTMLElement,name:string,filter?:(node:HTMLElement)=>boolean){
   // Capture only a bounded viewport to avoid exhausting graphics memory.
-  const url=await toPng(element,{cacheBust:true,pixelRatio:1,backgroundColor:'#ffffff'});
+  const url=await toPng(element,{cacheBust:true,pixelRatio:1,backgroundColor:'#ffffff',filter});
   const a=document.createElement('a');a.href=url;a.download=(name||'KaeruNote').replace(/[\\/:*?"<>|]/g,'_')+'.png';a.click();
 }
 export function exportPlain(record:NoteRecord){

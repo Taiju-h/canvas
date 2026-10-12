@@ -4,23 +4,24 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build && node scripts/build-offline-manifest.mjs",
-    "test": "node --test tests/jex.test.mjs",
+    "test": "node --test tests/jex.test.mjs tests/category-sync.test.mjs",
     "test:browser": "node tests/notes-browser.cjs",
     "test:offline": "node tests/note-offline.cjs"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "docx": "9.5.1",
     "dompurify": "3.4.16",
+    "html-to-image": "1.11.13",
     "lucide-react": "1.31.0",
     "marked": "18.0.14",
+    "pdfjs-dist": "6.4.299",
     "radix-ui": "1.6.7",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tailwind-merge": "3.6.0",
-    "turndown": "7.2.4",
-    "docx": "9.5.1",
-    "html-to-image": "1.11.13"
+    "turndown": "7.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.2.1",

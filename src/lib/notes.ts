@@ -10,7 +10,7 @@ export type NoteMeta = { category: string; tags: string[]; alias?: string; relat
   trashedAt?: string; importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
   organizationLog?: { at: string; category: string; tags: string[] }[] };
 export type NoteDoc = Omit<CanvasDoc, 'layers'> & { layers: (Layer & { rasterImageId?: string; rasterBounds?: {x:number;y:number;w:number;h:number} })[]; blocks?: NoteBlock[]; note?: NoteMeta; attachments?: Attachment[];
-  paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string; brush?: 'pen' | 'gpen' | 'marker'; rotation?: number }[] };
+  paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string; brush?: 'pen' | 'gpen' | 'marker'; pressure?:boolean; rotation?: number }[] };
 export type NoteIndex = { id: string; title: string; revision: number; updated_at: number; excerpt?: string; searchText?: string; note?: NoteMeta };
 export type NoteRecord = NoteIndex & { content: NoteDoc; accountId?: string; dirty?: boolean };
 export const id32 = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
@@ -84,7 +84,7 @@ export function normalizeNote(input: NoteDoc): NoteDoc {
     if(!layer){layer={id:id32(),name:'レイアウト 1',studioKind:'layout',visible:true,locked:false};layers.push(layer);}
     return layer.id;
   };
-  const items=input.items.filter(item=>item.kind!=='text').map(item=>({...item,layerId:layoutFor(item.layerId)}));
+  const items=input.items.filter(item=>item.kind!=='text').map(item=>({...item,layerId:item.keepLayer&&layers.some(l=>l.id===item.layerId)?item.layerId:layoutFor(item.layerId)}));
   const migratedBlocks=blocks.map(b=>({...b,layerId:layoutFor(b.layerId)}));
   return { ...input,
     items: items.map(i=>({...i,x:i.x+dx,y:i.y+dy,points:i.points?.map(p=>({...p,x:p.x+dx,y:p.y+dy}))})),
