@@ -82,7 +82,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.getByLabel('ズーム倍率',{exact:true}).selectOption('100');
 
   await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByTitle('最上位のカテゴリを表示',{exact:true}).click();await pick('空カテゴリ');assert.equal(await page.locator('.notes-list-item').count(),0);
-  await page.waitForFunction(()=>navigator.serviceWorker.controller);await context.setOffline(true);await page.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).click();await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-fixed-editor'));
+  await page.waitForFunction(()=>navigator.serviceWorker.controller);available=false;await context.setOffline(true);await page.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).click();await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-fixed-editor'));
   await page.locator('.notes-fixed-editor').fill('オフライン新規本文');await page.waitForTimeout(900);
   assert.equal(await page.locator('.notes-sidebar').count(),0);
   const cached=await page.evaluate(()=>new Promise((resolve,reject)=>{const r=indexedDB.open('canvas-offline-v1',2);r.onsuccess=()=>{const tx=r.result.transaction('documents');const q=tx.objectStore('documents').getAll();q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);};}));
@@ -109,9 +109,10 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   // No network is needed to switch cached notes or create categories.
   if(!await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを管理',exact:true}).click();
   await page.getByLabel('カテゴリの操作').selectOption('move');await page.getByLabel('対象カテゴリ',{exact:true}).selectOption('仕事 / 開発 / KaeruNote');await page.getByLabel('新しいカテゴリ名',{exact:true}).fill('復旧テスト');await page.getByRole('button',{name:'カテゴリを保存',exact:true}).click();
-  const pending=await page.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')));assert.equal(pending.pending.length,1);assert.ok(pending.baseNotes.length);
+  const pending=await page.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')));assert.equal(pending.pending.length,1);assert.ok(pending.baseNotes.length);assert.equal(pending.pending[0].source,'仕事 / 開発 / KaeruNote');assert.equal(pending.baseNotes.find(n=>n.id===ids[0]).category,'仕事 / 開発 / KaeruNote');
   // Competing remote metadata becomes a persistent choice, never a reload instruction.
-  const remoteNote=documents.get(ids[0]);remoteNote.content.note.category='他端末';remoteNote.revision++;categories.push('他端末');workspaceRevision++;await context.setOffline(false);await page.reload();
+  const remoteNote=documents.get(ids[0]);remoteNote.content.note.category='他端末';remoteNote.revision++;categories.push('他端末');workspaceRevision++;available=true;await context.setOffline(false);await page.reload();
+  console.log('Conflict fixture before wait',await page.evaluate(()=>({account:JSON.parse(localStorage.getItem('canvasSessionCache')||'null')?.accountId,workspace:JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')||'null')})),[...documents.values()].map(n=>({id:n.id,category:n.content.note.category,revision:n.revision})));
   await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).waitFor();assert.ok(await page.locator('.kn-conflict-diffs').innerText().then(t=>t.includes('他端末')));
   await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).click();await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')).pending.length===0);
   await page.waitForTimeout(900);const result=await page.evaluate(()=>fetch('/__fixture/control',{method:'POST',body:'{}'}).then(r=>r.json()));
@@ -140,5 +141,5 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const savedBeforeUpdate=await bp.evaluate(()=>new Promise(resolve=>{const q=indexedDB.open('canvas-offline-v1',2);q.onsuccess=()=>{const r=q.result.transaction('documents').objectStore('documents').getAll();r.onsuccess=()=>resolve(r.result.some(n=>n.content.fixedNote.html.includes('更新前に端末へ保存する本文')));};}));assert.ok(savedBeforeUpdate);
   assert.ok(await bp.locator('.notes-app').getAttribute('inert')!==null);await bp.evaluate(()=>dispatchEvent(new CustomEvent('canvas-update-failed',{detail:'取得失敗テスト'})));assert.equal(await bp.locator('.notes-app').getAttribute('inert'),null);
   assert.deepEqual(errors,[]);console.log('Workspace desktop, touch, offline restart, draft preservation, category conflict and details checks passed');
- }catch(error){if(lastPage){await lastPage.screenshot({path:'/tmp/kaeru-workspace-failure.png'});console.error(await lastPage.locator('.notes-warning').allTextContents());}console.error(error);throw error;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
+ }catch(error){if(lastPage){await lastPage.screenshot({path:'/tmp/kaeru-workspace-failure.png'});console.error(await lastPage.locator('.notes-warning').allTextContents());console.error('Workspace after failure',await lastPage.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')||'null')));console.error('Remote after failure',[...documents.values()].map(n=>({id:n.id,category:n.content.note.category,revision:n.revision})));}console.error(error);throw error;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(()=>process.exit(1));
