@@ -1,3 +1,4 @@
+import {commitTime} from "./scripts/build-revision.mjs";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath, URL } from "node:url";
@@ -7,6 +8,7 @@ const outDir = process.env.CANVAS_OUT || "public/canvas";
 
 export default defineConfig({
   base,
+  define:{"import.meta.env.VITE_APP_COMMIT_TIME":JSON.stringify(String(commitTime()))},
   publicDir: false,
   plugins: [react()],
   resolve: {

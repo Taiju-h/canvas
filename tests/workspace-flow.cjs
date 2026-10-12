@@ -42,7 +42,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
    if(match){const r=documents.get(match[1]);if(!r)return json(res,{error:'not found'},404);if(req.method==='PUT'){if(payload.revision!==r.revision)return json(res,{error:'revision conflict'},409);r.content=payload.content;r.title=payload.title;r.revision++;r.updated_at=Date.now();return json(res,{id:r.id,revision:r.revision});}return json(res,r);}
    return json(res,{configured:false,documents:[]});
   }
-  if(url.pathname==='/canvas/build-version.json'&&url.searchParams.has('check'))return json(res,{commit:'2222222',buildId:'remote-fixture'});
+  if(url.pathname==='/canvas/build-version.json'&&url.searchParams.has('check'))return json(res,{commit:'2222222',commitTime:9999999999,buildId:'remote-fixture'});
   const relative=url.pathname.startsWith('/canvas/')?url.pathname.slice(8):url.pathname.slice(1);
   const file=path.resolve('public/canvas',relative||'index.html');
   if(!file.startsWith(path.resolve('public/canvas')+'/')){res.writeHead(403);res.end();return;}
