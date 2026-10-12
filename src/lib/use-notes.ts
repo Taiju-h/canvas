@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage } from './local-docs';
 import { api, blankNote, id32, indexOf, normalizeNote, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
 import { mergeSharedNotes, mergeSharedTitle } from './shared-merge';
+import {inCategory,movedCategory} from './note-organization';
+import type {CategoryOperation} from '../components/note-categories';
 
 export type SharedAccess={id:string;token:string};
 export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
@@ -163,6 +165,29 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     await localJobs.current;
     if((await listLocalDocs()).some(n=>n.accountId===accountId&&n.dirty))throw new Error('未同期または競合中のメモがあります。同期・復元してから一括操作してください');
   }
+  async function applyOfflineCategory(op:CategoryOperation){
+    if(shared)throw new Error('共有リンクからカテゴリ全体は変更できません');
+    const cache=(await listLocalDocs()).filter(doc=>doc.accountId===accountId);
+    const keys=[...new Set([...cache.map(x=>x.id),...records.current.keys()])];
+    let changed=0;
+    for(const id of keys){
+      const cached=cache.find(x=>x.id===id);
+      const latest=records.current.get(id);
+      const record=latest||(cached?{...cached,content:normalizeNote(cached.content)} as NoteRecord:undefined);
+      if(!record)continue;
+      const old=record.content.note||{category:'',tags:[]};
+      const path=old.category||'';
+      if(op.kind==='create'||!inCategory(path,op.source))continue;
+      const category=op.kind==='move'?movedCategory(path,op.source,op.target):op.remove?'':path;
+      const tags=op.kind==='tag'?[...new Set([...(old.tags||[]),op.target])]:old.tags||[];
+      const updated={...record,content:{...record.content,note:{...old,category,tags}},updated_at:Date.now(),dirty:true};
+      show(updated);await persist(updated);changed++;
+      // Upload the modified local record after reconnect; never require a network
+      // connection at the time the user organizes notes.
+      if(navigator.onLine&&!id.startsWith('local-'))void save(id);
+    }
+    return changed;
+  }
   async function acceptMetadata(changed:{id:string;revision:number;updated_at:number;note:NoteMeta}[]) {
     for(const update of changed){
       const cached=records.current.get(update.id)||await getLocalDoc(update.id);
@@ -221,6 +246,6 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     },2500);
     return()=>{live=false;clearInterval(poll);removeEventListener('online',online);removeEventListener('beforeunload',before);};
   },[]);
-  return {record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,acceptMetadata,
+  return {record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }
