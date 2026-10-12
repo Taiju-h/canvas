@@ -5,7 +5,7 @@ import type { CanvasDoc, Point, Layer } from './canvas';
 
 export type NoteBlock = { id: string; x: number; y: number; w: number; h: number; html: string; background?: string; layerId?: string };
 export type Attachment = { id: string; name: string; mime: string; size: number; sourceId?: string; pending?: boolean };
-export type NoteMeta = { category: string; tags: string[]; pinned?: boolean; sourceId?: string; sourceNotebook?: string;
+export type NoteMeta = { category: string; tags: string[]; alias?: string; pinned?: boolean; sourceId?: string; sourceNotebook?: string;
   sourceCreated?: string; sourceUpdated?: string; sourceMarkdown?: string; sourceFormat?: string; sourceTitle?: string;
   trashedAt?: string; importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
   organizationLog?: { at: string; category: string; tags: string[] }[] };
@@ -23,7 +23,7 @@ const safeCSSValue=(value:string)=>value.length<140&&!/[;{}<>]|url\s*\(|expressi
 export function cleanHTML(value: string): string {
   const sanitized = DOMPurify.sanitize(value, {
     ALLOWED_TAGS: ['p','div','br','strong','b','em','i','u','s','strike','h1','h2','h3','h4','ul','ol','li','blockquote','pre','code','a','img','table','thead','tbody','tr','th','td','span','font','input','mark','ruby','rt','rp','sup','sub','section'],
-    ALLOWED_ATTR: ['href','src','alt','title','color','size','type','checked','disabled','style','class','colspan','rowspan','data-kn-layout','data-kn-flow','data-kn-height','data-kn-align','data-kn-width','data-kn-list','data-kn-local-image','data-kn-local-file'],
+    ALLOWED_ATTR: ['href','src','alt','title','color','size','type','checked','disabled','style','class','colspan','rowspan','data-kn-layout','data-kn-flow','data-kn-height','data-kn-align','data-kn-width','data-kn-list','data-kn-local-image','data-kn-local-file','data-kn-ref'],
     ALLOW_DATA_ATTR:false
   });
   const el=document.createElement('div');el.innerHTML=sanitized;
