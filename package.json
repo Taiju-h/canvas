@@ -17,7 +17,9 @@
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "tailwind-merge": "3.6.0",
-    "turndown": "7.2.4"
+    "turndown": "7.2.4",
+    "docx": "9.5.1",
+    "html-to-image": "1.11.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.2.1",
