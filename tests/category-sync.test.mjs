@@ -5,7 +5,7 @@ const server=await createServer({server:{middlewareMode:true},optimizeDeps:{noDi
 const {planCategorySync,applyClassification}=await server.ssrLoadModule('/src/lib/category-sync.ts');
 const {loadOfflineWorkspace,persistOfflineWorkspace}=await server.ssrLoadModule('/src/lib/offline-workspace.ts');
 const {mergeSharedNotes}=await server.ssrLoadModule('/src/lib/shared-merge.ts');
-const {sameCommit}=await server.ssrLoadModule('/src/lib/web-update.ts');
+const {sameCommit,hasNewerWebVersion}=await server.ssrLoadModule('/src/lib/web-update.ts');
 after(()=>server.close());
 const row={id:'a',revision:3,category:'仕事 / 開発',tags:['元'],title:'本文は変更しない'};
 const move={kind:'move',source:'仕事 / 開発',target:'仕事 / 設計'};
@@ -78,4 +78,11 @@ test('manual classification edits made while the queue is pending are preserved'
  assert.equal(plan.conflicts.length,0);assert.equal(plan.updates[0].category,local.category);assert.deepEqual(plan.updates[0].tags,local.tags);
  const competing=planCategorySync(state,{categories:state.baseCategories,revision:2},[{...row,category:'他端末'}],[local]);
  assert.ok(competing.conflicts.some(c=>c.local.includes(local.category)));
+});
+
+test('an older production UI is never offered as an update to a newer APK',()=>{
+ assert.equal(hasNewerWebVersion('aaaaaaa',200,{commit:'bbbbbbb'}),false);
+ assert.equal(hasNewerWebVersion('aaaaaaa',200,{commit:'bbbbbbb',commitTime:100}),false);
+ assert.equal(hasNewerWebVersion('aaaaaaa',200,{commit:'bbbbbbb',commitTime:201}),true);
+ assert.equal(hasNewerWebVersion('aaaaaaa',200,{commit:'aaaaaaa1234',commitTime:300}),false);
 });

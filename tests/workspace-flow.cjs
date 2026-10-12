@@ -42,7 +42,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
    if(match){const r=documents.get(match[1]);if(!r)return json(res,{error:'not found'},404);if(req.method==='PUT'){if(payload.revision!==r.revision)return json(res,{error:'revision conflict'},409);r.content=payload.content;r.title=payload.title;r.revision++;r.updated_at=Date.now();return json(res,{id:r.id,revision:r.revision});}return json(res,r);}
    return json(res,{configured:false,documents:[]});
   }
-  if(url.pathname==='/canvas/build-version.json'&&url.searchParams.has('check'))return json(res,{commit:'2222222',buildId:'remote-fixture'});
+  if(url.pathname==='/canvas/build-version.json'&&url.searchParams.has('check'))return json(res,{commit:'2222222',commitTime:9999999999,buildId:'remote-fixture'});
   const relative=url.pathname.startsWith('/canvas/')?url.pathname.slice(8):url.pathname.slice(1);
   const file=path.resolve('public/canvas',relative||'index.html');
   if(!file.startsWith(path.resolve('public/canvas')+'/')){res.writeHead(403);res.end();return;}
@@ -50,7 +50,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  });await new Promise(resolve=>server.listen(5187,'127.0.0.1',resolve));
  let browser,lastPage;
  try{
-  browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
+  browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
   const context=await browser.newContext({viewport:{width:1280,height:950}});const page=await context.newPage();lastPage=page;page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await page.goto('http://127.0.0.1:5187/canvas/');await page.getByLabel('メモのタイトル',{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
   const pick=async category=>{await page.locator('[data-category-path='+JSON.stringify(category)+']').click();await page.mouse.move(900,40);};

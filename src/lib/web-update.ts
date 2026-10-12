@@ -8,3 +8,10 @@ export async function prepareWebUpdate(){
   window.dispatchEvent(new CustomEvent('kaerunote-before-web-update',{detail:{waitUntil:(promise:Promise<unknown>)=>waits.push(promise)}}));
   await Promise.all(waits);
 }
+
+export function hasNewerWebVersion(commit:string|undefined,time:unknown,remote:{commit?:string;commitTime?:number}){
+  if(!commit||!remote.commit||sameCommit(commit,remote.commit))return false;
+  const installed=Number(time),candidate=Number(remote.commitTime);
+  // Unknown/older production metadata must never downgrade a newer bundled APK.
+  return Number.isFinite(candidate)&&candidate>0&&candidate>(Number.isFinite(installed)?installed:0);
+}
