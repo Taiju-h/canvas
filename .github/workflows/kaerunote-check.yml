@@ -31,6 +31,7 @@ jobs:
           php -l public/canvas/api.php
           php -l server/bootstrap.php
           php -l server/notes.php
+          php -l server/ai.php
       - name: Report build status
         if: always()
         env:
