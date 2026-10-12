@@ -3,7 +3,7 @@ import { marked } from 'marked';
 import TurndownService from 'turndown';
 import type { CanvasDoc, Point, Layer } from './canvas';
 
-export type NoteBlock = { id: string; x: number; y: number; w: number; h: number; html: string; background?: string };
+export type NoteBlock = { id: string; x: number; y: number; w: number; h: number; html: string; background?: string; layerId?: string };
 export type Attachment = { id: string; name: string; mime: string; size: number; sourceId?: string };
 export type NoteMeta = { category: string; tags: string[]; pinned?: boolean; sourceId?: string; sourceNotebook?: string;
   sourceCreated?: string; sourceUpdated?: string; sourceMarkdown?: string; sourceFormat?: string; sourceTitle?: string;
