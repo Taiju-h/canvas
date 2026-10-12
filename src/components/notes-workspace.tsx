@@ -13,7 +13,7 @@ import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, type CellRan
 import '../notes.css';
 import { getLocalImage, getLocalDoc, putLocalImage, listLocalDocs } from '@/lib/local-docs';
 import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
-import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
+import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedNoteRoot,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
 import {exportDocx,exportPng,exportPlain} from '@/lib/note-export';
 import {materializeSheetReferences,referenceSourceFromNote,referencedAliases} from '@/lib/sheet-references';
 import {listLocalRevisions,type LocalRevision} from '@/lib/local-docs';
@@ -207,6 +207,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [imageAlign,setImageAlign]=useState<'left'|'center'|'right'>('left');
   const [tableOpen,setTableOpen]=useState(false);
   const [tableSelected,setTableSelected]=useState(false);
+  const savedCaret=useRef<Range|null>(null);
   const lastTable=useRef<HTMLTableElement|null>(null);
   const lastCell=useRef<HTMLTableCellElement|null>(null);
   const [tableOpts,setTableOpts]=useState<TableOptions>({kind:'table',rows:3,cols:3,width:100,align:'fit',height:'auto',lines:4,flow:'expand'});
@@ -668,6 +669,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     list.closest('.notes-fixed-editor,.note-content')?.dispatchEvent(new Event('input',{bubbles:true}));
   }
   function openTableSettings(kind:'table'|'columns',edit=false){
+    const selection=window.getSelection();
+    savedCaret.current=selection?.rangeCount&&selectedNoteRoot()?selection.getRangeAt(0).cloneRange():null;
     const table=edit?(currentTable()||lastTable.current):null;
     if(table){
       const values=Array.from(table.rows);
@@ -684,11 +687,15 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     setTableOpen(true);
   }
   function applyTable(){
+    const selection=window.getSelection();
+    if(savedCaret.current&&selection){
+      selection.removeAllRanges();selection.addRange(savedCaret.current);
+    }
     const current=lastTable.current;
     if(current&&current.isConnected&&tableSelected){
       setTableOptions(current,tableOpts);
     }else insertRichHTML(tableMarkup(tableOpts));
-    setTableOpen(false);
+    savedCaret.current=null;setTableOpen(false);
   }
   useEffect(()=>{
     const onSelect=()=>{
@@ -701,11 +708,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     return()=>document.removeEventListener('selectionchange',onSelect);
   },[]);
   function ruby(skipPrompt=false){
+    const selection=window.getSelection(),range=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null;
     const selected=selectedString().trim();if(!selected){notes.setError('ルビを付ける文字を選択してください');return;}
     const memoryKey='kaerunote-ruby:'+selected,remembered=localStorage.getItem(memoryKey)||'';
     const reading=skipPrompt&&remembered?remembered:window.prompt('「'+selected+'」の読みがな',remembered);
     if(!reading)return;
     localStorage.setItem(memoryKey,reading);
+    if(range&&selection){selection.removeAllRanges();selection.addRange(range);}
     applyRuby(reading,rubyColor);
   }
   async function openRevisions(){
@@ -785,7 +794,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     ((searching&&searchScope==='all')||((!category||inCategory(n.note?.category||'',category))&&(!tag||n.note?.tags?.includes(tag)))) &&
     matchesSearch(`${n.title} ${n.searchText||''} ${n.note?.category||''} ${(n.note?.tags||[]).join(' ')}`,query))
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
-  function navigateCategory(path:string){setCategory(path);setTrash(false);setQuery('');if(sidebarAutoClose)setSidebar(false);}
+  function navigateCategory(path:string){setCategory(path);setTrash(false);setQuery('');if(sidebarAutoClose&&path&&!categories.some(p=>p.startsWith(path+' / ')))setSidebar(false);}
   async function createNote(){setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
   function setTrashed(value:boolean){if(!doc||organizing||attaching||importing||notes.busy)return;
