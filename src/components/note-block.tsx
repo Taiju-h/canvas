@@ -1,3 +1,4 @@
+import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { cleanHTML, type NoteBlock } from '@/lib/notes';
@@ -17,7 +18,8 @@ export default function EditableBlock({block,readOnly,focused,selected,onFocus,o
     <div ref={ref} className="note-content" contentEditable={!readOnly} suppressContentEditableWarning role="textbox" aria-label="メモ本文" aria-multiline="true" data-placeholder="ここから書き始める…" spellCheck
       onFocus={onFocus} onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}}
       onCompositionEnd={()=>{composing.current=false;emit();}} onBlur={emit}
-      onClick={e=>{const input=(e.target as Element).closest('input');if(input){input.toggleAttribute('checked',input.checked);emit();}
+      onKeyDown={e=>noteEditorKeyDown(e,emit)}
+      onClick={e=>{noteCheckboxClick(e,emit);
         const anchor=(e.target as Element).closest('a');if(anchor && (e.ctrlKey||e.metaKey)){e.preventDefault();const url=new URL(anchor.href);const id=url.searchParams.get('d');if(url.origin===location.origin&&id)onNavigate(id);else window.open(url.href,'_blank','noopener,noreferrer');}}}
       onPaste={e=>{if(e.clipboardData.files.length){e.preventDefault();onPaste(Array.from(e.clipboardData.files));return;}
         e.preventDefault();const html=e.clipboardData.getData('text/html');if(html)document.execCommand('insertHTML',false,cleanHTML(html));else document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));emit();}} />
