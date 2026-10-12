@@ -196,6 +196,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [sidebarAutoClose,setSidebarAutoClose]=useState(()=>{try{return localStorage.getItem('kn-sidebar-autoclose')!=='off';}catch{return true;}});
   const [relatedPanel,setRelatedPanel]=useState(false);
   const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);
+  const [aiConfigured,setAiConfigured]=useState<boolean|null>(null);
+  const [aiBusy,setAiBusy]=useState(false);
+  const [aiResult,setAiResult]=useState('');
+  const aiAudioInput=useRef<HTMLInputElement>(null);
   const [offlinePreparing,setOfflinePreparing]=useState(false);
   const [offlineProgress,setOfflineProgress]=useState<{done:number;total:number;files:number;errors:number}|null>(null);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
@@ -719,6 +723,58 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(range&&selection){selection.removeAllRanges();selection.addRange(range);}
     applyRuby(reading,rubyColor);
   }
+  useEffect(()=>{
+    if(!settings&&!relatedPanel)return;
+    let mounted=true;
+    void api('/api/ai').then(r=>r.json()).then((status:{configured:boolean})=>{if(mounted)setAiConfigured(!!status.configured);})
+      .catch(()=>{if(mounted)setAiConfigured(false);});
+    return()=>{mounted=false;};
+  },[settings,relatedPanel]);
+  async function callChatGPT(action:'organize'|'related',send=true){
+    const currentRecord=current.current;
+    if(!currentRecord||currentRecord.id.startsWith('local-')){notes.setError('ChatGPT接続は最初にノートをサーバーへ保存してください');return;}
+    if(!navigator.onLine){notes.setError('AI処理にはネット接続が必要です。メモの編集はオフラインで続けられます');return;}
+    if(send&&!window.confirm('このノートの内容をOpenAI APIへ送信して解析します。続けますか？'))return;
+    setAiBusy(true);
+    try{
+      await notes.save();
+      if(current.current?.dirty||notes.conflict)throw new Error('同期が終わっていません。保存完了を確認してください');
+      const response=await api('/api/ai/'+action,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({id:currentRecord.id})});
+      const result=await response.json();
+      if(action==='organize')setAiResult(String(result.text||''));
+      else{
+        const related=(result.related as {id:string;reason:string}[]||[])
+          .filter(item=>notes.list.some(n=>n.id===item.id)).slice(0,8);
+        const d=current.current?.content;if(d){
+          commit({...d,note:{category:'',tags:[],...d.note,relatedNotes:related}});
+          setRelatedPanel(true);setLayersOpen(true);
+        }
+        if(!related.length)notes.setError('AIが確実に関連付けられるノートはありませんでした');
+      }
+    }catch(e){notes.setError('ChatGPT解析：'+String(e));}
+    finally{setAiBusy(false);}
+  }
+  async function transcribeAudio(file:File){
+    if(!file)return;
+    if(!navigator.onLine){notes.setError('音声文字起こしにはネット接続が必要です');return;}
+    if(!window.confirm('この音声をOpenAI APIへ送信して文字起こしします。続けますか？'))return;
+    setAiBusy(true);
+    try{
+      const form=new FormData();form.set('audio',file);
+      const response=await api('/api/ai/transcribe',{method:'POST',body:form});
+      const result=await response.json() as {text:string};
+      setAiResult(result.text||'');
+    }catch(e){notes.setError('文字起こし：'+String(e));}
+    finally{setAiBusy(false);}
+  }
+  function insertAIResult(){
+    const d=current.current?.content as StudioNoteDoc|undefined;
+    if(!d||!aiResult.trim())return;
+    const fixed=d.fixedNote||{html:'',visible:true,locked:false};
+    commit({...d,fixedNote:{...fixed,html:fixed.html+'<h2>AI整理結果</h2><p>'+escapeHTML(aiResult).replace(/\n/g,'<br>')+'</p>'}});
+    setAiResult('');
+  }
   async function prepareOffline(){
     if(offlinePreparing)return;
     setOfflinePreparing(true);setOfflineProgress(null);
@@ -1203,9 +1259,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
           {!focusMode&&layersOpen&&relatedPanel&&<aside className="notes-layer-panel kn-related-panel" aria-label="関連ノート">
             <div className="notes-layer-title"><strong>関連ノート</strong><button onClick={()=>setRelatedPanel(false)} title="レイヤー一覧に戻る">←</button></div>
-            <p>関連付けはChatGPTの内容解析後に作成します。まだこのノートに関連付けられた項目はありません。</p>
-            <button onClick={()=>{setSettings(true);setRelatedPanel(false);}}>ChatGPT連携の設定を確認</button>
-            <p>※ APIキーや機密データをブラウザへ保存する方式にはしません。サーバー側の安全な接続が必要です。</p>
+            {meta.relatedNotes?.length?meta.relatedNotes.map(item=><button key={item.id} onClick={()=>void notes.open(item.id)} title={item.reason}>
+              {notes.list.find(n=>n.id===item.id)?.title||item.id.slice(0,8)} <small>{item.reason}</small>
+            </button>):<p>関連付けられたノートがありません。ChatGPTに本文を読ませて関連付けできます。</p>}
+            <button disabled={aiBusy||!aiConfigured} onClick={()=>void callChatGPT('related')}>{aiBusy?'解析中…':'ChatGPTに読ませて関連付け'}</button>
+            <p>※ 送信前に確認します。関連付けの結果はノートに保存されます。APIキーはサーバーだけで管理します。</p>
           </aside>}
           {workspaceMode==='layout'&&selectedGraphic&&<div className="notes-fine-panel" role="group" aria-label="図形の微調整">
             <strong>図形の微調整</strong>
@@ -1218,6 +1276,17 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
       {!sharedAccess&&settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>環境設定・メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
+        <section className="kn-settings-group">
+          <h3>ChatGPT接続</h3>
+          <p>接続状態：{aiConfigured===null?'確認中':aiConfigured?'利用できます':'APIキー未設定'}</p>
+          <p>ノート整理・関連ノート解析・音声文字起こしに対応。実行時だけ必要な内容をOpenAI APIへ送信します。オフラインでは使いません。</p>
+          <button disabled={aiBusy||!aiConfigured} onClick={()=>void callChatGPT('organize')}>{aiBusy?'解析中…':'現在のノートを整理する'}</button>
+          <button disabled={aiBusy||!aiConfigured} onClick={()=>aiAudioInput.current?.click()}>音声を文字起こし</button>
+          <p>サーバー側の環境変数 KAERUNOTE_OPENAI_API_KEY が必要です。キーをGitに入れないでください。</p>
+          {aiResult&&<div className="kn-ai-result"><label>AIの結果（編集可能）<textarea rows={9} value={aiResult} onChange={e=>setAiResult(e.target.value)}/></label>
+            <button onClick={insertAIResult}>確認してノート末尾に追加</button>
+            <button onClick={()=>setAiResult('')}>破棄</button></div>}
+        </section>
         <section className="kn-settings-group">
           <h3>表示と操作</h3>
           <label className="notes-check"><input type="checkbox" checked={sidebarAutoClose} onChange={e=>{
@@ -1311,6 +1380,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
     {deleteOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">メモをゴミ箱へ移動</h2><p>「{record?.title}」をゴミ箱へ移動します。あとから復元できます。</p><button onClick={()=>setDeleteOpen(false)}>キャンセル</button><button className="notes-primary" onClick={()=>setTrashed(true)}>ゴミ箱へ移動</button></section></div>}
     {chartOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="chart-title"><div className="notes-settings-title"><h2 id="chart-title">グラフを作成</h2><button onClick={()=>setChartOpen(false)} aria-label="閉じる"><X size={18}/></button></div><p>Excelレイヤーで選択した範囲を参照する、グラフレイヤーの子オブジェクトを作成します。元データを変更するとグラフも更新されます。</p><label>種類<select value={chartType} onChange={e=>setChartType(e.target.value as ChartItem['type'])}><option value="bar">棒グラフ</option><option value="line">折れ線グラフ</option><option value="pie">円グラフ</option></select></label><div className="notes-dialog-actions"><button onClick={()=>setChartOpen(false)}>キャンセル</button><button className="notes-primary" onClick={createChart}>作成</button></div></section></div>}
+    <input ref={aiAudioInput} hidden type="file" accept=".flac,.mp3,.mp4,.mpeg,.mpga,.m4a,.ogg,.wav,.webm,audio/*" onChange={e=>{const file=e.target.files?.[0];if(file)void transcribeAudio(file);e.target.value='';}}/>
     <input ref={fileInput} hidden type="file" multiple onChange={e=>{void attach(Array.from(e.target.files||[]));e.target.value='';}}/>
     <input ref={imageInput} hidden type="file" accept="image/*" multiple onChange={e=>{void placeImages(Array.from(e.target.files||[]));e.target.value='';}}/>
     <input ref={organizationInput} hidden type="file" accept=".json" onChange={e=>{if(e.target.files?.[0])void applyOrganization(e.target.files[0]);e.target.value='';}}/>
