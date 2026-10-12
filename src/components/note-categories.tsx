@@ -112,6 +112,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
     {!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}
     {expanded&&(!!paths.length||notePicker)&&<>
       <div className={'notes-category-browser '+(notePicker?'has-note-picker ':'')+(compact?'is-compact':'')} ref={stageRef}
+        onKeyDownCapture={()=>{pointerType.current='keyboard';}}
         style={room?{width:Math.min(notePicker?960:820,room),...(notePicker?{height:Math.min(440,verticalRoom)}:{})}:undefined}>
       <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
         <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>

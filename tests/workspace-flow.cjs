@@ -174,6 +174,23 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await mp.getByLabel('サイドバーを閉じる',{exact:true}).click();await mp.getByLabel('ノートの詳細',{exact:true}).waitFor();
   const bounds=await mp.getByLabel('ノートの詳細',{exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391,'detail button within mobile width');const ribbon=await mp.locator('.notes-basic-ribbon').boundingBox();assert.ok(bounds.y>=ribbon.y&&bounds.y+bounds.height<=ribbon.y+ribbon.height,'detail stays visible outside the scrolling basic controls');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile.png'});
+  // Wide touch screens use the same overlapping sheets without opening a Note
+  // accidentally on the first tap that only brings its files back to the front.
+  const tablet=await browser.newContext({viewport:{width:1100,height:900},hasTouch:true});const tp=await tablet.newPage();lastPage=tp;
+  await tp.goto('http://127.0.0.1:5187/canvas/');await tp.getByLabel('メモのタイトル',{exact:true}).waitFor();
+  const tabletFolders=await tp.locator('.notes-category-cascade-stage').boundingBox();
+  const tabletTitle=await tp.getByLabel('メモのタイトル',{exact:true}).inputValue();
+  await tp.touchscreen.tap(tabletFolders.x+10,tabletFolders.y+65);
+  assert.ok(await tp.locator('.notes-category-multi-pane').first().evaluate(n=>n.classList.contains('is-focused')),'tap raises the folder sheet');
+  assert.equal(await tp.locator('.notes-category-files-layer.is-front').count(),0);
+  const tabletFiles=await tp.getByRole('region',{name:'選択フォルダのNote一覧'}).boundingBox();
+  await tp.touchscreen.tap(tabletFiles.x+tabletFiles.width-12,tabletFiles.y+65);
+  assert.equal(await tp.locator('.notes-category-files-layer.is-front').count(),1,'tap on the right edge restores the files');
+  assert.equal(await tp.getByLabel('メモのタイトル',{exact:true}).inputValue(),tabletTitle,'bringing files forward does not open or create a Note');
+  await tp.screenshot({path:'/tmp/kaeru-workspace-tablet-picker.png'});
+  await tp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).tap();
+  await tp.waitForFunction(()=>!document.querySelector('.notes-sidebar'));
+  await tablet.close();
   const bridgeContext=await browser.newContext({viewport:{width:1100,height:850}});const bp=await bridgeContext.newPage();lastPage=bp;
   await bp.addInitScript(()=>{window.updateCalls={download:0,activate:0};window.CanvasApp={applyWebUpdate:()=>{window.updateCalls.download++;dispatchEvent(new CustomEvent('canvas-update-ready'));},activateWebUpdate:()=>window.updateCalls.activate++,confirmWebUpdate:()=>{}};});
   await bp.goto('http://127.0.0.1:5187/canvas/');await bp.locator('.notes-fixed-editor').waitFor();await bp.getByTitle('新しいKaeruNoteがあります',{exact:true}).waitFor();
