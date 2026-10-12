@@ -63,6 +63,9 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const createBounds=await filePane.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).boundingBox(),chooserBounds=await chooser.boundingBox();
   assert.ok(createBounds.x>=files.x&&createBounds.x+createBounds.width<=chooserBounds.x+chooserBounds.width&&createBounds.y+createBounds.height<=chooserBounds.y+chooserBounds.height,'new Note is visible in the same chooser');
   await page.screenshot({path:'/tmp/kaeru-workspace-folder-picker.png'});
+  const parentPane=await page.locator('.notes-category-multi-pane').nth(1).boundingBox();
+  await page.mouse.move(parentPane.x+5,parentPane.y+65);await page.waitForTimeout(240);
+  assert.equal(await filePane.locator('.notes-list-item').count(),1,'previewing a parent does not cover or replace the selected folder files');
   await pick('仕事 / 開発 / KaeruNote');
   assert.equal(await page.locator('.notes-list-item').count(),3);
   await page.getByLabel('子カテゴリを含める',{exact:true}).uncheck();assert.equal(await page.locator('.notes-list-item').count(),2);
