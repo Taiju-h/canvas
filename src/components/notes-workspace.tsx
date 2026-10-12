@@ -888,7 +888,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             {(workspaceMode==='layout')&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
             {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>}</div>}
           </>}
-          <div className="notes-tool-group"><button className={layersOpen?'active':''} onClick={()=>setLayersOpen(v=>!v)} title="レイヤーパネルを開閉" aria-expanded={layersOpen}>{layersOpen?<ChevronDown size={15}/>:<ChevronLeft size={15}/>} レイヤー</button></div>
+          <div className="notes-tool-group notes-inspector-toggle">
+            <button className={!relatedPanel&&layersOpen?'active':''} onClick={()=>{setRelatedPanel(false);setLayersOpen(v=>relatedPanel?true:!v);}} title="レイヤーパネルを開閉" aria-expanded={!relatedPanel&&layersOpen}>{!relatedPanel&&layersOpen?<ChevronDown size={15}/>:<ChevronLeft size={15}/>} レイヤー</button>
+            <button className={relatedPanel?'active':''} onClick={()=>{setRelatedPanel(v=>!v);setLayersOpen(true);}} title="ChatGPTが関連付けたノートを表示">関連ノート</button>
+          </div>
         </div>
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
         <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：色・太さ・透明度は上のツールから変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>固定ノート：通常のワープロ入力です。下のキャンバスをズーム・移動しても文字サイズと位置は変わりません。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：キャンバス上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
@@ -1039,7 +1042,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             </div>
             {record&&<FixedNoteLayer html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
           </div>
-          {!focusMode&&layersOpen&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
+          {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
+          {!focusMode&&layersOpen&&relatedPanel&&<aside className="notes-layer-panel kn-related-panel" aria-label="関連ノート">
+            <div className="notes-layer-title"><strong>関連ノート</strong><button onClick={()=>setRelatedPanel(false)} title="レイヤー一覧に戻る">←</button></div>
+            <p>関連付けはChatGPTの内容解析後に作成します。まだこのノートに関連付けられた項目はありません。</p>
+            <button onClick={()=>{setSettings(true);setRelatedPanel(false);}}>ChatGPT連携の設定を確認</button>
+            <p>※ APIキーや機密データをブラウザへ保存する方式にはしません。サーバー側の安全な接続が必要です。</p>
+          </aside>}
           {workspaceMode==='layout'&&selectedGraphic&&<div className="notes-fine-panel" role="group" aria-label="図形の微調整">
             <strong>図形の微調整</strong>
             <label>横移動 <input type="range" min="-20" max="20" step="1" value={fineX} onChange={e=>{const v=Number(e.target.value);editSelectedShape(i=>moveGraphic(i,v-fineX,0));setFineX(v);}} onPointerUp={()=>setFineX(0)}/><span>±20px</span></label>
@@ -1050,7 +1059,18 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         </div>
         {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
-      {!sharedAccess&&settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
+      {!sharedAccess&&settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>環境設定・メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
+        <section className="kn-settings-group">
+          <h3>表示と操作</h3>
+          <label className="notes-check"><input type="checkbox" checked={sidebarAutoClose} onChange={e=>{
+            setSidebarAutoClose(e.target.checked);
+            try{localStorage.setItem('kn-sidebar-autoclose',e.target.checked?'on':'off');}catch{}
+          }}/>カテゴリ・ノートを選んだら左のメニューを自動で閉じる</label>
+          <p>初期設定はONです。OFFにすると複数のメモを連続して選びやすくなります。</p>
+          <button onClick={()=>void openRevisions()}>ローカル履歴を表示</button>
+          <p>保存時に端末内へ最大25世代を記録します。履歴から復元しても、元の世代は残ります。</p>
+          <p>同期が不要なノート編集とカテゴリ変更は端末に保存します。共有やChatGPT連携にはネットワーク接続が必要です。</p>
+        </section>
         <label>カテゴリ（ / で入れ子）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':category:'+meta.category} defaultValue={meta.category} maxLength={200} onBlur={e=>{e.target.value=categoryPath(e.target.value);changeMeta({category:e.target.value});}} list="note-categories"/></label><datalist id="note-categories">{categories.map(c=><option key={c} value={c}/>)}</datalist>
         <button disabled={organizing||importing||attaching} onClick={()=>setCategoryManager(true)}>カテゴリの追加・移動・タグ化</button>
         <label>タグ（カンマ区切り）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':tags:'+meta.tags.join(',')} defaultValue={meta.tags.join(', ')} onBlur={e=>changeMeta({tags:[...new Set(e.target.value.split(/[,、]/).map(t=>t.trim()).filter(Boolean))].slice(0,50)})}/></label>
@@ -1085,6 +1105,16 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           {shareEnabled&&<button disabled={shareBusy} onClick={()=>void revokeShare()}>共有を停止</button>}
         </div>
         <p className="notes-share-footnote">※ リンクの扱いに注意してください。未公開の情報を含む作品は、必要な相手だけに渡してください。</p>
+      </section>
+    </div>}
+    {revisionsOpen&&<div className="notes-modal">
+      <section className="kn-revisions-dialog" role="dialog" aria-modal="true" aria-labelledby="kn-revisions-title">
+        <div className="notes-settings-title"><h2 id="kn-revisions-title">この端末の保存履歴</h2>
+          <button aria-label="閉じる" onClick={()=>setRevisionsOpen(false)}><X size={18}/></button></div>
+        <p>復元すると現在のノートの内容が変更されます。必要な世代を選んでください。</p>
+        {revisions.length===0?<p>保存された履歴がありません。</p>:revisions.map(row=><button className="kn-revision-row" key={row.id} onClick={()=>restoreRevision(row)}>
+          <strong>{new Date(row.createdAt).toLocaleString('ja-JP')}</strong><span>{row.title}</span><small>Revision {row.revision}</small>
+        </button>)}
       </section>
     </div>}
     {tableOpen&&<div className="notes-modal" onMouseDown={e=>{if(e.target===e.currentTarget)setTableOpen(false);}}>
