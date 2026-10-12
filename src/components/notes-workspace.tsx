@@ -736,7 +736,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const currentRecord=current.current;
     if(!currentRecord||currentRecord.id.startsWith('local-')){notes.setError('ChatGPT接続は最初にノートをサーバーへ保存してください');return;}
     if(!navigator.onLine){notes.setError('AI処理にはネット接続が必要です。メモの編集はオフラインで続けられます');return;}
-    if(send&&!window.confirm('このノートの内容をOpenAI APIへ送信して解析します。続けますか？'))return;
+    if(send&&!window.confirm(action==='related'?'このノートと関連候補のタイトル・本文抜粋をOpenAI APIへ送信します。続けますか？':'このノートの内容をOpenAI APIへ送信して整理します。続けますか？'))return;
     setAiBusy(true);
     try{
       await notes.save();
