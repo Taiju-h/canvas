@@ -14,6 +14,7 @@ const built = new Set(Object.values(manifest).flatMap(entry => [entry.file, ...e
 const pdfSupport=join(assets,'pdf-support');
 await rm(pdfSupport,{recursive:true,force:true});
 await mkdir(pdfSupport,{recursive:true});
+await copyFile(join(root,'node_modules','pdfjs-dist','LICENSE'),join(pdfSupport,'LICENSE'));
 for(const folder of ['cmaps','standard_fonts','wasm']){
   await cp(join(root,'node_modules','pdfjs-dist',folder),join(pdfSupport,folder),{recursive:true});
 }
