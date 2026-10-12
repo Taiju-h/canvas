@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useRef,useState} from 'react';
+import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {ChevronLeft,ChevronRight,Folder,Plus,Settings2,Tag,X} from 'lucide-react';
 import {categoryParts,categoryPath,categoryTree,inCategory,type CategoryNode} from '@/lib/note-organization';
 import type {NoteIndex} from '@/lib/notes';
@@ -8,7 +8,7 @@ function directCount(notes:NoteIndex[],path:string){
   return notes.filter(n=>!n.note?.trashedAt&&inCategory(n.note?.category||'',path)).length;
 }
 
-export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,onDelete,disabled}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;onCreate?:()=>void;onDelete?:()=>void;disabled:boolean}){
+export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,onDelete,disabled,expanded=true,onExpand}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;onCreate?:()=>void;onDelete?:()=>void;disabled:boolean;expanded?:boolean;onExpand?:()=>void}){
   // The parent recalculates the paths array on each render; memoize by content so
   // a hover preview is not reset whenever React renders an unrelated control.
   const pathSignature=paths.join('\u001f');
@@ -26,6 +26,20 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
   const panelRefs=useRef<Record<string,HTMLElement|null>>({});
   const breadcrumbRef=useRef<HTMLElement|null>(null);
   const pointerType=useRef('mouse');
+  const stageRef=useRef<HTMLDivElement|null>(null);
+  const [room,setRoom]=useState(0);
+
+  // The sidebar is an anchor, not a clipping box. Use the editor's space while
+  // choosing a category, and measure from the real anchor for future left menus.
+  useLayoutEffect(()=>{
+    if(!expanded)return;
+    const stage=stageRef.current;if(!stage)return;
+    const measure=()=>setRoom(Math.max(0,document.documentElement.clientWidth-stage.getBoundingClientRect().left-16));
+    measure();window.addEventListener('resize',measure);
+    const observer=new ResizeObserver(measure);
+    observer.observe(stage.closest('.notes-layout')||stage.parentElement!);
+    return()=>{window.removeEventListener('resize',measure);observer.disconnect();};
+  },[expanded,!!paths.length]);
 
   useEffect(()=>{
     if(!selected){setOpenedPath('');setPeekDepth(null);return;}
@@ -84,15 +98,16 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
     onSelect(path);
   }
 
-  return <div className="notes-category-tree notes-category-cascade is-multilevel">
+  return <div className={'notes-category-tree notes-category-cascade is-multilevel '+(expanded?'is-browsing':'is-collapsed')}>
     <div className="notes-category-heading">
       <strong>カテゴリ</strong>
       <button disabled={disabled} onClick={onCreate||onManage} aria-label="カテゴリを追加"><Plus size={15}/>追加</button>
       {onDelete&&<button disabled={disabled||!selected} onClick={onDelete} aria-label="選択カテゴリを削除">削除</button>}
       <button disabled={disabled} onClick={onManage} aria-label="カテゴリを管理"><Settings2 size={15}/></button>
     </div>
+    {!expanded&&<button className="notes-category-open" disabled={disabled} onClick={onExpand} aria-label="カテゴリを選ぶ"><Folder size={17}/><span>{selected||'すべてのカテゴリ'}</span><ChevronRight size={16}/></button>}
     {!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}
-    {!!paths.length&&<>
+    {!!paths.length&&expanded&&<>
       <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
         <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>
         {trail.map((path,index)=><button key={path} disabled={disabled} title={path} className={selected===path?'active':''}
@@ -100,6 +115,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
           onClick={()=>{reveal(path);if(index<trail.length-1)setPeekDepth(Math.min(1,categoryParts(path).length-1));}}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
       </nav>
       <div className={'notes-category-cascade-stage multilevel '+(peekDepth!==null?'parent-peek':'')} role="group" aria-label="カテゴリの選択"
+        ref={stageRef} style={room?{width:Math.min(820,room)}:undefined}
         onKeyDownCapture={()=>{pointerType.current='keyboard';}}
         onPointerLeave={event=>{if(event.pointerType==='mouse')setPeekDepth(null);}}>
         {visible.map((pane,i)=>{
@@ -139,7 +155,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
           </section>;
         })}
       </div>
-      <p className="notes-category-help">左側の階層にマウスを乗せる／タップすると前面に表示します。子カテゴリは右側に重なります。</p>
+      <p className="notes-category-help">親の階層は左端にマウスを乗せる／タップで表示。Noteを開くとこのパネルは畳まれます。</p>
     </>}
   </div>;
 }
