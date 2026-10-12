@@ -297,3 +297,42 @@
   .notes-header-compact .notes-brand{display:none}
   .notes-header-compact>input{min-width:50px}
 }
+
+
+/* KaeruNote rich word-processing toolbar and editable note content */
+.notes-toolbar-word .notes-font-step{font-size:11px;color:#6b665e;min-width:32px;text-align:center}
+.notes-toolbar-word .notes-bullet-picker{display:inline-flex;align-items:center;gap:4px;font-size:13px}
+.notes-toolbar-word .notes-bullet-picker select{font-size:11px;max-width:75px;height:30px}
+.notes-toolbar-word .notes-advanced-format{flex-wrap:wrap;max-width:100%}
+.notes-toolbar-word .notes-advanced-format label{display:flex;align-items:center;gap:4px;font-size:11px}
+.notes-toolbar-word .notes-advanced-format input[type=color]{width:30px;height:26px;border:0}
+.notes-toolbar-word .notes-table-controls{background:#f9f0de;border-radius:6px;padding:3px}
+.notes-toolbar-word .notes-table-controls strong{font-size:11px;color:#765726}
+.notes-toolbar-word .notes-note-insert{gap:3px}
+.notes-toolbar-word .notes-note-insert button{display:flex;align-items:center;gap:5px}
+.kn-table-dialog{width:min(500px,calc(100vw - 32px));max-height:85vh;overflow:auto}
+.kn-table-dialog p{font-size:12px;color:#746b5e;line-height:1.6}
+.kn-table-dialog>label{display:grid;gap:3px;margin:8px 0;font-size:12px}
+.kn-table-dialog select,.kn-table-dialog input{padding:7px;border:1px solid #d7ccbb;background:white;border-radius:5px;font-size:12px}
+.kn-table-options-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.kn-table-options-row label{display:grid;gap:4px;font-size:11px}
+.notes-fixed-editor ul.kn-bullet-list[data-kn-list=large] li::marker,.note-content ul.kn-bullet-list[data-kn-list=large] li::marker{font-size:1.1em}
+.notes-fixed-editor ul.kn-bullet-list[data-kn-list=medium] li::marker,.note-content ul.kn-bullet-list[data-kn-list=medium] li::marker{font-size:.8em}
+.notes-fixed-editor ul.kn-bullet-list[data-kn-list=small] li::marker,.note-content ul.kn-bullet-list[data-kn-list=small] li::marker{font-size:.65em}
+.notes-fixed-editor ul.kn-checklist,.note-content ul.kn-checklist{list-style:none;padding-left:8px;margin-left:0}
+.notes-fixed-editor ul.kn-checklist li,.note-content ul.kn-checklist li{padding-left:0;margin:3px 0}
+.notes-fixed-editor input[type=checkbox],.note-content input[type=checkbox]{pointer-events:auto;appearance:auto;cursor:pointer;vertical-align:middle;width:17px;height:17px;accent-color:#1478bb}
+.notes-fixed-editor table,.note-content table{border-collapse:collapse;width:100%;margin:12px 0}
+.notes-fixed-editor table td,.notes-fixed-editor table th,.note-content table td,.note-content table th{vertical-align:top;border:1px solid #d2c6b7;padding:6px;min-width:18px;word-break:break-word}
+.notes-fixed-editor table[data-kn-layout=columns] td,.note-content table[data-kn-layout=columns] td{border:1px dashed #d7cdbc}
+.notes-fixed-editor table[data-kn-height]:not([data-kn-height=auto]) td,
+.note-content table[data-kn-height]:not([data-kn-height=auto]) td{max-height:7.5em;overflow:hidden}
+.notes-fixed-editor table[data-kn-flow=next] td,.note-content table[data-kn-flow=next] td{border-bottom-color:#71b0bf}
+.notes-fixed-editor .kn-red-circle,.note-content .kn-red-circle{border:2px solid #d6322a;border-radius:50% 45% 55% 48%;padding:0 4px;box-shadow:1px 1px 0 #ce3428;display:inline-block;transform:rotate(-2deg)}
+.notes-fixed-editor .kn-red-underline,.note-content .kn-red-underline{text-decoration:underline;text-decoration-color:#d6322a;text-decoration-thickness:2px;text-underline-offset:4px}
+.notes-fixed-editor .kn-red-wave,.note-content .kn-red-wave{text-decoration:underline wavy #d6322a;text-decoration-thickness:2px;text-underline-offset:4px}
+.notes-fixed-editor ruby,.note-content ruby{ruby-align:center}
+.notes-fixed-editor ruby rt,.note-content ruby rt{font-size:.55em;line-height:1.1}
+.notes-layer-row button[title^="名前変更"],.notes-layer-row button[title^="レイヤーを削除"]{font-size:12px;min-width:22px}
+.notes-layer-group-name{max-width:90px;min-width:67px;font-size:12px;border:1px solid transparent;background:transparent;font-weight:bold;padding:2px}
+.notes-layer-group-name:hover,.notes-layer-group-name:focus{border-color:#d5c6a7;background:#fff}
