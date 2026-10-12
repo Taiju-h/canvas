@@ -5,7 +5,7 @@ import type { CanvasDoc, Point, Layer } from './canvas';
 
 export type NoteBlock = { id: string; x: number; y: number; w: number; h: number; html: string; background?: string; layerId?: string };
 export type Attachment = { id: string; name: string; mime: string; size: number; sourceId?: string; pending?: boolean };
-export type NoteMeta = { category: string; tags: string[]; alias?: string; pinned?: boolean; sourceId?: string; sourceNotebook?: string;
+export type NoteMeta = { category: string; tags: string[]; alias?: string; relatedNotes?: {id:string;reason:string}[]; pinned?: boolean; sourceId?: string; sourceNotebook?: string;
   sourceCreated?: string; sourceUpdated?: string; sourceMarkdown?: string; sourceFormat?: string; sourceTitle?: string;
   trashedAt?: string; importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
   organizationLog?: { at: string; category: string; tags: string[] }[] };
