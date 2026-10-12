@@ -5,7 +5,10 @@ export function tableMarkup(o:TableOptions):string{
   const width=o.align==='fit'?100:Math.max(10,Math.min(100,Math.floor(o.width)));
   const margin=o.align==='center'?'margin-left:auto;margin-right:auto':o.align==='right'?'margin-left:auto': 'margin-left:0';
   const style='width:'+width+'%;'+margin+';table-layout:fixed;border-collapse:collapse';
-  const cells=Array.from({length:rows},()=>'<tr>'+Array.from({length:cols},()=>'<td><p><br></p></td>').join('')+'</tr>').join('');
+  const inner=o.height==='fixed'
+    ?'<div class="kn-fixed-cell" style="height:'+Math.max(1,Math.min(50,o.lines))*24+'px;overflow:hidden"><p><br></p></div>'
+    :'<p><br></p>';
+  const cells=Array.from({length:rows},()=>'<tr>'+Array.from({length:cols},()=>'<td>'+inner+'</td>').join('')+'</tr>').join('');
   return '<table data-kn-layout="'+o.kind+'" data-kn-align="'+o.align+'" data-kn-width="'+width+'" data-kn-height="'+(o.height==='fixed'?o.lines:'auto')+
     '" data-kn-flow="'+o.flow+'" style="'+style+'"><tbody>'+cells+'</tbody></table><p><br></p>';
 }
@@ -40,7 +43,8 @@ export function editTable(action:'row+'|'row-'|'col+'|'col-',table?:HTMLTableEle
     if(action==='row-')row.remove();
     else{
       const added=target.insertRow(ri+1);
-      for(let i=0;i<row.cells.length;i++){const td=added.insertCell(i);td.innerHTML='<p><br></p>';}
+      for(let i=0;i<row.cells.length;i++){const td=added.insertCell(i);td.innerHTML=row.cells[i]?.querySelector('.kn-fixed-cell')
+        ?'<div class="kn-fixed-cell" style="height:'+((Number(target.getAttribute('data-kn-height'))||4)*24)+'px;overflow:hidden"><p><br></p></div>':'<p><br></p>';}
     }
   }else{
     if(action==='col-'&&row.cells.length<=1)return false;
@@ -61,6 +65,21 @@ export function setTableOptions(table:HTMLTableElement,opts:TableOptions){
   table.style.width=(opts.align==='fit'?100:opts.width)+'%';
   table.style.marginLeft=opts.align==='right'||opts.align==='center'?'auto':'0';
   table.style.marginRight=opts.align==='center'?'auto':'0';
+  for(const cell of Array.from(table.querySelectorAll('td,th'))){
+    let container=cell.querySelector<HTMLElement>('.kn-fixed-cell');
+    if(opts.height==='fixed'){
+      if(!container){
+        container=document.createElement('div');container.className='kn-fixed-cell';
+        while(cell.firstChild)container.append(cell.firstChild);
+        cell.append(container);
+      }
+      container.style.height=Math.max(1,Math.min(50,opts.lines))*24+'px';
+      container.style.overflow='hidden';
+    }else if(container){
+      while(container.firstChild)cell.insertBefore(container.firstChild,container);
+      container.remove();
+    }
+  }
   table.closest('.notes-fixed-editor,.note-content')?.dispatchEvent(new Event('input',{bubbles:true}));
 }
 export function selectedString():string {return window.getSelection()?.toString()||'';}
