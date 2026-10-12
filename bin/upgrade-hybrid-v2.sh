@@ -83,7 +83,7 @@ PY
   restore_editor
   trap cleanup EXIT
 
-  for file in "$root/public/canvas/api.php" "$root/public/canvas/admin-visitors.php" "$root/public/canvas/login.php" "$root/server/bootstrap.php" "$root/server/notes.php"; do
+  for file in "$root/public/canvas/api.php" "$root/public/canvas/admin-visitors.php" "$root/public/canvas/login.php" "$root/server/bootstrap.php" "$root/server/notes.php" "$root/server/ai.php"; do
     php -l "$file" >/dev/null || stop "PHP構文エラー: $file"
   done
   # Attachments are private and writable only by the PHP runtime account.
