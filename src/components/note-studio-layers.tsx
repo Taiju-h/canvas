@@ -1,3 +1,4 @@
+import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
 import { useEffect, useRef, useState } from 'react';
 import { cleanHTML, type NoteDoc } from '@/lib/notes';
 
@@ -31,7 +32,7 @@ export function FixedNoteLayer({html,visible,locked,active,onChange}:{html:strin
   return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー">
     <div ref={ref} className="notes-fixed-editor" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
       data-placeholder="ここは固定ノートです。キャンバスを拡大・縮小しても、この文字は動きません。"
-      onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;emit();}} onBlur={emit}/>
+      onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;emit();}} onKeyDown={e=>noteEditorKeyDown(e,emit)} onClick={e=>noteCheckboxClick(e,emit)} onBlur={emit}/>
   </div>;
 }
 
