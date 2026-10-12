@@ -15,6 +15,7 @@ import { getLocalImage, getLocalDoc, putLocalImage, listLocalDocs } from '@/lib/
 import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
 import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
 import {exportDocx,exportPng,exportPlain} from '@/lib/note-export';
+import {materializeSheetReferences,referenceSourceFromNote,referencedAliases} from '@/lib/sheet-references';
 import {listLocalRevisions,type LocalRevision} from '@/lib/local-docs';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
@@ -193,7 +194,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const lastShareDoc=useRef('');
   const [sidebar,setSidebar]=useState(()=>sharedAccess?false:storedSidebar());
   const [sidebarAutoClose,setSidebarAutoClose]=useState(()=>{try{return localStorage.getItem('kn-sidebar-autoclose')!=='off';}catch{return true;}});
-  const [relatedPanel,setRelatedPanel]=useState(false);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
+  const [relatedPanel,setRelatedPanel]=useState(false);
+  const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [activeAnchor,setActiveAnchor]=useState<ActiveAnchor|null>(null);const [activeSegment,setActiveSegment]=useState<ActiveAnchor|null>(null);const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
@@ -353,12 +355,43 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   }
   function writableLayer(d:NoteDoc,kind?:'canvas'|'layout'){const layers=(d as StudioNoteDoc).layers;const matches=(l:(typeof layers)[number])=>(!kind||(l.studioKind||'canvas')===kind)&&l.visible&&!l.locked;return layers.find(l=>l.id===activeLayer&&matches(l))||layers.find(matches);}
   function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
+  async function updateSpreadsheetReferences(changedSheet?:SheetData){
+    const currentRecord=current.current;if(!currentRecord)return;
+    const snapshot=currentRecord.content as StudioNoteDoc;
+    const own=referenceSourceFromNote(currentRecord.id,snapshot);
+    if(changedSheet)own.sheet=changedSheet;
+    const cached=await listLocalDocs();
+    const sources=cached.filter(row=>row.accountId===accountId)
+      .map(row=>referenceSourceFromNote(row.id,row.content as NoteDoc));
+    const fixed=snapshot.fixedNote||{html:'',visible:true,locked:false};
+    const html=materializeSheetReferences(fixed.html,own,sources);
+    const blocks=snapshot.blocks?.map(b=>({...b,html:materializeSheetReferences(b.html,own,sources)}));
+    if(html!==fixed.html||blocks?.some((b,i)=>b.html!==snapshot.blocks?.[i].html)){
+      const latest=current.current?.content as StudioNoteDoc|undefined;if(!latest)return;
+      const refreshedFixed=latest.fixedNote||fixed;
+      commit({...latest,fixedNote:{...refreshedFixed,html},blocks} as NoteDoc,false);
+    }
+    const alias=currentRecord.content.note?.alias||'';
+    const dependents=cached.filter(row=>row.id!==currentRecord.id&&row.accountId===accountId)
+      .filter(row=>{
+        const d=row.content as StudioNoteDoc;
+        const all=(d.fixedNote?.html||'')+' '+(d.blocks||[]).map(b=>b.html).join(' ');
+        const found=referencedAliases(all);
+        return found.includes(currentRecord.id)||(alias&&found.includes(alias));
+      }).map(row=>({id:row.id,title:row.title}));
+    setSheetDependents(dependents);
+  }
+  useEffect(()=>{
+    if(workspaceMode!=='excel'||!record?.id)return;
+    void updateSpreadsheetReferences();
+  },[workspaceMode,record?.id]);
   function updateSheet(next:SheetData){
     const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;
     const hasData=Object.values(next.cells||{}).some(value=>String(value).trim()!=='');
     if(!hasData&&!sheetHasData)return;
     setSheetPreviewOpen(false);
     commit({...d,sheet:{...next,visible:true}} as NoteDoc,false);
+    window.setTimeout(()=>{void updateSpreadsheetReferences(next);},900);
   }
   function leaveTransientSheet(){if(workspaceMode==='excel'&&!sheetHasData){setSheetPreviewOpen(false);setSheetSelection(undefined);}}
   function useNoteLayer(){leaveTransientSheet();setFocus('');setWorkspaceMode('note');setTool('note');(document.activeElement as HTMLElement)?.blur();}
@@ -981,7 +1014,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
             {(workspaceMode==='canvas')&&<div className="notes-tool-group"><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label></div>}
             {(workspaceMode==='layout')&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
-            {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>}</div>}
+            {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<>
+              <button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>
+              <button onClick={()=>void updateSpreadsheetReferences()}>参照値を更新</button>
+              <small>参照元ノート：{sheetDependents.length}件</small>
+            </>}</div>}
           </>}
           <div className="notes-tool-group notes-inspector-toggle">
             <button className={!relatedPanel&&layersOpen?'active':''} onClick={()=>{setRelatedPanel(false);setLayersOpen(v=>relatedPanel?true:!v);}} title="レイヤーパネルを開閉" aria-expanded={!relatedPanel&&layersOpen}>{!relatedPanel&&layersOpen?<ChevronDown size={15}/>:<ChevronLeft size={15}/>} レイヤー</button>
@@ -1137,6 +1174,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             </div>
             {record&&<FixedNoteLayer docId={record.id} html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
           </div>
+          {!focusMode&&workspaceMode==='excel'&&sheetDependents.length>0&&<div className="kn-sheet-dependents" role="region" aria-label="このExcelレイヤーを参照しているノート">
+            <strong>このExcelを参照中</strong>
+            {sheetDependents.map(d=><button key={d.id} title={d.title} onClick={()=>void notes.open(d.id)}>{d.title}</button>)}
+          </div>}
           {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
           {!focusMode&&layersOpen&&relatedPanel&&<aside className="notes-layer-panel kn-related-panel" aria-label="関連ノート">
             <div className="notes-layer-title"><strong>関連ノート</strong><button onClick={()=>setRelatedPanel(false)} title="レイヤー一覧に戻る">←</button></div>
@@ -1166,6 +1207,14 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           <p>保存時に端末内へ最大25世代を記録します。履歴から復元しても、元の世代は残ります。</p>
           <p>同期が不要なノート編集とカテゴリ変更は端末に保存します。共有やChatGPT連携にはネットワーク接続が必要です。</p>
         </section>
+        <label>別ノート参照用の名前（例：lN111）
+          <input key={record?.id+':alias:'+meta.alias} defaultValue={meta.alias||''} placeholder="lN111" onBlur={e=>{
+            const value=e.target.value.trim();
+            if(value&&!/^[A-Za-z][A-Za-z0-9_-]{1,39}$/.test(value)){notes.setError('別名は半角英字で始め、英数字と _ - のみ使えます');return;}
+            if(value!==(meta.alias||''))changeMeta({alias:value});
+          }}/>
+        </label>
+        <p>Excel参照：同じノートは {{C1}}、別ノートは {{lN111:C5}} のように書きます。参照先のノートに上記の別名を設定してください。保存または「参照値を更新」で反映します。</p>
         <label>カテゴリ（ / で入れ子）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':category:'+meta.category} defaultValue={meta.category} maxLength={200} onBlur={e=>{e.target.value=categoryPath(e.target.value);changeMeta({category:e.target.value});}} list="note-categories"/></label><datalist id="note-categories">{categories.map(c=><option key={c} value={c}/>)}</datalist>
         <button disabled={organizing||importing||attaching} onClick={()=>setCategoryManager(true)}>カテゴリの追加・移動・タグ化</button>
         <label>タグ（カンマ区切り）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':tags:'+meta.tags.join(',')} defaultValue={meta.tags.join(', ')} onBlur={e=>changeMeta({tags:[...new Set(e.target.value.split(/[,、]/).map(t=>t.trim()).filter(Boolean))].slice(0,50)})}/></label>
