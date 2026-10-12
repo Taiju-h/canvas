@@ -6,11 +6,15 @@ on:
     paths:
       - 'clients/android/**'
       - '.github/workflows/android-release.yml'
+      - 'scripts/build-offline-manifest.mjs'
+      - 'scripts/build-revision.mjs'
   push:
     branches: [main]
     paths:
       - 'clients/android/**'
       - '.github/workflows/android-release.yml'
+      - 'scripts/build-offline-manifest.mjs'
+      - 'scripts/build-revision.mjs'
     tags:
       - "v*"
 
