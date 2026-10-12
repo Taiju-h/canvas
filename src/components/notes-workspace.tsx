@@ -12,6 +12,7 @@ import { inverseTransformPoint, type Point, type Item } from '@/lib/canvas';
 import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, type CellRange, type ChartItem, type SheetData, type StudioNoteDoc } from './note-studio-layers';
 import '../notes.css';
 import { getLocalImage, getLocalDoc } from '@/lib/local-docs';
+import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
   const [url,setURL]=useState('');
@@ -197,10 +198,27 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [trash,setTrash]=useState(false);const [searchScope,setSearchScope]=useState<'all'|'filtered'>('all');
   const [recentSearches,setRecentSearches]=useState<string[]>(()=>{try{return JSON.parse(localStorage.getItem('canvas-search-history')||'[]').filter((v:unknown)=>typeof v==='string').slice(0,12);}catch{return[];}});
   const [categoryManager,setCategoryManager]=useState(false);const [organizing,setOrganizing]=useState(false);
-  const [workspace,setWorkspace]=useState<{categories:string[];revision:number}|null>(null);
+  const [workspace,setWorkspace]=useState<OfflineWorkspace>(()=>loadOfflineWorkspace(accountId));
+  const workspaceRef=useRef(workspace);workspaceRef.current=workspace;
+  const syncingWorkspace=useRef(false);
+  function updateWorkspace(next:OfflineWorkspace){
+    persistOfflineWorkspace(accountId,next);
+    workspaceRef.current=next;setWorkspace(next);
+  }
   const searchInput=useRef<HTMLInputElement>(null);const scaleRef=useRef(scale);scaleRef.current=scale;
   const [deleteOpen,setDeleteOpen]=useState(false);
-  useEffect(()=>{void api('/api/note-workspace').then(r=>r.json()).then(setWorkspace).catch(()=>{});},[]);
+  useEffect(()=>{
+    // Never replace locally queued changes with a server response on startup.
+    let live=true;
+    const offline=loadOfflineWorkspace(accountId);setWorkspace(offline);workspaceRef.current=offline;
+    void api('/api/note-workspace').then(r=>r.json()).then((remote:{categories:string[];revision:number})=>{
+      if(!live)return;
+      const current=workspaceRef.current;
+      if(current.pending.length)return;
+      updateWorkspace({categories:categoryPaths(remote.categories),revision:remote.revision,pending:[],updatedAt:Date.now()});
+    }).catch(()=>{});
+    return()=>{live=false;};
+  },[accountId]);
   useEffect(()=>{
     if(!sidebarMenuOpen)return;
     const closeOutside=(event:PointerEvent)=>{
@@ -590,28 +608,55 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     notes.change({...latest,note:{category:'',tags:[],...latest.note,trashedAt:value?new Date().toISOString():undefined}});
     setDeleteOpen(false);setFocus('');undoStack.current=[];redoStack.current=[];
   }
+  async function syncOfflineCategories(){
+    if(!navigator.onLine||syncingWorkspace.current||sharedAccess)return;
+    const first=workspaceRef.current;
+    if(!first.pending.length)return;
+    syncingWorkspace.current=true;
+    try{
+      const server=await(await api('/api/note-workspace')).json() as {categories:string[];revision:number};
+      // Replay operations over fresh server categories. Never drop an unsynced
+      // operation or overwrite unrelated categories created on another device.
+      let paths=categoryPaths(server.categories);
+      for(const op of first.pending)paths=locallyApplyCategory(paths,op);
+      if(paths.some(p=>p.length>200)||paths.length>2000)throw new Error('カテゴリの容量上限を超えています');
+      const synced=await(await api('/api/note-workspace',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({revision:server.revision,categories:paths,updates:[]})})).json() as {categories:string[];revision:number};
+      const current=workspaceRef.current;
+      const remaining=current.pending.slice(first.pending.length);
+      // Operations added while syncing remain in the queue and on the display.
+      let visible=categoryPaths(synced.categories);
+      for(const op of remaining)visible=locallyApplyCategory(visible,op);
+      updateWorkspace({categories:visible,revision:synced.revision,pending:remaining,updatedAt:Date.now()});
+    }catch(error){
+      notes.setError('分類は端末に保存済み・同期待ちです。'+(error instanceof Error?error.message:'接続を確認してください'));
+    }finally{syncingWorkspace.current=false;}
+  }
+  useEffect(()=>{
+    const onOnline=()=>{void syncOfflineCategories();};
+    addEventListener('online',onOnline);
+    const interval=window.setInterval(()=>{if(navigator.onLine&&workspaceRef.current.pending.length)void syncOfflineCategories();},12000);
+    onOnline();
+    return()=>{removeEventListener('online',onOnline);clearInterval(interval);};
+  },[accountId,!!sharedAccess]);
   async function organize(op:CategoryOperation){
-    setOrganizing(true);try{
-      await notes.flushAll();
-      const ws=await(await api('/api/note-workspace')).json() as {categories:string[];revision:number};
-      const rows=await notes.refresh(true);const paths=categoryPaths([...ws.categories,...rows.map(n=>n.note?.category||'')]);
-      let next=paths;const updates:{id:string;revision:number;category:string;tags:string[]}[]=[];
-      if(op.kind==='create'){if(paths.includes(op.target))throw new Error('カテゴリが既にあります');next=categoryPaths([...paths,op.target]);}
-      else {
-        if(!paths.includes(op.source))throw new Error('カテゴリが変更されています。再読み込みしてください');
-        if(op.kind==='move'&&(paths.includes(op.target)||inCategory(op.target,op.source)))throw new Error('移動先が重複しているか、子カテゴリ内です');
-        next=op.kind==='move'?categoryPaths(paths.map(p=>movedCategory(p,op.source,op.target))):op.remove?paths.filter(p=>!inCategory(p,op.source)):paths;
-        for(const n of rows.filter(n=>inCategory(n.note?.category||'',op.source))){
-          if(n.id.startsWith('local-'))throw new Error('メモの同期が終わってから操作してください');
-          const nextTags=op.kind==='tag'?[...new Set([...(n.note?.tags||[]),op.target])]:n.note?.tags||[];
-          if(nextTags.length>50)throw new Error('タグが50個を超えるメモがあります');
-          updates.push({id:n.id,revision:n.revision,category:op.kind==='move'?movedCategory(n.note?.category||'',op.source,op.target):op.remove?'':n.note?.category||'',tags:nextTags});
-        }
-      }
-      if(next.some(p=>p.length>200))throw new Error('移動後の子カテゴリが200文字を超えます');
-      const result=await(await api('/api/note-workspace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:ws.revision,categories:next,updates})})).json();
-      setWorkspace({categories:result.categories,revision:result.revision});await notes.acceptMetadata(result.changed);
-      setCategory(op.kind==='tag'?'':op.target);if(op.kind==='tag')setTag(op.target);setQuery('');
+    if(organizing||sharedAccess)return;
+    setOrganizing(true);
+    try{
+      const previous=workspaceRef.current;
+      const existing=categoryPaths([...previous.categories,...notes.list.map(n=>n.note?.category||'')]);
+      if(op.kind==='create'&&existing.includes(op.target))throw new Error('カテゴリが既にあります');
+      if(op.kind!=='create'&&!existing.includes(op.source))throw new Error('対象カテゴリが見つかりません');
+      if(op.kind==='move'&&(existing.includes(op.target)||inCategory(op.target,op.source)))throw new Error('移動先が重複しているか、子カテゴリ内です');
+      const next=locallyApplyCategory(existing,op);
+      if(next.some(p=>p.length>200)||next.length>2000)throw new Error('カテゴリ数・文字数の上限を超えます');
+      // All local work is persisted before any network operation.
+      const updated={...previous,categories:next,pending:[...previous.pending,op],updatedAt:Date.now()};
+      updateWorkspace(updated);
+      if(op.kind!=='create')await notes.applyOfflineCategory(op);
+      navigateCategory(op.kind==='tag'?'':op.target);
+      if(op.kind==='tag')setTag(op.target);
+      if(navigator.onLine)void syncOfflineCategories();
     }finally{setOrganizing(false);}
   }
   function zoomTo(value:number,anchor?:{x:number;y:number}){
