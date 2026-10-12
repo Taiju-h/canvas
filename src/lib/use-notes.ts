@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage, saveLocalRevision } from './local-docs';
-import { api, blankNote, id32, indexOf, normalizeNote, uploadAttachment, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
+import { api, blankNote, id32, indexOf, normalizeNote, uploadAttachment, fileURL, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
 import { mergeSharedNotes, mergeSharedTitle } from './shared-merge';
 import {inCategory,movedCategory} from './note-organization';
 import type {CategoryOperation} from '../components/note-categories';
@@ -55,6 +55,49 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     for (const n of local) if (!merged.has(n.id) || n.dirty) merged.set(n.id,indexOf({ ...n,content:normalizeNote(n.content) }));
     for (const n of records.current.values()) if (n.dirty) merged.set(n.id,indexOf(n));
     const result=[...merged.values()].sort((a,b)=>b.updated_at-a.updated_at); setList(result); return result;
+  }
+  async function prepareOffline(includeFiles:boolean,onProgress?:(progress:{done:number;total:number;files:number;errors:number})=>void){
+    if(shared)throw new Error('共有リンクでは所有者の全ノートを一括取得できません');
+    if(!navigator.onLine)throw new Error('初回のオフライン準備には接続が必要です。準備済みのノートは接続不要で使用できます');
+    try{await navigator.storage?.persist?.();}catch{/* Browser may not support persistent storage. */}
+    const rows=await refresh();
+    let done=0,files=0,errors=0;
+    const progress=()=>onProgress?.({done,total:rows.length,files,errors});
+    progress();
+    for(const index of rows){
+      try{
+        const old=await getLocalDoc(index.id);
+        const remote=old?.accountId===accountId&&(old.dirty||old.revision>=index.revision)
+          ?({...old,content:normalizeNote(old.content)} as NoteRecord)
+          :await(await documentApi('/api/documents/'+index.id)).json() as NoteRecord;
+        if(!old||!old.dirty&&old.revision<remote.revision){
+          await putLocalDoc({...remote,base:remote.content,dirty:false,owner:true,accountId});
+        }
+        if(includeFiles){
+          const refs=new Map<string,string>();
+          for(const a of remote.content.attachments||[])refs.set(a.id,fileURL(index.id,a.id));
+          for(const image of [...(remote.content.items||[]).map(x=>x.imageId),...(remote.content.layers||[]).map(x=>x.rasterImageId)]){
+            if(!image||image.startsWith('local-'))continue;
+            if(image.startsWith('file:'))refs.set(image.slice(5),fileURL(index.id,image.slice(5)));
+            else refs.set(image,'/canvas/api.php?path='+encodeURIComponent('/api/documents/'+index.id+'/images/'+image));
+          }
+          for(const [assetId,url] of refs){
+            try{
+              if(await getLocalImage(assetId))continue;
+              const response=await fetch(url,{credentials:'same-origin'});
+              if(!response.ok)throw new Error('添付 '+assetId+' を読み込めません');
+              const length=Number(response.headers.get('content-length')||0);
+              const estimate=await navigator.storage?.estimate?.();
+              if(estimate?.quota&&estimate?.usage&&length>estimate.quota-estimate.usage)
+                throw new Error('端末の空き容量が足りません');
+              await putLocalImage(assetId,await response.blob());files++;
+            }catch{errors++;}
+          }
+        }
+      }catch{errors++;}
+      done++;progress();
+    }
+    return{done,total:rows.length,files,errors};
   }
   function save(id = active.current): Promise<void> {
     if (jobs.current.has(id)) return jobs.current.get(id)!;
@@ -281,6 +324,6 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     },2500);
     return()=>{live=false;clearInterval(poll);removeEventListener('online',online);removeEventListener('beforeunload',before);};
   },[]);
-  return {record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,acceptMetadata,
+  return {record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }
