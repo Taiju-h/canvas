@@ -1,7 +1,7 @@
 import {planCategorySync,type Classification} from '@/lib/category-sync';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
+import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, FileText, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
@@ -963,6 +963,18 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   async function openNote(id:string){(document.activeElement as HTMLElement)?.blur();if(await notes.open(id))finishNoteSelection();}
   async function createNote(){try{(document.activeElement as HTMLElement)?.blur();await notes.persistPending();setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);finishNoteSelection();}catch(error){notes.setError(String(error));}}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
+  const browsingNotes=categoryBrowserOpen&&!trash;
+  function noteList(){return <div className="notes-list">{filtered.map(n=><button key={n.id} className={`notes-list-item ${n.id===record?.id?'active':''}`} disabled={importing||attaching||notes.busy||organizing} onClick={()=>void openNote(n.id)}>
+    <strong><FileText size={17}/>{n.note?.pinned&&<Pin size={13}/>} {n.title||'新しいメモ'}</strong><p>{searching?searchExcerpt(n.searchText||n.excerpt||'',query):n.excerpt||'テキストのないメモ'}</p><footer><time>{new Date(n.updated_at).toLocaleDateString('ja-JP',{month:'short',day:'numeric'})}</time><span title={n.note?.category}>{n.note?.category||'未分類'}</span>{n.note?.importState==='pending'&&<em>取込途中</em>}</footer></button>)}
+    {!filtered.length&&<div className="notes-empty"><FileText size={27}/><p>{browsingNotes&&!searching?'このフォルダにはNoteがありません。':'該当するNoteはありません。'}</p>{browsingNotes&&<small>「新規Note」で作成できます。</small>}</div>}</div>;}
+  function categoryScope(){return <label><input type="checkbox" checked={includeChildren} onChange={e=>setIncludeChildren(e.target.checked)}/>子カテゴリを含める</label>;}
+  const folderNotePicker=<section className="notes-folder-note-picker" aria-label="選択フォルダのNote一覧">
+    <header><div><small>NOTE</small><h2>{category.split(' / ').at(-1)||'すべてのNote'}</h2><span>{filtered.length} 件</span></div>
+      <button className="notes-folder-new" aria-label="＋ このカテゴリに新規ノート" disabled={importing||attaching||notes.busy||organizing} onClick={()=>void createNote()}><Plus size={16}/>新規Note</button></header>
+    <div className="notes-folder-scope">{categoryScope()}{searching&&searchScope==='all'&&<small>全カテゴリの検索結果</small>}</div>
+    {noteList()}
+    <footer role="status">分類：{{saved:'保存済み',syncing:'同期中',pending:'端末に保存済み・同期待ち',conflict:'競合あり',complete:'同期完了'}[classificationStatus]}</footer>
+  </section>;
   function setTrashed(value:boolean){if(!doc||organizing||attaching||importing||notes.busy)return;
     (document.activeElement as HTMLElement)?.blur();
     const latest=current.current?.content;if(!latest)return;
@@ -1132,20 +1144,18 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         {!!recentSearches.length&&<div className="notes-search-history" aria-label="最近の検索">{recentSearches.map(value=><button key={value} title={value} onClick={()=>{setQuery(value);setSearchScope('all');}}>{value}</button>)}</div>}
         <div className="notes-search-options"><label>検索範囲<select aria-label="検索範囲" value={searchScope} onChange={e=>setSearchScope(e.target.value as 'all'|'filtered')}><option value="all">全カテゴリ横断</option><option value="filtered">選択中のカテゴリ・タグ</option></select></label><small>{trash?'ゴミ箱内を検索':'タイトル・本文・タグ・添付名'} · 空白でAND検索</small></div>
         <div className="notes-navigation"><button className={!trash&&!category?'active':''} onClick={()=>{setTrash(false);setCategory('');setTag('');setQuery('');}}>すべてのメモ <small>{notes.list.filter(n=>!n.note?.trashedAt).length}</small></button><button className={trash?'active':''} onClick={()=>{setTrash(true);setQuery('');setCategory('');setTag('');}}><Trash2 size={15}/>ゴミ箱 <small>{notes.list.filter(n=>n.note?.trashedAt).length}</small></button></div>
-        <CategoryTree paths={categories} notes={notes.list} selected={category} expanded={categoryBrowserOpen} onExpand={()=>setCategoryBrowserOpen(true)} onSelect={navigateCategory} disabled={organizing||importing||attaching} onManage={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onCreate={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onDelete={()=>{setCategoryManagerKind('delete');setCategoryManager(true);}}/>
+        <CategoryTree paths={categories} notes={notes.list} selected={category} expanded={browsingNotes} notePicker={folderNotePicker} onExpand={()=>{setTrash(false);setCategoryBrowserOpen(true);}} onSelect={navigateCategory} disabled={organizing||importing||attaching} onManage={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onCreate={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onDelete={()=>{setCategoryManagerKind('delete');setCategoryManager(true);}}/>
         <div className="notes-filters"><label><Tag size={15}/><select aria-label="タグで絞り込み" value={tag} onChange={e=>{setTag(e.target.value);setQuery('');}}><option value="">すべてのタグ</option>{tags.map(t=><option key={t}>{t}</option>)}</select></label></div>
         <div className="notes-count" role="status">{searching?(searchScope==='all'?'横断検索':'絞り込み検索'):trash?'ゴミ箱':category||'すべてのメモ'} · {filtered.length} 件</div>
-        <div className="kn-category-list-heading">
+        {!browsingNotes&&<><div className="kn-category-list-heading">
           <strong>カテゴリ：{category||'すべて'}</strong>
           {category&&<button onClick={()=>navigateCategory(category.split(' / ').slice(0,-1).join(' / '))}>← 親カテゴリへ</button>}
-          <label><input type="checkbox" checked={includeChildren} onChange={e=>setIncludeChildren(e.target.checked)}/>子カテゴリを含める</label>
+          {categoryScope()}
           {searching&&searchScope==='all'&&<small>横断検索中：カテゴリ・タグの絞り込みは適用されません</small>}
           <small role="status">分類：{{saved:'保存済み',syncing:'同期中',pending:'端末に保存済み・同期待ち',conflict:'競合あり',complete:'同期完了'}[classificationStatus]}</small>
         </div>
         <button className="kn-category-create" disabled={importing||attaching||notes.busy||organizing} onClick={()=>void createNote()}>＋ このカテゴリに新規ノート</button>
-        <div className="notes-list">{filtered.map(n=><button key={n.id} className={`notes-list-item ${n.id===record?.id?'active':''}`} disabled={importing||attaching||notes.busy||organizing} onClick={()=>void openNote(n.id)}>
-          <strong>{n.note?.pinned&&<Pin size={13}/>} {n.title||'新しいメモ'}</strong><p>{searching?searchExcerpt(n.searchText||n.excerpt||'',query):n.excerpt||'テキストのないメモ'}</p><footer><time>{new Date(n.updated_at).toLocaleDateString('ja-JP',{month:'short',day:'numeric'})}</time><span title={n.note?.category}>{n.note?.category||'未分類'}</span>{n.note?.importState==='pending'&&<em>取込途中</em>}</footer></button>)}
-          {!filtered.length&&<p className="notes-empty">該当するメモはありません</p>}</div>
+        {noteList()}</>}
       </aside></>}
       <section className="notes-editor">
         <div className="notes-basic-ribbon" inert={!!meta.trashedAt||organizing||meta.importState==='pending'}>

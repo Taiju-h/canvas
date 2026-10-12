@@ -414,3 +414,34 @@
 .notes-app .notes-category-open{width:100%;justify-content:flex-start;gap:8px;background:#e8edf5;color:#38526e;border:1px solid #d5dce6;margin:5px 0}
 .notes-category-open span{flex:1;min-width:0;text-align:left;white-space:normal;overflow-wrap:anywhere;font-size:12px}
 .notes-category-cascade.is-multilevel .notes-category-help{font-size:10px;line-height:1.5}
+
+/* Folder navigation and its files form one chooser, like a Finder window. */
+.notes-category-browser{max-width:none}
+.notes-category-browser-columns{display:flex;min-width:0;min-height:0}
+.notes-category-browser-columns>.notes-category-cascade-stage{width:100%;flex:1;min-width:0}
+.notes-category-browser.has-note-picker{display:flex;flex-direction:column;overflow:hidden;border:1px solid #cbd0d8;border-radius:9px;background:#fff;box-shadow:0 10px 28px #1b263326,0 1px 3px #1b263315}
+.has-note-picker>.notes-category-breadcrumb{flex-shrink:0;margin:0;padding:7px 10px;background:#f3f4f6;border-bottom:1px solid #dce0e6;gap:4px;min-height:39px}
+.has-note-picker>.notes-category-breadcrumb button{background:transparent;font-size:12px;min-height:25px;padding:3px 5px;border-radius:4px;color:#626d7a}
+.has-note-picker>.notes-category-breadcrumb button.active{background:#e3ebf6;color:#22578f}
+.has-note-picker>.notes-category-browser-columns{display:grid;grid-template-columns:minmax(220px,.92fr) minmax(280px,1.08fr);flex:1;min-height:0}
+.has-note-picker .notes-category-cascade-stage.multilevel{height:100%;border:0;border-radius:0;box-shadow:none;background:#f1f3f6}
+.has-note-picker .notes-category-cascade-stage.multilevel .notes-category-multi-pane{background:#f1f3f6;box-shadow:-4px 0 10px #1b263314;border-color:#d5dae2}
+.has-note-picker .notes-category-cascade-stage.multilevel .notes-category-multi-pane.is-focused{background:#f7f8fa}
+.has-note-picker .notes-category-cascade-stage.multilevel .notes-category-choice{font-size:13px;min-height:38px;padding:7px 9px;gap:7px;border-radius:5px}
+.has-note-picker .notes-category-cascade-stage.multilevel .notes-category-choice.active{background:#dceafa;color:#205b94;font-weight:600}
+.has-note-picker .notes-category-cascade-stage.multilevel .notes-category-choice.active>svg{color:#378dca;fill:#d0ebfc}
+.has-note-picker .notes-category-cascade-stage.multilevel .notes-category-choice.active>small{color:#5279a3;fill:none}
+.notes-folder-note-picker{display:flex;flex-direction:column;min-width:0;min-height:0;border-left:1px solid #d5dae2;background:#fff}
+.notes-folder-note-picker>header{display:flex;align-items:center;gap:10px;padding:13px 16px 10px;flex-shrink:0;border-bottom:1px solid #eef0f3}
+.notes-folder-note-picker>header>div{flex:1;min-width:0}.notes-folder-note-picker header small{font-size:9px;letter-spacing:1.2px;color:#87919e}.notes-folder-note-picker h2{font-size:15px;font-weight:650;line-height:1.35;overflow-wrap:anywhere;margin:3px 0}.notes-folder-note-picker header span{font-size:11px;color:#87919e}
+.notes-app .notes-folder-new{background:#087cf0;color:#fff;min-height:32px;flex-shrink:0;padding:6px 10px;font-size:12px;border-radius:6px;box-shadow:0 1px 2px #07519f20}
+.notes-app .notes-folder-new:hover{background:#006ade}.notes-folder-scope{padding:8px 16px;font-size:11px;color:#7a8491;display:flex;align-items:center;gap:8px;flex-shrink:0}.notes-folder-scope label{display:flex;align-items:center;gap:5px}.notes-folder-scope input{accent-color:#087cf0}
+.notes-folder-note-picker .notes-list{min-height:0;padding:0 8px 8px;overscroll-behavior:contain}
+.notes-folder-note-picker .notes-list .notes-list-item{padding:11px 10px;border:0;border-bottom:1px solid #eef0f3;margin:0;border-radius:5px;text-align:left}
+.notes-folder-note-picker .notes-list-item strong{font-size:13px;font-weight:550;white-space:normal;overflow-wrap:anywhere;line-height:1.4;align-items:flex-start;gap:7px}.notes-folder-note-picker .notes-list-item strong svg{flex-shrink:0;color:#7893b2;margin-top:1px}
+.notes-folder-note-picker .notes-list-item p{font-size:11px;color:#8a939f;margin:4px 0 5px;padding-left:24px}.notes-folder-note-picker .notes-list-item footer{font-size:10px;color:#96a0ae;padding-left:24px}
+.notes-folder-note-picker .notes-list-item.active{background:#e8f1fc!important;color:#205b94}.notes-folder-note-picker .notes-list-item:hover{background:#f2f5f9}
+.notes-folder-note-picker>.notes-list>.notes-empty{display:flex;flex-direction:column;align-items:center;gap:7px;padding:25px 14px;color:#8995a4}.notes-folder-note-picker .notes-empty p{margin:0;line-height:1.5;font-size:12px}.notes-folder-note-picker .notes-empty small{font-size:11px}
+.notes-folder-note-picker>footer{padding:8px 16px;border-top:1px solid #eef0f3;font-size:10px;color:#96a0ae;flex-shrink:0}
+.notes-category-browser.is-compact>.notes-category-browser-columns{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(75px,.4fr) minmax(140px,.6fr)}
+.is-compact .notes-folder-note-picker{border-left:0;border-top:1px solid #d5dae2}.is-compact .notes-folder-note-picker>header{padding:8px 12px;gap:6px}.is-compact .notes-folder-note-picker h2{font-size:13px}.is-compact .notes-folder-note-picker header small{display:none}.is-compact .notes-folder-scope{padding:5px 12px}.is-compact .notes-folder-note-picker>footer{padding:5px 12px}
