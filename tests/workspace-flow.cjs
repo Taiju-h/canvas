@@ -65,6 +65,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(await page.locator('.notes-sidebar').count(),1);
   await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await page.keyboard.press('Escape');
   assert.equal(await page.locator('.notes-category-browser').count(),0,'Escape folds the chooser');
+  await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-category-open'));
   assert.ok(await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).evaluate(n=>n===document.activeElement),'Escape restores focus to the chooser trigger');
   await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await page.getByLabel('メモのタイトル',{exact:true}).click();
   assert.equal(await page.locator('.notes-category-browser').count(),0,'working outside the chooser folds it automatically');
