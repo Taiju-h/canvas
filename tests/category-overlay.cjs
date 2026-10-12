@@ -27,6 +27,10 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  assert.equal(await page.locator('.notes-category-inline-children').count(),0);
  if(baseline)throw new Error('Expected the baseline leaf-overlay regression to be detected');
  const stage=await page.locator('.notes-category-cascade-stage').boundingBox();
+ const sidebar=await page.locator('.notes-sidebar').boundingBox();
+ assert.ok(stage.width>sidebar.width+250,'category browser expands across the unused editor');
+ assert.ok(stage.x+stage.width<=1200-15,'expanded browser stays inside the viewport');
+ assert.ok(await page.locator('.notes-category-choice span').first().evaluate(n=>getComputedStyle(n).whiteSpace==='normal'),'category names wrap instead of being ellipsized');
  let boxes=await panes.evaluateAll(nodes=>nodes.map(n=>({left:n.offsetLeft,width:n.offsetWidth,z:Number(n.style.zIndex)})));
  assert.ok(Math.abs(boxes[1].left/stage.width-.2)<.015);
  assert.ok(Math.abs(boxes[1].width/stage.width-.8)<.015);
@@ -40,6 +44,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  for(const p of ['仕事','仕事 / 会議','仕事 / 会議 / 企画','仕事 / 会議 / 企画 / 調査','仕事 / 会議 / 企画 / 調査 / 結果']){await page.locator('[data-category-path='+JSON.stringify(p)+']').click();await page.mouse.move(700,650);await page.waitForTimeout(240);assert.equal(await page.locator('#chosen').innerText(),p);assert.ok(await panes.count()<=3);}
  assert.equal(await page.locator('.notes-category-breadcrumb button').count(),6);
  boxes=await panes.evaluateAll(nodes=>nodes.map(n=>({left:n.offsetLeft,width:n.offsetWidth})));
+ assert.ok(boxes.at(-1).width>=480,'even the third overlaid pane remains readable');
  assert.ok(Math.abs((boxes[1].left-boxes[0].left)/boxes[0].width-.2)<.02);
  assert.ok(Math.abs((boxes[2].left-boxes[1].left)/boxes[1].width-.2)<.02);
  for(let i=0;i<3;i++){const b=await panes.nth(i).boundingBox();await page.mouse.move(b.x+5,b.y+65);await page.waitForTimeout(240);assert.ok((await panes.nth(i).getAttribute('class')).includes('is-focused'));}
@@ -62,6 +67,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  const touch=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});mobile=await touch.newPage();mobile.setDefaultTimeout(10000);
  await mobile.goto('http://127.0.0.1:5185/canvas/__category-test.html');await mobile.locator('[data-category-path="単純"]').tap();await mobile.waitForTimeout(240);
  const mstage=await mobile.locator('.notes-category-cascade-stage').boundingBox();
+ assert.ok(mstage.x+mstage.width<=390-15,'touch browser fits a narrow viewport');
  await mobile.touchscreen.tap(mstage.x+8,mstage.y+70);await mobile.waitForTimeout(240);assert.ok((await mobile.locator('.notes-category-multi-pane').first().getAttribute('class')).includes('is-focused'),'touch parent preview: '+JSON.stringify(await mobile.evaluate(()=>({selected:window.selectedCategory,panes:Array.from(document.querySelectorAll('.notes-category-multi-pane')).map(n=>n.className),events:window.categoryTestEvents}))));assert.equal(await mobile.locator('#chosen').innerText(),'単純','first tap on covered parent only brings it forward');
  await mobile.touchscreen.tap(mstage.x+mstage.width-8,mstage.y+70);await mobile.waitForTimeout(240);assert.ok((await mobile.locator('.notes-category-multi-pane').last().getAttribute('class')).includes('is-focused'));assert.equal(await mobile.locator('#chosen').innerText(),'単純','first tap on covered child only brings it forward');
  await mobile.locator('[data-category-path="単純 / 末端A"]').tap();assert.equal(await mobile.locator('#chosen').innerText(),'単純 / 末端A');
