@@ -241,19 +241,6 @@
 .notes-sidebar-menu button:hover{background:#efe6d5}
 .notes-sidebar-menu button:disabled{opacity:.45}
 
-/* Last-level folder choices appear below their parent row, not in an overlay. */
-.notes-category-cascade-stage.multilevel .notes-category-entry{min-width:0;width:100%;display:block}
-.notes-category-cascade-stage.multilevel .notes-category-entry>.notes-category-choice{width:100%}
-.notes-category-cascade-stage.multilevel .notes-category-inline-children{margin:2px 2px 6px 18px;padding:3px 0 3px 8px;border-left:2px solid #d4c39b;display:grid;gap:2px;min-width:0}
-.notes-category-cascade-stage.multilevel .notes-category-inline-choice{display:flex;align-items:center;gap:6px;width:100%;min-width:0;min-height:32px;padding:6px 7px;border-radius:6px;font-size:11px;text-align:left;color:#5f5548;background:#f4f1e9}
-.notes-category-cascade-stage.multilevel .notes-category-inline-choice span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.notes-category-cascade-stage.multilevel .notes-category-inline-choice small{flex:0 0 auto;font-size:10px;color:#95846c}
-.notes-category-cascade-stage.multilevel .notes-category-inline-choice:hover{background:#ebe4d5}
-.notes-category-cascade-stage.multilevel .notes-category-inline-choice.active{background:#e4d3ae;color:#433521;font-weight:700}
-.notes-category-cascade-stage.multilevel .notes-category-expanded-icon{transform:rotate(90deg)}
-@media(max-width:760px){.notes-category-cascade-stage.multilevel .notes-category-inline-choice{min-height:39px;font-size:12px}}
-
-
 /* KaeruNote compact Figma-inspired header and sharing workspace. */
 .notes-app .notes-header-compact{height:44px!important;min-height:44px;padding:0 12px!important;gap:9px!important;align-items:center}
 .notes-header-compact .notes-brand{font-size:15px;line-height:1;font-weight:750;letter-spacing:-.4px}

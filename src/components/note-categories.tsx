@@ -24,6 +24,8 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
   const [openedPath,setOpenedPath]=useState('');
   const [peekDepth,setPeekDepth]=useState<number|null>(null);
   const panelRefs=useRef<Record<string,HTMLElement|null>>({});
+  const breadcrumbRef=useRef<HTMLElement|null>(null);
+  const pointerType=useRef('mouse');
 
   useEffect(()=>{
     if(!selected){setOpenedPath('');setPeekDepth(null);return;}
@@ -40,11 +42,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
     for(const part of categoryParts(openedPath)){
       const node=current.find(item=>item.label===part);
       if(!node||!node.children.length)break;
-      // Do not cover the parent folder with an almost-empty final pane.
-      // A leaf-only level is rendered immediately below its parent row.
-      if(node.children.some(child=>child.children.length)){
-        result.push({parent:node.path,title:node.label+' の小カテゴリ',nodes:node.children});
-      }
+      result.push({parent:node.path,title:node.label+' の小カテゴリ',nodes:node.children});
       current=node.children;
     }
     return result;
@@ -57,10 +55,13 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
 
   useEffect(()=>{
     const raf=requestAnimationFrame(()=>{
-      for(const [parent,element] of Object.entries(panelRefs.current)){
+      const breadcrumb=breadcrumbRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+      if(breadcrumb)breadcrumb.scrollIntoView({block:'nearest',inline:'nearest'});
+      for(const element of Object.values(panelRefs.current)){
         if(!element)continue;
         const active=Array.from(element.querySelectorAll<HTMLElement>('[data-category-path]'))
-          .find(button=>button.dataset.categoryPath===selected);
+          .find(button=>button.dataset.categoryPath===selected||
+            !!button.dataset.categoryPath&&!!selected&&inCategory(selected,button.dataset.categoryPath));
         if(active){
           const top=active.offsetTop,lower=element.scrollTop,upper=lower+element.clientHeight;
           if(top<lower+8)element.scrollTop=Math.max(0,top-8);
@@ -90,55 +91,53 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
     </div>
     {!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}
     {!!paths.length&&<>
-      <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層">
+      <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
         <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>
         {trail.map((path,index)=><button key={path} disabled={disabled} title={path} className={selected===path?'active':''}
-          onClick={()=>{reveal(path);if(index<trail.length-1)setPeekDepth(0);}}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
+          aria-current={selected===path?'page':undefined}
+          onClick={()=>{reveal(path);if(index<trail.length-1)setPeekDepth(Math.min(1,categoryParts(path).length-1));}}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
       </nav>
       <div className={'notes-category-cascade-stage multilevel '+(peekDepth!==null?'parent-peek':'')} role="group" aria-label="カテゴリの選択"
-        onMouseLeave={()=>setPeekDepth(null)}>
+        onKeyDownCapture={()=>{pointerType.current='keyboard';}}
+        onPointerLeave={event=>{if(event.pointerType==='mouse')setPeekDepth(null);}}>
         {visible.map((pane,i)=>{
           const isLast=i===visible.length-1;
-          const left=i===0?0:visible.length===2?20: i===1?12:24;
+          const left=(1-Math.pow(.8,i))*100;
           const isPeeking=peekDepth!==null&&i>peekDepth;
           const zIndex=peekDepth===null?10+i: i===peekDepth?30:i>peekDepth?20+i:10+i;
           const isFocused=peekDepth===null?isLast:peekDepth===i;
+          // A raised parent leaves the next pane's edge uncovered, so moving
+          // the pointer back to a child can bring that child to the front.
+          const width=(100-left)*(peekDepth===i&&!isLast ? .76 : 1);
           return <section key={pane.parent||'root'} className={'notes-category-pane notes-category-multi-pane '+(isFocused?'is-focused ':'')+(isPeeking?'is-muted':'')}
             aria-label={pane.title}
-            style={{left:left+'%',width:(100-left)+'%',zIndex,transform:isPeeking?'translateX(70%)':'translateX(0)',opacity:isPeeking?.55:1}}
-            onMouseEnter={()=>setPeekDepth(isLast?null:i)}>
+            style={{left:left+'%',width:width+'%',zIndex,transform:isPeeking?'translateX(70%)':'translateX(0)',opacity:isPeeking?.55:1}}
+            onPointerEnter={event=>{if(event.pointerType==='mouse'){pointerType.current='mouse';setPeekDepth(isLast?null:i);}}}
+            onPointerDownCapture={event=>{pointerType.current=event.pointerType;}}
+            onFocusCapture={()=>{if(pointerType.current==='touch'||pointerType.current==='pen')return;setPeekDepth(isLast?null:i);}}
+            onClickCapture={event=>{
+              if(pointerType.current==='mouse'||isFocused)return;
+              event.preventDefault();event.stopPropagation();setPeekDepth(isLast?null:i);
+            }}>
             {pane.parent&&<button type="button" className="notes-category-level-label" disabled={disabled}
               title="タップで一つ上の階層を前面に出す" onClick={()=>setPeekDepth(Math.max(0,i-1))}>
               <ChevronLeft size={14}/><span>{categoryParts(pane.parent).at(-1)}</span><small>親を表示</small>
             </button>}
             <div className="notes-category-scroll" ref={el=>{panelRefs.current[pane.parent||'root']=el;}}>
-              {pane.nodes.map(node=>{
-                const inlineChildren=node.children.length>0&&node.children.every(child=>!child.children.length);
-                const expanded=inlineChildren&&(selected===node.path||inCategory(selected,node.path)||openedPath===node.path);
-                return <div key={node.path} className={'notes-category-entry '+(expanded?'expanded':'')}>
-                  <button type="button" disabled={disabled} data-category-path={node.path}
-                    className={'notes-category-choice '+(selected===node.path?'active ':'')+(inCategory(selected,node.path)&&selected!==node.path?'ancestor':'')}
-                    title={node.path} aria-current={selected===node.path?'true':undefined}
-                    aria-expanded={node.children.length?expanded||(!inlineChildren&&inCategory(openedPath,node.path)):undefined}
-                    onClick={()=>choose(node)}>
-                    <Folder size={15}/><span>{node.label}</span><small>{directCount(notes,node.path)}</small>
-                    {node.children.length>0&&<ChevronRight className={expanded?'notes-category-expanded-icon':''} size={15}/>}
-                  </button>
-                  {expanded&&<div className="notes-category-inline-children" role="group" aria-label={node.label+' の子カテゴリ'}>
-                    {node.children.map(child=><button key={child.path} type="button" disabled={disabled} data-category-path={child.path}
-                      title={child.path} className={'notes-category-inline-choice '+(selected===child.path?'active':'')}
-                      aria-current={selected===child.path?'true':undefined} onClick={()=>choose(child)}>
-                      <Folder size={14}/><span>{child.label}</span><small>{directCount(notes,child.path)}</small>
-                    </button>)}
-                  </div>}
-                </div>;
-              })}
+              {pane.nodes.map(node=><button key={node.path} type="button" disabled={disabled} data-category-path={node.path}
+                className={'notes-category-choice '+(selected===node.path?'active ':'')+(inCategory(selected,node.path)&&selected!==node.path?'ancestor':'')}
+                title={node.path} aria-current={selected===node.path?'true':undefined}
+                aria-expanded={node.children.length?inCategory(openedPath,node.path):undefined}
+                onClick={()=>choose(node)}>
+                <Folder size={15}/><span>{node.label}</span><small>{directCount(notes,node.path)}</small>
+                {node.children.length>0&&<ChevronRight size={15}/>}
+              </button>)}
               {!pane.nodes.length&&<p className="notes-category-empty">子カテゴリはありません</p>}
             </div>
           </section>;
         })}
       </div>
-      <p className="notes-category-help">上位階層は重ねて表示し、末端の子カテゴリは親フォルダの直下に表示します。</p>
+      <p className="notes-category-help">左側の階層にマウスを乗せる／タップすると前面に表示します。子カテゴリは右側に重なります。</p>
     </>}
   </div>;
 }
