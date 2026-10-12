@@ -14,6 +14,7 @@ import '../notes.css';
 import { getLocalImage, getLocalDoc, putLocalImage, listLocalDocs } from '@/lib/local-docs';
 import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
 import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
+import {exportDocx,exportPng,exportPlain} from '@/lib/note-export';
 import {listLocalRevisions,type LocalRevision} from '@/lib/local-docs';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
@@ -1170,7 +1171,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         <label>タグ（カンマ区切り）<input disabled={!!meta.trashedAt||organizing} key={record?.id+':tags:'+meta.tags.join(',')} defaultValue={meta.tags.join(', ')} onBlur={e=>changeMeta({tags:[...new Set(e.target.value.split(/[,、]/).map(t=>t.trim()).filter(Boolean))].slice(0,50)})}/></label>
         <button onClick={()=>changeMeta({pinned:!meta.pinned})}><Pin size={16}/>{meta.pinned?'ピン留めを解除':'一覧の上にピン留め'}</button>
         {meta.isTodo&&<label className="notes-todo"><input type="checkbox" checked={!!meta.completed} onChange={e=>changeMeta({completed:e.target.checked})}/>このToDoを完了</label>}
-        <hr/><button onClick={()=>record&&download(record.title+'.md',exportMarkdown(record))}><FileDown size={16}/>このメモをMDに書き出す</button>
+        <hr/><section className="kn-settings-group"><h3>書き出し</h3>
+          <p>ノートを画像・テキスト・Word形式で保存します。画像は現在の作業画面、Wordは文章と表を対象とします。</p>
+          <button onClick={()=>{const area=document.querySelector<HTMLElement>('.notes-stage');if(area&&record)void exportPng(area,record.title).catch(err=>notes.setError('画像書き出し失敗：'+String(err)));}}>画像（PNG）で書き出す</button>
+          <button onClick={()=>{if(record)exportPlain(record);}}>テキスト（TXT）で書き出す</button>
+          <button onClick={()=>{if(record)void exportDocx(record).catch(err=>notes.setError('Word書き出し失敗：'+String(err)));}}>Word（DOCX）で書き出す</button>
+        </section>
+        <button onClick={()=>record&&download(record.title+'.md',exportMarkdown(record))}><FileDown size={16}/>このメモをMDに書き出す</button>
         <button onClick={()=>record&&download(record.title+'.txt',(doc?.blocks||[]).map(b=>{const el=document.createElement('div');el.innerHTML=cleanHTML(b.html);return el.innerText;}).join('\n\n'),'text/plain')}>テキストで書き出す</button>
         <button onClick={()=>void exportAll()}><FileDown size={16}/>全メモを整理用に書き出す</button>
         <p>書き出したMDと分類ファイルをChatGPTに渡して「整理して」と依頼できます。整理後の分類ファイルを読み込むと、カテゴリとタグを反映します。</p>
