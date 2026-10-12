@@ -22,13 +22,14 @@ export type Item = {
   scale?: number;
   origin?: Point;
 };
-export type Layer = { id: string; name: string; visible: boolean; locked: boolean };
+export type Layer = { id: string; name: string; visible: boolean; locked: boolean; opacity?:number };
 export type CanvasDoc = {
   version: 1;
   items: Item[];
   layers: Layer[];
   grid: "square" | "iso" | "none";
   snap: boolean;
+  gridSpacing?:number;
 };
 
 export function uid() {

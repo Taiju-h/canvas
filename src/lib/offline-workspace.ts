@@ -1,7 +1,8 @@
 import {categoryPaths,inCategory,movedCategory} from './note-organization';
 import type {CategoryOperation} from '../components/note-categories';
 
-export type OfflineWorkspace={categories:string[];revision:number;pending:CategoryOperation[];updatedAt:number};
+export type OfflineWorkspace={categories:string[];revision:number;pending:CategoryOperation[];updatedAt:number;
+  baseCategories?:string[];baseNotes?:import('./category-sync').Classification[];conflicts?:import('./category-sync').CategoryConflict[];resolution?:'local'|'remote';conflictFingerprint?:string};
 const key=(accountId:string)=>'kaerunote-workspace-offline-v2:'+accountId;
 
 export function loadOfflineWorkspace(accountId:string):OfflineWorkspace{
@@ -13,7 +14,7 @@ export function loadOfflineWorkspace(accountId:string):OfflineWorkspace{
         categories:categoryPaths(v.categories.filter((x):x is string=>typeof x==='string')),
         revision:Number(v.revision)||0,
         pending:v.pending.filter(op=>['create','move','tag'].includes(op.kind)&&typeof op.target==='string'),
-        updatedAt:Number(v.updatedAt)||0
+        updatedAt:Number(v.updatedAt)||0,baseCategories:v.baseCategories,baseNotes:v.baseNotes,conflicts:v.conflicts,resolution:v.resolution,conflictFingerprint:v.conflictFingerprint
       };
     }
   }catch{/* Invalid or inaccessible local cache must never prevent opening a note. */}

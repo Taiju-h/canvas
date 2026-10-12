@@ -10,7 +10,7 @@ export type NoteMeta = { category: string; tags: string[]; alias?: string; relat
   trashedAt?: string; importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
   organizationLog?: { at: string; category: string; tags: string[] }[] };
 export type NoteDoc = Omit<CanvasDoc, 'layers'> & { layers: (Layer & { rasterImageId?: string; rasterBounds?: {x:number;y:number;w:number;h:number} })[]; blocks?: NoteBlock[]; note?: NoteMeta; attachments?: Attachment[];
-  paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string; brush?: 'pen' | 'gpen' | 'marker'; rotation?: number }[] };
+  paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string; brush?: 'pen' | 'gpen' | 'marker'; pressure?:boolean; rotation?: number }[] };
 export type NoteIndex = { id: string; title: string; revision: number; updated_at: number; excerpt?: string; searchText?: string; note?: NoteMeta };
 export type NoteRecord = NoteIndex & { content: NoteDoc; accountId?: string; dirty?: boolean };
 export const id32 = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');

@@ -24,8 +24,8 @@ android {
         applicationId = "work.heartful.canvas"
         minSdk = 29
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.4.1-web-shell"
+        versionCode = 9
+        versionName = "0.4.2-web-shell"
     }
 
     signingConfigs {

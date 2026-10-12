@@ -1,3 +1,4 @@
+import {planCategorySync,type Classification} from '@/lib/category-sync';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
@@ -182,9 +183,22 @@ function editableVertexIndices(g:Graphic,limit=24):number[]{
   indices.push(points.length-1);return [...new Set(indices)];
 }
 type Action={pointerId:number;verticalOnly?:boolean;moved?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove'|'segmentMove';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
+function preference(key:string,fallback:string){try{return localStorage.getItem(key)||fallback;}catch{return fallback;}}
+function savePreference(key:string,value:string){try{localStorage.setItem(key,value);}catch{/* Preferences do not gate editing. */}}
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId,sharedAccess}:{accountId:string;sharedAccess?:SharedAccess}){
   const notes=useNotes(accountId,sharedAccess);const {record}=notes;
+  useEffect(()=>{
+    let composing=false;
+    const start=()=>{composing=true;},end=()=>{composing=false;};
+    const before=(event:Event)=>{(event as CustomEvent<{waitUntil:(job:Promise<unknown>)=>void}>).detail.waitUntil((async()=>{
+      if(composing)throw new Error('日本語入力を確定してから更新してください');
+      (document.activeElement as HTMLElement)?.blur();await notes.persistPending();
+      if(sharedAccess){await notes.save();if(notes.record?.dirty)throw new Error('共有ノートの保存を完了してから更新してください');}
+    })());};
+    document.addEventListener('compositionstart',start);document.addEventListener('compositionend',end);window.addEventListener('kaerunote-before-web-update',before);
+    return()=>{document.removeEventListener('compositionstart',start);document.removeEventListener('compositionend',end);window.removeEventListener('kaerunote-before-web-update',before);};
+  },[notes.record?.dirty,!!sharedAccess]);
   const [shareOpen,setShareOpen]=useState(false);
   const [shareLink,setShareLink]=useState('');
   const [shareEnabled,setShareEnabled]=useState(false);
@@ -206,7 +220,14 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [activeAnchor,setActiveAnchor]=useState<ActiveAnchor|null>(null);const [activeSegment,setActiveSegment]=useState<ActiveAnchor|null>(null);const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
-  const [advancedOpen,setAdvancedOpen]=useState(false);
+  const [advancedOpen,setAdvancedOpen]=useState(()=>preference('kn-note-details','closed')==='open');
+  const [canvasDetailsOpen,setCanvasDetailsOpen]=useState(()=>preference('kn-canvas-details','closed')==='open');
+  const [includeChildren,setIncludeChildren]=useState(()=>preference('kn-category-descendants','on')!=='off');
+  const [inkPressure,setInkPressure]=useState(true);
+  const [classificationStatus,setClassificationStatus]=useState<'saved'|'syncing'|'pending'|'conflict'|'complete'>(()=>loadOfflineWorkspace(accountId).pending.length?'pending':'saved');
+  useEffect(()=>{savePreference('kn-note-details',advancedOpen?'open':'closed');},[advancedOpen]);
+  useEffect(()=>{savePreference('kn-canvas-details',canvasDetailsOpen?'open':'closed');},[canvasDetailsOpen]);
+  useEffect(()=>{savePreference('kn-category-descendants',includeChildren?'on':'off');},[includeChildren]);
   const [fontStep,setFontStep]=useState(3);
   const [bulletSize,setBulletSize]=useState<'large'|'medium'|'small'>('large');
   const [rubyColor,setRubyColor]=useState('#9d5b30');
@@ -349,8 +370,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function wakeColorPanel(){if(colorFadeTimer.current)window.clearTimeout(colorFadeTimer.current);if(colorCloseTimer.current)window.clearTimeout(colorCloseTimer.current);setColorOpen(true);setColorFading(false);}
   function fadeColorPanel(){wakeColorPanel();colorFadeTimer.current=window.setTimeout(()=>setColorFading(true),550);colorCloseTimer.current=window.setTimeout(()=>{setColorOpen(false);setColorFading(false);},1050);}
   function setDrawingColor(value:string){setInkColor(value);fadeColorPanel();}
-  function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();const pressure=e.pointerType==='pen'?(e.pressure>0?e.pressure:.5):1;return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:pressure};}
-  function coalescedPositions(e:ReactPointerEvent):Point[]{const r=plane.current!.getBoundingClientRect();const native=e.nativeEvent;const events=typeof native.getCoalescedEvents==='function'?native.getCoalescedEvents():[native];return events.map(value=>({x:Math.max(0,(value.clientX-r.left)/scale),y:Math.max(0,(value.clientY-r.top)/scale),p:e.pointerType==='pen'?(value.pressure>0?value.pressure:.5):1}));}
+  function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();const pressure=inkPressure&&e.pointerType==='pen'?(e.pressure>0?e.pressure:.5):1;return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:pressure};}
+  function coalescedPositions(e:ReactPointerEvent):Point[]{const r=plane.current!.getBoundingClientRect();const native=e.nativeEvent;const events=typeof native.getCoalescedEvents==='function'?native.getCoalescedEvents():[native];return events.map(value=>({x:Math.max(0,(value.clientX-r.left)/scale),y:Math.max(0,(value.clientY-r.top)/scale),p:inkPressure&&e.pointerType==='pen'?(value.pressure>0?value.pressure:.5):1}));}
   function addBlock(html='',background?:string){
     const doc=current.current?.content as StudioNoteDoc|undefined;if(!doc)return;
     const x=80+(scroll.current?.scrollLeft||0)/scale,y=80+(scroll.current?.scrollTop||0)/scale;
@@ -523,7 +544,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const penEraser=pen&&(e.button===5||(e.buttons&32)!==0);const effective=penEraser?'eraser':pen&&(tool==='note'||tool==='text')?'pen':tool;
     if(effective==='line'||effective==='rect'||effective==='ellipse'){
       const layer=writableLayer(doc,'layout');if(!layer){notes.setError('レイアウトレイヤーを選んでください');return;}e.preventDefault();e.stopPropagation();setFocus('');typing.current=null;
-      const p=position(e);const item:Item={id:id32(),kind:effective,layerId:layer.id,x:p.x,y:p.y,w:0,h:0,color:inkColor,width:Math.max(1,inkWidth),opacity:1,fill:'none'};setDraftShape(item);
+      const p=snapCanvas(position(e));const item:Item={id:id32(),kind:effective,layerId:layer.id,x:p.x,y:p.y,w:0,h:0,color:inkColor,width:Math.max(1,inkWidth),opacity:1,fill:'none'};setDraftShape(item);
       action.current={pointerId:e.pointerId,kind:'shape',start:p,original:doc,shapeKind:effective,id:item.id};e.currentTarget.setPointerCapture(e.pointerId);return;
     }
     if(e.pointerType==='touch'&&(effective==='text'||effective==='note'||effective==='hand')){
@@ -594,7 +615,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(a.pen)lastPen.current=Date.now();
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
     const p=position(e);if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
-    if(a.kind==='shape'){setDraftShape(old=>old?{...old,w:p.x-a.start.x,h:p.y-a.start.y}:old);return;}
+    if(a.kind==='shape'){const point=snapCanvas(p);setDraftShape(old=>old?{...old,w:point.x-a.start.x,h:point.y-a.start.y}:old);return;}
     const distance=Math.hypot(p.x-a.start.x,p.y-a.start.y);
     if(hoverTimer.current&&distance>7)clearOverlapTimer();
     if(distance<(e.pointerType==='touch'?5/scale:.7)&&!a.moved)return;
@@ -639,7 +660,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(a.kind==='ink'){
       if(!cancel){const points=a.points!;if(points.length===1)points.push({...points[0],x:points[0].x+.2});
         const layer=writableLayer(a.original,'canvas');if(!layer){notes.setError('キャンバスレイヤーを選んでください');setDraft([]);return;}
-        commit({...a.original,paintStrokes:[...(a.original.paintStrokes||[]),{id:id32(),layerId:layer.id,points,color:inkColor,width:inkWidth,opacity:(brush==='marker'?.32:1)*inkOpacity,blockId:a.blockId,brush} as any]});}
+        commit({...a.original,paintStrokes:[...(a.original.paintStrokes||[]),{id:id32(),layerId:layer.id,points,color:inkColor,width:inkWidth,opacity:(brush==='marker'?.32:1)*inkOpacity,blockId:a.blockId,brush,pressure:inkPressure} as any]});}
       setDraft([]);if(a.pen)lastPen.current=Date.now();return;
     }
     if(a.kind==='shape'){const shape=draftShape;setDraftShape(null);if(!cancel&&shape&&Math.hypot(shape.w,shape.h)>2){commit({...a.original,items:[...a.original.items,shape]});setSelected(shape.id);setActiveLayer(shape.layerId);}return;}
@@ -871,11 +892,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const tags=[...new Set(notes.list.filter(n=>!n.note?.trashedAt).flatMap(n=>n.note?.tags||[]))].sort();
   const searching=query.trim().length>0;
   const filtered=notes.list.filter(n=>Boolean(n.note?.trashedAt)===trash &&
-    ((searching&&searchScope==='all')||((!category||inCategory(n.note?.category||'',category))&&(!tag||n.note?.tags?.includes(tag)))) &&
+    ((searching&&searchScope==='all')||((!category||(includeChildren?inCategory(n.note?.category||'',category):(n.note?.category||'')===category))&&(!tag||n.note?.tags?.includes(tag)))) &&
     matchesSearch(`${n.title} ${n.searchText||''} ${n.note?.category||''} ${(n.note?.tags||[]).join(' ')}`,query))
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
-  function navigateCategory(path:string){setCategory(path);setTrash(false);setQuery('');if(sidebarAutoClose&&path&&!categories.some(p=>p.startsWith(path+' / ')))setSidebar(false);}
-  async function createNote(){setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);}
+  function navigateCategory(path:string){setCategory(path);setTrash(false);setQuery('');setTag('');}
+  function finishNoteSelection(){if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus()));}
+  async function openNote(id:string){(document.activeElement as HTMLElement)?.blur();if(await notes.open(id))finishNoteSelection();}
+  async function createNote(){try{(document.activeElement as HTMLElement)?.blur();await notes.persistPending();setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);finishNoteSelection();}catch(error){notes.setError(String(error));}}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
   function setTrashed(value:boolean){if(!doc||organizing||attaching||importing||notes.busy)return;
     (document.activeElement as HTMLElement)?.blur();
@@ -887,54 +910,44 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(!navigator.onLine||syncingWorkspace.current||sharedAccess)return;
     const first=workspaceRef.current;
     if(!first.pending.length)return;
-    syncingWorkspace.current=true;
+    syncingWorkspace.current=true;setClassificationStatus('syncing');
     try{
+      await notes.persistPending();
       const server=await(await api('/api/note-workspace')).json() as {categories:string[];revision:number};
-      // Replay operations over fresh server categories. Never drop an unsynced
-      // operation or overwrite unrelated categories created on another device.
-      let paths=categoryPaths(server.categories);
-      for(const op of first.pending)paths=locallyApplyCategory(paths,op);
-      if(paths.some(p=>p.length>200)||paths.length>2000)throw new Error('カテゴリの容量上限を超えています');
-      // Apply queued moves/tags to remote notes that were NOT edited locally.
-      // Dirty local notes carry their own metadata changes and use the normal
-      // document save path, avoiding overwriting unsynced offline work.
-      const locallyDirty=new Set((await listLocalDocs()).filter(n=>n.accountId===accountId&&n.dirty).map(n=>n.id));
       const remoteRows:import('@/lib/notes').NoteIndex[]=[];
-      for(let offset=0;offset<5000;offset+=100){
-        const response=await fetch('/canvas/api.php?path='+encodeURIComponent('/api/notes-index')+'&offset='+offset,
-          {credentials:'same-origin',cache:'no-store'});
+      let offset=0;
+      while(true){
+        const response=await fetch('/canvas/api.php?path='+encodeURIComponent('/api/notes-index')+'&offset='+offset,{credentials:'same-origin',cache:'no-store'});
         if(!response.ok)throw new Error('分類同期のためのメモ一覧を取得できません');
-        const page=await response.json() as {documents:import('@/lib/notes').NoteIndex[];hasMore:boolean};
-        remoteRows.push(...page.documents);
-        if(!page.hasMore)break;
+        const page=await response.json() as {documents:import('@/lib/notes').NoteIndex[];hasMore:boolean;nextOffset:number};
+        remoteRows.push(...page.documents);if(!page.hasMore)break;
+        if(page.nextOffset<=offset)throw new Error('一覧の取得位置が不正です');offset=page.nextOffset;
       }
-      const updates:{id:string;revision:number;category:string;tags:string[]}[]=[];
-      for(const row of remoteRows){
-        if(locallyDirty.has(row.id))continue;
-        let category=row.note?.category||'',tags=row.note?.tags||[];
-        for(const op of first.pending){
-          if(op.kind==='move'&&inCategory(category,op.source))category=movedCategory(category,op.source,op.target);
-          if(op.kind==='tag'&&inCategory(category,op.source)){
-            tags=[...new Set([...tags,op.target])];if(op.remove)category='';
-          }
-        }
-        if(category!==(row.note?.category||'')||tags.join('\u001f')!==(row.note?.tags||[]).join('\u001f'))
-          updates.push({id:row.id,revision:row.revision,category,tags});
+      const rows:Classification[]=remoteRows.map(row=>({id:row.id,title:row.title,revision:row.revision,category:row.note?.category||'',tags:row.note?.tags||[]}));
+      const snapshot={...server,categories:categoryPaths([...server.categories,...rows.map(row=>row.category)])};
+      const planned=planCategorySync(first,snapshot,rows);
+      const fingerprint=JSON.stringify({revision:server.revision,rows:rows.map(r=>[r.id,r.category,r.tags]),pending:first.pending});
+      // A choice only applies to the exact remote classification the user saw.
+      if(planned.conflicts.length&&(!first.resolution||first.conflictFingerprint!==fingerprint)){
+        updateWorkspace({...workspaceRef.current,conflicts:planned.conflicts,resolution:undefined,conflictFingerprint:fingerprint});setClassificationStatus('conflict');return;
       }
-      const synced=await(await api('/api/note-workspace',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({revision:server.revision,categories:paths,updates})})).json() as {
-        categories:string[];revision:number;changed:{id:string;revision:number;updated_at:number;note:NoteMeta}[]
-      };
-      if(synced.changed?.length)await notes.acceptMetadata(synced.changed);
-      const current=workspaceRef.current;
-      const remaining=current.pending.slice(first.pending.length);
-      // Operations added while syncing remain in the queue and on the display.
-      let visible=categoryPaths(synced.categories);
-      for(const op of remaining)visible=locallyApplyCategory(visible,op);
-      updateWorkspace({categories:visible,revision:synced.revision,pending:remaining,updatedAt:Date.now()});
-    }catch(error){
-      notes.setError('分類は端末に保存済み・同期待ちです。'+(error instanceof Error?error.message:'接続を確認してください'));
-    }finally{syncingWorkspace.current=false;}
+      const useRemote=first.resolution==='remote';
+      const paths=useRemote?snapshot.categories:planned.categories;
+      if(paths.some(p=>p.length>200)||paths.length>2000)throw new Error('カテゴリの容量上限を超えています');
+      const result=await(await api('/api/note-workspace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:server.revision,categories:paths,updates:useRemote?[]:planned.updates.map(({id,revision,category,tags})=>({id,revision,category,tags}))})})).json() as {categories:string[];revision:number;changed:{id:string;revision:number;updated_at:number;note:NoteMeta}[]};
+      // Reconcile classification only; unsynced text, files and drawing remain untouched.
+      const reconciled=useRemote?[...rows.filter(r=>planned.reconciled.some(n=>n.id===r.id)),...(first.baseNotes||[]).filter(r=>r.id.startsWith('local-')&&planned.reconciled.some(n=>n.id===r.id))]:planned.reconciled;
+      await notes.reconcileClassification(reconciled);
+      if(result.changed?.length)await notes.acceptMetadata(result.changed);
+      const current=workspaceRef.current,remaining=current.pending.slice(first.pending.length);
+      let visible=categoryPaths(result.categories);for(const op of remaining)visible=locallyApplyCategory(visible,op);
+      updateWorkspace({categories:visible,revision:result.revision,pending:remaining,updatedAt:Date.now(),baseCategories:remaining.length?result.categories:undefined,baseNotes:remaining.length?reconciled:undefined});
+      setClassificationStatus(remaining.length?'pending':'complete');await notes.resumeSync();
+    }catch(error){setClassificationStatus('pending');notes.setError('分類は端末に保存済み・同期待ちです。'+(error instanceof Error?error.message:'接続を確認してください'));}
+    finally{syncingWorkspace.current=false;}
+  }
+  function resolveClassification(resolution:'local'|'remote'){
+    updateWorkspace({...workspaceRef.current,resolution});void syncOfflineCategories();
   }
   useEffect(()=>{
     const onOnline=()=>{void syncOfflineCategories();};
@@ -944,7 +957,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     return()=>{removeEventListener('online',onOnline);clearInterval(interval);};
   },[accountId,!!sharedAccess]);
   async function organize(op:CategoryOperation){
-    if(organizing||sharedAccess)return;
+    if(organizing||syncingWorkspace.current||sharedAccess)return;
     setOrganizing(true);
     try{
       const previous=workspaceRef.current;
@@ -955,13 +968,27 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       const next=locallyApplyCategory(existing,op);
       if(next.some(p=>p.length>200)||next.length>2000)throw new Error('カテゴリ数・文字数の上限を超えます');
       // All local work is persisted before any network operation.
-      const updated={...previous,categories:next,pending:[...previous.pending,op],updatedAt:Date.now()};
-      updateWorkspace(updated);
+      await notes.persistPending();
+      const updated:OfflineWorkspace={...previous,categories:next,pending:[...previous.pending,op],updatedAt:Date.now(),conflicts:undefined,resolution:undefined,conflictFingerprint:undefined,baseCategories:previous.pending.length?previous.baseCategories:existing,baseNotes:previous.pending.length?previous.baseNotes:notes.list.map(row=>({id:row.id,title:row.title,revision:row.revision,category:row.note?.category||'',tags:row.note?.tags||[]}))};
+      updateWorkspace(updated);setClassificationStatus('pending');
       if(op.kind!=='create')await notes.applyOfflineCategory(op);
       navigateCategory(op.kind==='tag'?'':op.target);
       if(op.kind==='tag')setTag(op.target);
       if(navigator.onLine)void syncOfflineCategories();
     }finally{setOrganizing(false);}
+  }
+  function reorderGraphic(direction:'front'|'back'){
+    if(!doc||!selectedShape)return;
+    const items=[...doc.items.filter(i=>i.id!==selectedShape.id)];direction==='front'?items.push(selectedShape):items.unshift(selectedShape);commit({...doc,items});
+  }
+  function gridStyle(d:NoteDoc|undefined){
+    const step=d?.gridSpacing||24;
+    return{backgroundImage:d?.grid==='none'?'none':d?.grid==='iso'?'repeating-linear-gradient(30deg,transparent 0,transparent '+(step-1)+'px,#e3dfd5 '+(step-1)+'px,#e3dfd5 '+step+'px),repeating-linear-gradient(150deg,transparent 0,transparent '+(step-1)+'px,#e3dfd5 '+(step-1)+'px,#e3dfd5 '+step+'px)':'linear-gradient(#e3dfd5 1px,transparent 1px),linear-gradient(90deg,#e3dfd5 1px,transparent 1px)',backgroundSize:d?.grid==='iso'?'auto':step+'px '+step+'px'};
+  }
+  function snapCanvas(p:Point){
+    const d=current.current?.content;if(!d?.snap||d.grid==='none')return p;const step=d.gridSpacing||24;
+    if(d.grid==='iso'){const y=Math.round(p.y/(step*Math.sqrt(3)/2))*step*Math.sqrt(3)/2;const shift=(Math.round(p.y/(step*Math.sqrt(3)/2))%2)*step/2;return{...p,x:Math.round((p.x-shift)/step)*step+shift,y};}
+    return{...p,x:Math.round(p.x/step)*step,y:Math.round(p.y/step)*step};
   }
   function zoomTo(value:number,anchor?:{x:number;y:number}){
     const el=scroll.current;if(!el||action.current)return;const previous=scaleRef.current;const next=Math.max(.2,Math.min(4,Math.round(value*100)/100));
@@ -993,9 +1020,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function pressureWidth(base:number,p?:number){const pressure=p&&p>0?p:.5;return Math.max(.8,base*(.38+pressure*1.05));}
   function paintStrokeView(value:PaintStroke){
     const mode=value.brush||'pen',b=graphicBox(value),cx=b.x+b.w/2,cy=b.y+b.h/2;
-    return <g key={value.id} data-stroke={value.id} transform={value.rotation?`rotate(${value.rotation} ${cx} ${cy})`:undefined} strokeLinecap="round" strokeLinejoin="round" fill="none">
+    return <g key={value.id} data-stroke={value.id} transform={value.rotation?`rotate(${value.rotation} ${cx} ${cy})`:undefined} opacity={doc?.layers.find(l=>l.id===value.layerId)?.opacity??1} strokeLinecap="round" strokeLinejoin="round" fill="none">
       {mode!=='marker'&&value.points.length>1?
-        <g stroke={value.color} opacity={value.opacity}>{value.points.slice(1).map((point,index)=><line key={index} x1={value.points[index].x} y1={value.points[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(value.width,point.p)}/>)}</g>:
+        <g stroke={value.color} opacity={value.opacity}>{value.points.slice(1).map((point,index)=><line key={index} x1={value.points[index].x} y1={value.points[index].y} x2={point.x} y2={point.y} strokeWidth={value.pressure===false?value.width:pressureWidth(value.width,point.p)}/>)}</g>:
         <polyline points={stroke(value.points)} stroke={value.color} strokeWidth={value.width} opacity={value.opacity}/>}
       <polyline points={stroke(value.points)} stroke="transparent" strokeWidth={Math.max(18,value.width)} pointerEvents={workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')||tool==='eraser'?'stroke':'none'}/>
     </g>;
@@ -1037,7 +1064,15 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         <CategoryTree paths={categories} notes={notes.list} selected={category} onSelect={navigateCategory} disabled={organizing||importing||attaching} onManage={()=>setCategoryManager(true)}/>
         <div className="notes-filters"><label><Tag size={15}/><select aria-label="タグで絞り込み" value={tag} onChange={e=>{setTag(e.target.value);setQuery('');}}><option value="">すべてのタグ</option>{tags.map(t=><option key={t}>{t}</option>)}</select></label></div>
         <div className="notes-count" role="status">{searching?(searchScope==='all'?'横断検索':'絞り込み検索'):trash?'ゴミ箱':category||'すべてのメモ'} · {filtered.length} 件</div>
-        <div className="notes-list">{filtered.map(n=><button key={n.id} className={`notes-list-item ${n.id===record?.id?'active':''}`} disabled={importing||attaching||notes.busy||organizing} onClick={()=>{void notes.open(n.id);if(sidebarAutoClose||innerWidth<=760)setSidebar(false);}}>
+        <div className="kn-category-list-heading">
+          <strong>カテゴリ：{category||'すべて'}</strong>
+          {category&&<button onClick={()=>navigateCategory(category.split(' / ').slice(0,-1).join(' / '))}>← 親カテゴリへ</button>}
+          <label><input type="checkbox" checked={includeChildren} onChange={e=>setIncludeChildren(e.target.checked)}/>子カテゴリを含める</label>
+          {searching&&searchScope==='all'&&<small>横断検索中：カテゴリ・タグの絞り込みは適用されません</small>}
+          <small role="status">分類：{{saved:'保存済み',syncing:'同期中',pending:'端末に保存済み・同期待ち',conflict:'競合あり',complete:'同期完了'}[classificationStatus]}</small>
+        </div>
+        <button className="kn-category-create" disabled={importing||attaching||notes.busy||organizing} onClick={()=>void createNote()}>＋ このカテゴリに新規ノート</button>
+        <div className="notes-list">{filtered.map(n=><button key={n.id} className={`notes-list-item ${n.id===record?.id?'active':''}`} disabled={importing||attaching||notes.busy||organizing} onClick={()=>void openNote(n.id)}>
           <strong>{n.note?.pinned&&<Pin size={13}/>} {n.title||'新しいメモ'}</strong><p>{searching?searchExcerpt(n.searchText||n.excerpt||'',query):n.excerpt||'テキストのないメモ'}</p><footer><time>{new Date(n.updated_at).toLocaleDateString('ja-JP',{month:'short',day:'numeric'})}</time><span title={n.note?.category}>{n.note?.category||'未分類'}</span>{n.note?.importState==='pending'&&<em>取込途中</em>}</footer></button>)}
           {!filtered.length&&<p className="notes-empty">該当するメモはありません</p>}</div>
       </aside></>}
@@ -1067,41 +1102,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button title="通常の表を挿入" onClick={()=>openTableSettings('table')}><Table2 size={17}/><span>表</span></button>
               <button title="段組みの表組みレイアウト" onClick={()=>openTableSettings('columns')}><Columns3 size={17}/><span>表組み</span></button>
               <button title="ノートにファイルを添付" onClick={()=>fileInput.current?.click()}><Paperclip size={17}/><span>添付</span></button>
-              <label className="kn-image-setting">画像
-                <select aria-label="画像の配置" value={imagePlacement} onChange={e=>setImagePlacement(e.target.value as typeof imagePlacement)}>
-                  <option value="inline">文章に回り込ませる</option><option value="overlay">上に重ねる</option>
-                </select>
-              </label>
-              <label className="kn-image-setting">位置
-                <select aria-label="画像の配置位置" value={imageAlign} onChange={e=>setImageAlign(e.target.value as typeof imageAlign)}>
-                  <option value="left">左</option><option value="center">中央</option><option value="right">右</option>
-                </select>
-              </label>
               <button title="画像をノートに挿入" onClick={()=>imageInput.current?.click()}><ImagePlus size={17}/>画像</button>
               <button title="ノートの作業エリアを拡大" onClick={toggleFocusMode}><Maximize2 size={17}/></button>
-              <button className={advancedOpen?'active':''} onClick={()=>setAdvancedOpen(x=>!x)} title="高度な書式オプションを開閉" aria-expanded={advancedOpen}>{advancedOpen?<ChevronDown size={16}/>:<ChevronRight size={16}/>}<span>詳細</span></button>
+
             </div>
-            {advancedOpen&&<div className="notes-tool-group notes-advanced-format" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
-              <button title="上付き" onClick={()=>format('superscript')}><Superscript size={16}/></button>
-              <button title="下付き" onClick={()=>format('subscript')}><Subscript size={16}/></button>
-              <button title="蛍光ペン（文字背景色）" onClick={()=>format('backColor',highlightColor)}><Highlighter size={16}/></button><label title="選択した文字の背景色を指定します">背景色<input type="color" aria-label="文字背景色" value={highlightColor} onChange={e=>{setHighlightColor(e.target.value);format('backColor',e.target.value);}}/></label>
-              <button title="手書き風の赤丸" onClick={()=>applyRedMark('circle')}>赤丸</button>
-              <button title="手書き風の赤線" onClick={()=>applyRedMark('underline')}>赤線</button>
-              <button title="手書き風の赤波線" onClick={()=>applyRedMark('wave')}>波線</button>
-              <label>ルビ色<input type="color" value={rubyColor} onChange={e=>setRubyColor(e.target.value)}/></label>
-              <button title="選んだ漢字にルビ。Shiftを押すと前回の読みを使用" onClick={e=>ruby(e.shiftKey)}>ルビ</button>
-            </div>}
-            {tableSelected&&<div className="notes-tool-group notes-table-controls" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
-              <strong>表の編集</strong>
-              <button title="行を追加" onClick={()=>editTable('row+',lastTable.current,lastCell.current)}>行＋</button>
-              <button title="行を削除" onClick={()=>editTable('row-',lastTable.current,lastCell.current)}>行−</button>
-              <button title="列を追加" onClick={()=>editTable('col+',lastTable.current,lastCell.current)}>列＋</button>
-              <button title="列を削除" onClick={()=>editTable('col-',lastTable.current,lastCell.current)}>列−</button>
-              <button title="最初の表設定を再表示" onClick={()=>openTableSettings('table',true)}>設定</button>
-            </div>}
           </>:<>
             <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
-            {(workspaceMode==='canvas')&&<div className="notes-tool-group"><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label></div>}
+            {workspaceMode==='canvas'&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><button onClick={()=>{activateFamily('layout');chooseTool('select');}}>選択</button><button onClick={()=>chooseTool('pen')}>ペン</button><button onClick={()=>chooseTool('eraser')}>消しゴム</button><button onClick={()=>{activateFamily('layout');chooseTool('text');}}>文字</button><button onClick={()=>{activateFamily('layout');chooseTool('rect');}}>図形</button><button onClick={()=>imageInput.current?.click()}>画像配置</button></div>}
             {(workspaceMode==='layout')&&<div className="notes-tool-group"><button onClick={()=>addBlock()}><Type size={18}/>テキストボックス</button><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
             {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<>
               <button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>
@@ -1113,7 +1120,54 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <button className={!relatedPanel&&layersOpen?'active':''} onClick={()=>{setRelatedPanel(false);setLayersOpen(v=>relatedPanel?true:!v);}} title="レイヤーパネルを開閉" aria-expanded={!relatedPanel&&layersOpen}>{!relatedPanel&&layersOpen?<ChevronDown size={15}/>:<ChevronRight size={15}/>} レイヤー</button>
             <button className={relatedPanel?'active':''} onClick={()=>{setRelatedPanel(v=>!v);setLayersOpen(true);}} title="ChatGPTが関連付けたノートを表示">関連ノート</button>
           </div>
+          <button className={'kn-details-toggle '+((workspaceMode==='note'?advancedOpen:canvasDetailsOpen)?'active':'')} onPointerDown={e=>e.preventDefault()} onClick={()=>workspaceMode==='note'?setAdvancedOpen(v=>!v):setCanvasDetailsOpen(v=>!v)} aria-label={workspaceMode==='note'?'ノートの詳細':'Canvasの詳細'} aria-expanded={workspaceMode==='note'?advancedOpen:canvasDetailsOpen} aria-controls="kn-editor-details">{(workspaceMode==='note'?advancedOpen:canvasDetailsOpen)?<ChevronDown size={16}/>:<ChevronRight size={16}/>}詳細</button>
         </div>
+        {workspaceMode==='note'&&advancedOpen&&<div id="kn-editor-details" className="notes-details notes-toolbar-word" role="region" aria-label="ノート詳細ツール" inert={!!meta.trashedAt||organizing}>
+            <div className="notes-tool-group notes-advanced-format" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
+              <label className="kn-image-setting">画像
+                <select aria-label="画像の配置" value={imagePlacement} onChange={e=>setImagePlacement(e.target.value as typeof imagePlacement)}>
+                  <option value="inline">文章に回り込ませる</option><option value="overlay">上に重ねる</option>
+                </select>
+              </label>
+              <label className="kn-image-setting">位置
+                <select aria-label="画像の配置位置" value={imageAlign} onChange={e=>setImageAlign(e.target.value as typeof imageAlign)}>
+                  <option value="left">左</option><option value="center">中央</option><option value="right">右</option>
+                </select>
+              </label>
+              <button title="上付き" onClick={()=>format('superscript')}><Superscript size={16}/></button>
+              <button title="下付き" onClick={()=>format('subscript')}><Subscript size={16}/></button>
+              <button title="蛍光ペン（文字背景色）" onClick={()=>format('backColor',highlightColor)}><Highlighter size={16}/></button><label title="選択した文字の背景色を指定します">背景色<input type="color" aria-label="文字背景色" value={highlightColor} onChange={e=>{setHighlightColor(e.target.value);format('backColor',e.target.value);}}/></label>
+              <button title="手書き風の赤丸" onClick={()=>applyRedMark('circle')}>赤丸</button>
+              <button title="手書き風の赤線" onClick={()=>applyRedMark('underline')}>赤線</button>
+              <button title="手書き風の赤波線" onClick={()=>applyRedMark('wave')}>波線</button>
+              <label>ルビ色<input type="color" value={rubyColor} onChange={e=>setRubyColor(e.target.value)}/></label>
+              <button title="選んだ漢字にルビ。Shiftを押すと前回の読みを使用" onClick={e=>ruby(e.shiftKey)}>ルビ</button>
+            </div>
+            {tableSelected&&<div className="notes-tool-group notes-table-controls" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
+              <strong>表の編集</strong>
+              <button title="行を追加" onClick={()=>editTable('row+',lastTable.current,lastCell.current)}>行＋</button>
+              <button title="行を削除" onClick={()=>editTable('row-',lastTable.current,lastCell.current)}>行−</button>
+              <button title="列を追加" onClick={()=>editTable('col+',lastTable.current,lastCell.current)}>列＋</button>
+              <button title="列を削除" onClick={()=>editTable('col-',lastTable.current,lastCell.current)}>列−</button>
+              <button title="最初の表設定を再表示" onClick={()=>openTableSettings('table',true)}>設定</button>
+            </div>}
+        </div>}
+        {workspaceMode!=='note'&&canvasDetailsOpen&&<div id="kn-editor-details" className="notes-details" role="region" aria-label="Canvas詳細ツール" inert={!!meta.trashedAt||organizing}>
+          {workspaceMode==='canvas'&&!selectedGraphic&&<div className="notes-tool-group"><strong>ペン設定</strong><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label><label><input type="checkbox" checked={inkPressure} onChange={e=>setInkPressure(e.target.checked)}/>筆圧</label></div>}
+          {selectedGraphic&&<div className="notes-shape-inspector" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'4px 8px'}}>
+            <label>線色 <input type="color" value={/^#[0-9a-f]{6}$/i.test(selectedGraphic.color)?selectedGraphic.color:'#263443'} onChange={e=>editSelectedShape(i=>({...i,color:e.target.value}))}/></label>
+            {selectedShape&&<><label>塗り <input type="color" value={selectedShape.fill&&/^#[0-9a-f]{6}$/i.test(selectedShape.fill)?selectedShape.fill:'#ffffff'} onChange={e=>editSelectedShape(i=>({...i,fill:e.target.value}))}/></label>
+            <button onClick={()=>editSelectedShape(i=>({...i,fill:'none'}))}>塗りなし</button></>}
+            <label>線幅 <input type="number" min="0.5" max="100" step="0.5" style={{width:55}} value={selectedGraphic.width} onChange={e=>editSelectedShape(i=>({...i,width:Math.max(.5,Number(e.target.value)||.5)}))}/></label>
+            <label>透明度 <input type="range" min="0" max="100" value={Math.round((selectedGraphic.opacity??1)*100)} onChange={e=>editSelectedShape(i=>({...i,opacity:Number(e.target.value)/100}))}/></label>
+            <span>{Math.round((selectedGraphic.opacity??1)*100)}%</span>
+            {tool==='vertex'&&<strong className="notes-anchor-message">{activeAnchor?.id===selected?'頂点 '+(activeAnchor.index+1)+' 選択中':activeSegment?.id===selected?'線分 '+(activeSegment.index+1)+' 選択中':'頂点はタップで黄色くなり、ドラッグで移動できます'}</strong>}
+          </div>}
+          {selectedShape?.kind==='image'&&<div className="notes-tool-group"><strong>画像の配置</strong>{(['x','y','w','h'] as const).map(key=><label key={key}>{({x:'横位置',y:'縦位置',w:'幅',h:'高さ'})[key]}<input aria-label={'画像の'+({x:'横位置',y:'縦位置',w:'幅',h:'高さ'})[key]} type="number" value={Math.round(selectedShape[key])} onChange={e=>editSelectedShape(i=>({...i,[key]:key==='w'||key==='h'?Math.max(1,Number(e.target.value)):Number(e.target.value)}))}/></label>)}<label>回転<input aria-label="画像の回転" type="number" value={selectedShape.rotation||0} onChange={e=>editSelectedShape(i=>({...i,rotation:Number(e.target.value)}))}/></label><button onClick={()=>reorderGraphic('front')}>最前面</button><button onClick={()=>reorderGraphic('back')}>最背面</button></div>}
+          {tool==='text'&&<div className="notes-tool-group" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}><strong>文字設定</strong><button onClick={()=>chooseFont(-1)}>A−</button><button onClick={()=>chooseFont(1)}>A＋</button><button onClick={()=>format('bold')}>太字</button><button onClick={()=>format('italic')}>斜体</button><button onClick={()=>format('underline')}>下線</button>{(['Left','Center','Right'] as const).map(align=><button key={align} onClick={()=>format('justify'+align)}>{({Left:'左寄せ',Center:'中央',Right:'右寄せ'})[align]}</button>)}<input aria-label="Canvas文字色" type="color" value={inkColor} onChange={e=>{setInkColor(e.target.value);format('foreColor',e.target.value);}}/></div>}
+          {doc&&<div className="notes-tool-group"><strong>グリッド</strong><select aria-label="グリッド種類" value={doc.grid} onChange={e=>commit({...doc,grid:e.target.value as NoteDoc['grid']})}><option value="none">なし</option><option value="square">方眼</option><option value="iso">斜方眼</option></select><label>間隔<input aria-label="グリッド間隔" type="number" min="8" max="100" value={doc.gridSpacing||24} onChange={e=>commit({...doc,gridSpacing:Math.max(8,Math.min(100,Number(e.target.value)||24))})}/></label><label><input type="checkbox" checked={doc.snap} onChange={e=>commit({...doc,snap:e.target.checked})}/>吸着</label></div>}
+          {doc&&doc.layers.find(l=>l.id===activeLayer)&&<div className="notes-tool-group"><strong>レイヤー設定</strong><button onClick={()=>setLayersOpen(true)}>表示・ロック・重なり順</button><label>不透明度<input aria-label="レイヤー不透明度" type="range" min="0" max="100" value={Math.round((doc.layers.find(l=>l.id===activeLayer)?.opacity??1)*100)} onChange={e=>commit({...doc,layers:doc.layers.map(l=>l.id===activeLayer?{...l,opacity:Number(e.target.value)/100}:l)})}/></label></div>}
+        </div>}
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
         <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：色・太さ・透明度は上のツールから変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>固定ノート：通常のワープロ入力です。下のキャンバスをズーム・移動しても文字サイズと位置は変わりません。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：レイアウト上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
           {workspaceMode==='layout'&&<div className="notes-shape-tools" role="toolbar" aria-label="図形の選択ツール">
@@ -1128,20 +1182,18 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button disabled={selectedIds.length!==2||!selectedIds.some(id=>doc?.items.find(i=>i.id===id)?.kind==='image')||!selectedIds.some(id=>doc?.items.find(i=>i.id===id)?.kind==='rect')||selectedIds.some(id=>!!doc?.items.find(i=>i.id===id)?.rotation)} onClick={clipImageByRect} title="四角形を画像の切り抜きマスクに使う">画像くり抜き</button>
             </span>}
           </div>}
-          {workspaceMode==='layout'&&selectedGraphic&&<div className="notes-shape-inspector" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'4px 8px'}}>
-            <label>線色 <input type="color" value={/^#[0-9a-f]{6}$/i.test(selectedGraphic.color)?selectedGraphic.color:'#263443'} onChange={e=>editSelectedShape(i=>({...i,color:e.target.value}))}/></label>
-            {selectedShape&&<><label>塗り <input type="color" value={selectedShape.fill&&/^#[0-9a-f]{6}$/i.test(selectedShape.fill)?selectedShape.fill:'#ffffff'} onChange={e=>editSelectedShape(i=>({...i,fill:e.target.value}))}/></label>
-            <button onClick={()=>editSelectedShape(i=>({...i,fill:'none'}))}>塗りなし</button></>}
-            <label>線幅 <input type="number" min="0.5" max="100" step="0.5" style={{width:55}} value={selectedGraphic.width} onChange={e=>editSelectedShape(i=>({...i,width:Math.max(.5,Number(e.target.value)||.5)}))}/></label>
-            <label>透明度 <input type="range" min="0" max="100" value={Math.round((selectedGraphic.opacity??1)*100)} onChange={e=>editSelectedShape(i=>({...i,opacity:Number(e.target.value)/100}))}/></label>
-            <span>{Math.round((selectedGraphic.opacity??1)*100)}%</span>
-            {tool==='vertex'&&<strong className="notes-anchor-message">{activeAnchor?.id===selected?'頂点 '+(activeAnchor.index+1)+' 選択中':activeSegment?.id===selected?'線分 '+(activeSegment.index+1)+' 選択中':'頂点はタップで黄色くなり、ドラッグで移動できます'}</strong>}
-          </div>}
           {selected&&<div><button title="ブロックを複製" onClick={()=>{const b=doc?.blocks?.find(b=>b.id===selected);if(b&&doc)commit({...doc,blocks:[...(doc.blocks||[]),{...b,id:id32(),x:b.x+35,y:b.y+(sizes[b.id]||b.h)+24}]});}}><Copy size={15}/></button><button title="選択を削除（複数選択時はまとめて削除）" onClick={()=>{if(doc){const d=doc as StudioNoteDoc,ids=new Set(selectedIds.length?selectedIds:[selected]);commit({...d,blocks:d.blocks?.filter(b=>!ids.has(b.id)),items:d.items.filter(i=>!ids.has(i.id)),paintStrokes:d.paintStrokes?.filter(stroke=>!ids.has(stroke.id)),charts:(d.charts||[]).filter(c=>!ids.has(c.id))} as NoteDoc);}setSelected('');setMultiSelected([]);setActiveAnchor(null);setActiveSegment(null);}}><Trash2 size={15}/></button></div>}
         </div>
         {workspaceMode!=='note'&&<><div className="notes-viewbar" role="toolbar" aria-label="表示倍率"><strong>ズーム</strong><button aria-label="縮小" onClick={()=>zoomTo(scale-.1)} disabled={scale<=.2}><ZoomOut size={19}/>−</button><select aria-label="ズーム倍率" value={Math.round(scale*100)} onChange={e=>zoomTo(Number(e.target.value)/100)}>{[...new Set([20,25,50,75,100,125,150,200,300,400,Math.round(scale*100)])].sort((a,b)=>a-b).map(p=><option key={p} value={p}>{p}%</option>)}</select><button aria-label="拡大" onClick={()=>zoomTo(scale+.1)} disabled={scale>=4}><ZoomIn size={19}/>＋</button><button onClick={()=>zoomTo(1)}>100%</button><button onClick={fitContent}>画面に合わせる</button><small>Ctrl＋ホイール</small><div className="notes-viewbar-spacer"/><button className="notes-focus-inline" title="作業エリアだけ拡大" onClick={toggleFocusMode}><Maximize2 size={16}/>作業拡大</button>{!sharedAccess&&<button className="notes-delete" disabled={!record||organizing||attaching||importing||notes.busy||meta.importState==='pending'} onClick={()=>meta.trashedAt?setTrashed(false):setDeleteOpen(true)}><Trash2 size={16}/>{meta.trashedAt?'メモを復元':'メモを削除'}</button>}</div></>}
         {meta.trashedAt&&<div className="notes-warning">このメモはゴミ箱にあります。本文・添付は保持されています。<button onClick={()=>setTrashed(false)}>元に戻す</button></div>}
         {meta.importState==='pending'&&<div className="notes-warning">取り込み途中のメモです。同じJEXを選んで取り込みを再開してください。</div>}
+        {!!workspace.conflicts?.length&&<div className="notes-warning kn-classification-conflicts" role="alert">
+          <strong>分類が競合しています。端末の本文・添付と未同期分類は保存されています。</strong>
+          <p>下の選択は未同期の分類操作全体に適用します。本文・添付は変更しません。</p>
+          <div className="kn-conflict-diffs">{workspace.conflicts.map((c,i)=><details key={i} open><summary>{c.name}</summary><dl><dt>変更前</dt><dd>{c.base}</dd><dt>この端末</dt><dd>{c.local}</dd><dt>サーバー</dt><dd>{c.remote}</dd></dl></details>)}</div>
+          <button disabled={classificationStatus==='syncing'} onClick={()=>resolveClassification('local')}>端末の分類操作を採用</button>
+          <button disabled={classificationStatus==='syncing'} onClick={()=>resolveClassification('remote')}>サーバーの分類を採用</button>
+        </div>}
         {notes.conflict&&<div className="notes-warning" role="alert">
           {sharedAccess?'同じ箇所が別の人と競合しました。リロードせず、変更内容を保存用ファイルに退避してください。':'他端末の更新と競合しています。今の内容は端末に保持しています。'}
           {sharedAccess?<button onClick={()=>{if(record)download('KaeruNote-競合バックアップ.json',JSON.stringify({title:record.title,content:record.content},null,2),'application/json');}}>編集内容を保存</button>:
@@ -1189,13 +1241,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           <div className="notes-stage-center">
             <div ref={scroll} className="notes-scroll" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const files=Array.from(e.dataTransfer.files);const images=files.filter(file=>file.type.startsWith('image/'));if(images.length===files.length&&files.length)void placeImages(images);else void attach(files);}}>
               {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div className="notes-surface" style={{width:width*scale,height:height*scale}}>
-                <div ref={plane} className={`notes-plane tool-${tool}`} tabIndex={0} style={{width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
+                <div ref={plane} className={`notes-plane tool-${tool}`} tabIndex={0} style={{...gridStyle(doc),width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
                   onPasteCapture={pasteWorkspace} onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
                   <SpreadsheetLayer sheet={sheetForView} active={tool==='sheet'} selection={sheetSelection} onChange={updateSheet} onSelect={setSheetSelection}/>
                   <svg className="notes-ink" width={width} height={height}>
                     <defs>{doc?.items.filter(i=>i.kind==='image'&&i.clip).map(i=><clipPath key={i.id} id={'kn-clip-'+i.id} clipPathUnits="userSpaceOnUse"><rect x={i.clip!.x} y={i.clip!.y} width={i.clip!.w} height={i.clip!.h}/></clipPath>)}</defs>
-                    {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><LegacyImage key={l.id} docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/>)}
-                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={i.opacity??1} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined} clipPath={i.kind==='image'&&i.clip?'url(#kn-clip-'+i.id+')':undefined}>
+                    {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><g key={l.id} opacity={l.opacity??1}><LegacyImage docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/></g>)}
+                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={(i.opacity??1)*(doc.layers.find(l=>l.id===i.layerId)?.opacity??1)} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined} clipPath={i.kind==='image'&&i.clip?'url(#kn-clip-'+i.id+')':undefined}>
                       {workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')&&(()=>{
                         const b=shapeBox(i);
                         return i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h} stroke="transparent" strokeWidth={Math.max(16,i.width)} pointerEvents="stroke"/>:
@@ -1205,7 +1257,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                       })()}
                       {i.kind==='path'?<polyline points={stroke(i.points||[])} fill="none" strokeLinecap="round"/>:i.kind==='polygon'?<polygon points={stroke(i.points||[])} strokeLinejoin="round"/>:i.kind==='rect'?<rect x={Math.min(i.x,i.x+i.w)} y={Math.min(i.y,i.y+i.h)} width={Math.abs(i.w)} height={Math.abs(i.h)}/>:i.kind==='ellipse'?<ellipse cx={i.x+i.w/2} cy={i.y+i.h/2} rx={Math.abs(i.w/2)} ry={Math.abs(i.h/2)}/>:i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h}/>:i.kind==='image'&&i.imageId?(i.imageId.startsWith('file:')?<image href={fileURL(record.id,i.imageId.slice(5))} x={i.x} y={i.y} width={i.w} height={i.h}/>:<LegacyImage docId={record.id} imageId={i.imageId} x={i.x} y={i.y} w={i.w} h={i.h}/>):null}
                     </g>)}
-                    {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false).map(paintStrokeView)}
+                    {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(paintStrokeView)}
                     {workspaceMode==='layout'&&hoveredShape&&!selectedIds.includes(hoveredShape)&&(()=>{
                       const graphic:Graphic|undefined=doc?.items.find(i=>i.id===hoveredShape)||doc?.paintStrokes?.find(i=>i.id===hoveredShape);
                       if(!graphic)return null;const b=graphicBox(graphic),cx=b.x+b.w/2,cy=b.y+b.h/2;
@@ -1244,7 +1296,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                         </g>}
                       </g>;
                     })}
-                    {draft.length>0&&(brush!=='marker'?<g stroke={inkColor} strokeLinecap="round" opacity={inkOpacity} pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={pressureWidth(inkWidth,point.p)}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={.32*inkOpacity} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
+                    {draft.length>0&&(brush!=='marker'?<g stroke={inkColor} strokeLinecap="round" opacity={inkOpacity} pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={inkPressure?pressureWidth(inkWidth,point.p):inkWidth}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={.32*inkOpacity} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
                     {draftShape&&<g stroke={draftShape.color} strokeWidth={draftShape.width} fill="none" pointerEvents="none">{draftShape.kind==='line'?<line x1={draftShape.x} y1={draftShape.y} x2={draftShape.x+draftShape.w} y2={draftShape.y+draftShape.h}/>:draftShape.kind==='rect'?<rect x={Math.min(draftShape.x,draftShape.x+draftShape.w)} y={Math.min(draftShape.y,draftShape.y+draftShape.h)} width={Math.abs(draftShape.w)} height={Math.abs(draftShape.h)}/>:<ellipse cx={draftShape.x+draftShape.w/2} cy={draftShape.y+draftShape.h/2} rx={Math.abs(draftShape.w/2)} ry={Math.abs(draftShape.h/2)}/>}</g>}
                   </svg>
                   {overlapAt&&overlapItems.length>1&&workspaceMode==='layout'&&<div className="notes-overlap-picker" style={{left:Math.max(8,Math.min(width-190,overlapAt.x+14)),top:Math.max(8,overlapAt.y-10)}}>
@@ -1255,7 +1307,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                     })}</div>}
                   </div>}
                   <ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/>
-                  {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} block={noteBlock} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
+                  {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} block={noteBlock} opacity={doc.layers.find(l=>l.id===noteBlock.layerId)?.opacity??1} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
                     onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
                 </div>
@@ -1392,7 +1444,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         <div className="notes-dialog-actions"><button onClick={()=>setTableOpen(false)}>キャンセル</button><button className="notes-primary" onClick={applyTable}>適用</button></div>
       </section>
     </div>}
-    {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
+    {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing||classificationStatus==='syncing'} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
     {deleteOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">メモをゴミ箱へ移動</h2><p>「{record?.title}」をゴミ箱へ移動します。あとから復元できます。</p><button onClick={()=>setDeleteOpen(false)}>キャンセル</button><button className="notes-primary" onClick={()=>setTrashed(true)}>ゴミ箱へ移動</button></section></div>}
     {chartOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="chart-title"><div className="notes-settings-title"><h2 id="chart-title">グラフを作成</h2><button onClick={()=>setChartOpen(false)} aria-label="閉じる"><X size={18}/></button></div><p>Excelレイヤーで選択した範囲を参照する、グラフレイヤーの子オブジェクトを作成します。元データを変更するとグラフも更新されます。</p><label>種類<select value={chartType} onChange={e=>setChartType(e.target.value as ChartItem['type'])}><option value="bar">棒グラフ</option><option value="line">折れ線グラフ</option><option value="pie">円グラフ</option></select></label><div className="notes-dialog-actions"><button onClick={()=>setChartOpen(false)}>キャンセル</button><button className="notes-primary" onClick={createChart}>作成</button></div></section></div>}
     <input ref={aiAudioInput} hidden type="file" accept=".flac,.mp3,.mp4,.mpeg,.mpga,.m4a,.ogg,.wav,.webm,audio/*" onChange={e=>{const file=e.target.files?.[0];if(file)void transcribeAudio(file);e.target.value='';}}/>

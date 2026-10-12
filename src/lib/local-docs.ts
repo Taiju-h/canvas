@@ -7,6 +7,8 @@ export type LocalDoc = {
   title: string;
   content: CanvasDoc;
   base: CanvasDoc;
+  baseTitle?: string;
+  baseRevision?: number;
   revision: number;
   updated_at: number;
   dirty: boolean;
