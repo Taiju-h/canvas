@@ -24,6 +24,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
   const [busy,setBusy] = useState(false);
   const [conflict,setConflict] = useState(false);
   const records = useRef(new Map<string,NoteRecord>());
+  const promoted=useRef(new Map<string,string>());
   const active = useRef(''); const blocked = useRef(new Set<string>());
   const jobs = useRef(new Map<string,Promise<void>>()); const timers = useRef(new Map<string,ReturnType<typeof setTimeout>>());
   const localJobs = useRef(Promise.resolve()); const openSeq = useRef(0);
@@ -196,7 +197,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
           next.dirty=!!next.dirty||!!next.content.attachments?.some(a=>a.pending);
           const oldKey=key;
           if (isNew) {
-            records.current.delete(oldKey); setList(old=>old.filter(n=>n.id!==oldKey));
+            promoted.current.set(oldKey,result.id);records.current.delete(oldKey); setList(old=>old.filter(n=>n.id!==oldKey));
             clearTimeout(timers.current.get(oldKey));timers.current.delete(oldKey);
             if (active.current===oldKey) { active.current=result.id; setURL(result.id); }
             key=result.id;jobKeys.add(key);jobs.current.set(key,job);
@@ -319,7 +320,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       const old=record.content.note||{category:'',tags:[]};
       const path=old.category||'';
       if(op.kind==='create'||!inCategory(path,op.source))continue;
-      const category=op.kind==='move'?movedCategory(path,op.source,op.target):op.remove?'':path;
+      const category=op.kind==='move'?movedCategory(path,op.source,op.target):op.kind==='delete'?op.target:op.remove?'':path;
       const tags=op.kind==='tag'?[...new Set([...(old.tags||[]),op.target])]:old.tags||[];
       const updated={...record,content:{...record.content,note:{...old,category,tags}},updated_at:Date.now(),dirty:true};
       show(updated);await persist(updated);changed++;
@@ -430,6 +431,6 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     }
   }
   async function resumeSync(){await refresh();for(const row of records.current.values())if(row.dirty)void save(row.id);}
-  return {persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
+  return {resolveId:(id:string)=>promoted.current.get(id)||id,persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }

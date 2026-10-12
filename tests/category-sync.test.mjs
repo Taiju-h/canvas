@@ -64,3 +64,11 @@ test('same text object edit still conflicts instead of overwriting a draft',()=>
 test('short and full build commits do not trigger a false APK update',()=>{
  assert.ok(sameCommit('f95ded9','f95ded96580657a9c9843fba5df5ce91b7342c4f'));assert.ok(!sameCommit('f95ded9','f2b880f'));assert.ok(!sameCommit('',''));assert.ok(!sameCommit('abc','abcdefg'));
 });
+test('category deletion keeps notes and tags, assigning the selected surviving parent',()=>{
+ const op={kind:'delete',source:'仕事 / 開発',target:'仕事'};
+ const value=applyClassification({...row,category:'仕事 / 開発 / 子'},[op]);
+ assert.equal(value.category,'仕事');assert.deepEqual(value.tags,row.tags);
+ const deleting={...state,pending:[op],categories:['仕事']};
+ const plan=planCategorySync(deleting,{categories:[...state.baseCategories,'家庭'],revision:1},[row]);
+ assert.equal(plan.conflicts.length,0);assert.equal(plan.updates[0].category,'仕事');assert.ok(plan.categories.includes('家庭'));assert.ok(!plan.categories.includes('仕事 / 開発'));
+});

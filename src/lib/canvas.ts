@@ -5,6 +5,7 @@ export type Item = {
   id: string;
   kind: ItemKind;
   layerId: string;
+  keepLayer?:boolean;
   x: number;
   y: number;
   w: number;

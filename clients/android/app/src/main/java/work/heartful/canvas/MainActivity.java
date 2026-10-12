@@ -344,13 +344,14 @@ public final class MainActivity extends ComponentActivity {
     private String mimeType(String name) {
         String lower = name.toLowerCase(java.util.Locale.ROOT);
         if (lower.endsWith(".html")) return "text/html";
-        if (lower.endsWith(".js")) return "text/javascript";
+        if ((lower.endsWith(".js") || lower.endsWith(".mjs"))) return "text/javascript";
         if (lower.endsWith(".css")) return "text/css";
         if (lower.endsWith(".json") || lower.endsWith(".webmanifest")) return "application/json";
         if (lower.endsWith(".svg")) return "image/svg+xml";
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
         if (lower.endsWith(".woff2")) return "font/woff2";
+        if (lower.endsWith(".wasm")) return "application/wasm";
         return "application/octet-stream";
     }
 

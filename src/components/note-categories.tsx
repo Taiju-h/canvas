@@ -2,13 +2,13 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {ChevronLeft,ChevronRight,Folder,Plus,Settings2,Tag,X} from 'lucide-react';
 import {categoryParts,categoryPath,categoryTree,inCategory,type CategoryNode} from '@/lib/note-organization';
 import type {NoteIndex} from '@/lib/notes';
-export type CategoryOperation={kind:'create'|'move'|'tag';source:string;target:string;remove?:boolean};
+export type CategoryOperation={kind:'create'|'move'|'tag'|'delete';source:string;target:string;remove?:boolean};
 
 function directCount(notes:NoteIndex[],path:string){
   return notes.filter(n=>!n.note?.trashedAt&&inCategory(n.note?.category||'',path)).length;
 }
 
-export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;disabled:boolean}){
+export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,onDelete,disabled}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;onCreate?:()=>void;onDelete?:()=>void;disabled:boolean}){
   // The parent recalculates the paths array on each render; memoize by content so
   // a hover preview is not reset whenever React renders an unrelated control.
   const pathSignature=paths.join('\u001f');
@@ -87,6 +87,8 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
   return <div className="notes-category-tree notes-category-cascade is-multilevel">
     <div className="notes-category-heading">
       <strong>カテゴリ</strong>
+      <button disabled={disabled} onClick={onCreate||onManage} aria-label="カテゴリを追加"><Plus size={15}/>追加</button>
+      {onDelete&&<button disabled={disabled||!selected} onClick={onDelete} aria-label="選択カテゴリを削除">削除</button>}
       <button disabled={disabled} onClick={onManage} aria-label="カテゴリを管理"><Settings2 size={15}/></button>
     </div>
     {!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}
@@ -142,21 +144,22 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
   </div>;
 }
 
-export function CategoryManager({paths,initial,busy,onClose,onApply}:{paths:string[];initial:string;busy:boolean;onClose:()=>void;onApply:(op:CategoryOperation)=>Promise<void>}){
-  const [kind,setKind]=useState<CategoryOperation['kind']>('create');const [source,setSource]=useState(initial||paths[0]||'');
-  const [name,setName]=useState('');const [parent,setParent]=useState(initial);const [tag,setTag]=useState('');const [remove,setRemove]=useState(true);const [error,setError]=useState('');
+export function CategoryManager({paths,initial,initialKind='create',busy,onClose,onApply}:{paths:string[];initial:string;initialKind?:CategoryOperation['kind'];busy:boolean;onClose:()=>void;onApply:(op:CategoryOperation)=>Promise<void>}){
+  const [kind,setKind]=useState<CategoryOperation['kind']>(initialKind);const [source,setSource]=useState(initial||paths[0]||'');
+  const [name,setName]=useState(initialKind==='move'?categoryParts(initial).at(-1)||'':'');const [parent,setParent]=useState(initialKind==='delete'||initialKind==='move'?categoryParts(initial).slice(0,-1).join(' / '):initial);const [tag,setTag]=useState('');const [remove,setRemove]=useState(true);const [error,setError]=useState('');
   async function submit(e:React.FormEvent){e.preventDefault();setError('');try{
     if(kind!=='create'&&!source)throw new Error('対象カテゴリを選んでください');
-    let target=tag.trim();if(kind==='tag'){if(!target||target.length>80)throw new Error('タグ名は1〜80文字です');}
+    let target=tag.trim();if(kind==='delete'){target=parent;if(inCategory(target,source))throw new Error('削除するカテゴリ以外を移動先にしてください');}
+    else if(kind==='tag'){if(!target||target.length>80)throw new Error('タグ名は1〜80文字です');}
     else {if(!name.trim()||name.includes('/'))throw new Error('カテゴリ名を入力してください（ / は区切りに使用します）');target=categoryPath(parent+'/'+name);if(target.length>200)throw new Error('カテゴリの階層全体を200文字以内にしてください');if(paths.includes(target))throw new Error('同じカテゴリが存在します');if(kind==='move'&&inCategory(parent,source))throw new Error('自分自身や子カテゴリの下へは移動できません');}
     await onApply({kind,source,target,remove});onClose();
   }catch(err){setError(err instanceof Error?err.message:String(err));}}
   return <div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="category-title"><div className="notes-settings-title"><h2 id="category-title">カテゴリの管理</h2><button disabled={busy} onClick={onClose} aria-label="カテゴリ管理を閉じる"><X size={20}/></button></div>
     <form className="notes-category-form" onSubmit={e=>void submit(e)}><fieldset disabled={busy}>
-      <label>操作<select aria-label="カテゴリの操作" value={kind} onChange={e=>{setKind(e.target.value as typeof kind);setError('');setName(categoryParts(source).at(-1)||'');setParent('');setTag(categoryParts(source).at(-1)||'');}}><option value="create">カテゴリ・子カテゴリを追加</option><option value="move">カテゴリの移動・名前変更</option><option value="tag">カテゴリをタグに変換</option></select></label>
+      <label>操作<select aria-label="カテゴリの操作" value={kind} onChange={e=>{setKind(e.target.value as typeof kind);setError('');setName(categoryParts(source).at(-1)||'');setParent(e.target.value==='move'||e.target.value==='delete'?categoryParts(source).slice(0,-1).join(' / '):initial);setTag(categoryParts(source).at(-1)||'');}}><option value="create">カテゴリ・子カテゴリを追加</option><option value="move">カテゴリの移動・名前変更</option><option value="tag">カテゴリをタグに変換</option><option value="delete">カテゴリを削除（ノートは保持）</option></select></label>
       {kind!=='create'&&<label>対象カテゴリ<select aria-label="対象カテゴリ" value={source} onChange={e=>{setSource(e.target.value);setName(categoryParts(e.target.value).at(-1)||'');setTag(categoryParts(e.target.value).at(-1)||'');}}><option value="">選択してください</option>{paths.map(p=><option key={p}>{p}</option>)}</select></label>}
-      {kind==='tag'?<><label>付けるタグ<input aria-label="変換先のタグ" value={tag} maxLength={80} onChange={e=>setTag(e.target.value)}/></label><label className="notes-check"><input type="checkbox" checked={remove} onChange={e=>setRemove(e.target.checked)}/>変換後に対象カテゴリを外す</label><p>子カテゴリ・ゴミ箱も含むメモにタグを付けます。既存のタグ・本文・添付・元のノートブック情報は保持します。</p></>:<><label>親カテゴリ<select aria-label="親カテゴリ" value={parent} onChange={e=>setParent(e.target.value)}><option value="">最上位</option>{paths.filter(p=>kind!=='move'||!inCategory(p,source)).map(p=><option key={p}>{p}</option>)}</select></label><label>カテゴリ名<input aria-label="新しいカテゴリ名" value={name} maxLength={200} onChange={e=>setName(e.target.value)}/></label>{kind==='move'&&<p>子カテゴリと所属メモをまとめて移動します。</p>}</>}
-      {error&&<p role="alert">{error}</p>}<button className="notes-primary" type="submit">{busy?'保存中…':kind==='tag'?<><Tag size={16}/>タグへ変換</>:'カテゴリを保存'}</button>
+      {kind==='delete'?<><p>選択したカテゴリと子カテゴリを削除し、所属ノートを移動先へ分類します。ノート本文・添付は保持します。</p><label>ノートの移動先<select aria-label="削除後のノート分類" value={parent} onChange={e=>setParent(e.target.value)}><option value="">未分類</option>{paths.filter(p=>!inCategory(p,source)).map(p=><option key={p}>{p}</option>)}</select></label></>:kind==='tag'?<><label>付けるタグ<input aria-label="変換先のタグ" value={tag} maxLength={80} onChange={e=>setTag(e.target.value)}/></label><label className="notes-check"><input type="checkbox" checked={remove} onChange={e=>setRemove(e.target.checked)}/>変換後に対象カテゴリを外す</label><p>子カテゴリ・ゴミ箱も含むメモにタグを付けます。既存のタグ・本文・添付・元のノートブック情報は保持します。</p></>:<><label>親カテゴリ<select aria-label="親カテゴリ" value={parent} onChange={e=>setParent(e.target.value)}><option value="">最上位</option>{paths.filter(p=>kind!=='move'||!inCategory(p,source)).map(p=><option key={p}>{p}</option>)}</select></label><label>カテゴリ名<input aria-label="新しいカテゴリ名" value={name} maxLength={200} onChange={e=>setName(e.target.value)}/></label>{kind==='move'&&<p>子カテゴリと所属メモをまとめて移動します。</p>}</>}
+      {error&&<p role="alert">{error}</p>}<button className="notes-primary" type="submit">{busy?'保存中…':kind==='delete'?'カテゴリを削除（ノートは保持）':kind==='tag'?<><Tag size={16}/>タグへ変換</>:'カテゴリを保存'}</button>
     </fieldset></form>
   </section></div>;
 }

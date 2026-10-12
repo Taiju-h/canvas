@@ -6,7 +6,7 @@ import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
 import { useNotes, type SharedAccess } from '@/lib/use-notes';
-import { api, blankNote, block, cleanHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
+import { api, blankNote, block, cleanHTML, markdownHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
 import { readJex, type JexArchive } from '@/lib/jex';
 import { importJex } from '@/lib/import-jex';
 import { inverseTransformPoint, type Point, type Item } from '@/lib/canvas';
@@ -220,6 +220,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [activeAnchor,setActiveAnchor]=useState<ActiveAnchor|null>(null);const [activeSegment,setActiveSegment]=useState<ActiveAnchor|null>(null);const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
+  const [layerProperties,setLayerProperties]=useState('');
+  const layerImportTarget=useRef<{id:string;docId:string}|null>(null);
+  const layerImageInput=useRef<HTMLInputElement>(null),layerPdfInput=useRef<HTMLInputElement>(null),noteTextInput=useRef<HTMLInputElement>(null);
+  const [layerImportProgress,setLayerImportProgress]=useState('');
   const [advancedOpen,setAdvancedOpen]=useState(()=>preference('kn-note-details','closed')==='open');
   const [canvasDetailsOpen,setCanvasDetailsOpen]=useState(()=>preference('kn-canvas-details','closed')==='open');
   const [includeChildren,setIncludeChildren]=useState(()=>preference('kn-category-descendants','on')!=='off');
@@ -249,7 +253,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [attaching,setAttaching]=useState(false);
   const [trash,setTrash]=useState(false);const [searchScope,setSearchScope]=useState<'all'|'filtered'>('all');
   const [recentSearches,setRecentSearches]=useState<string[]>(()=>{try{return JSON.parse(localStorage.getItem('canvas-search-history')||'[]').filter((v:unknown)=>typeof v==='string').slice(0,12);}catch{return[];}});
-  const [categoryManager,setCategoryManager]=useState(false);const [organizing,setOrganizing]=useState(false);
+  const [categoryManager,setCategoryManager]=useState(false);const [categoryManagerKind,setCategoryManagerKind]=useState<CategoryOperation['kind']>('create');const [organizing,setOrganizing]=useState(false);
   const [workspace,setWorkspace]=useState<OfflineWorkspace>(()=>loadOfflineWorkspace(accountId));
   const workspaceRef=useRef(workspace);workspaceRef.current=workspace;
   const syncingWorkspace=useRef(false);const organizingRef=useRef(false);
@@ -281,6 +285,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     document.addEventListener('keydown',closeEscape);
     return()=>{document.removeEventListener('pointerdown',closeOutside);document.removeEventListener('keydown',closeEscape);};
   },[sidebarMenuOpen]);
+  const [fixedHeight,setFixedHeight]=useState(0);
   const [draft,setDraft]=useState<Point[]>([]);const [sizes,setSizes]=useState<Record<string,number>>({});
   const hoverTimer=useRef<ReturnType<typeof setTimeout>|null>(null);const scroll=useRef<HTMLDivElement>(null);const plane=useRef<HTMLDivElement>(null);const action=useRef<Action|null>(null);
   const fittedViewport=useRef({id:'',width:0});const extent=useRef({id:'',width:1800,height:1400});const suppressClick=useRef(false);
@@ -289,7 +294,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const doc=record?.content;const selectedShape=doc?.items.find(i=>i.id===selected);const selectedStroke=doc?.paintStrokes?.find(i=>i.id===selected);const selectedGraphic:Graphic|undefined=selectedShape||selectedStroke;
   const selectedIds=selected?[...new Set([selected,...multiSelected.filter(id=>!!doc?.items.some(i=>i.id===id)||!!doc?.paintStrokes?.some(i=>i.id===id))])]:[];const studio=doc as StudioNoteDoc|undefined;const meta=doc?.note||{category:'',tags:[]};
   const fixedNote=studio?.fixedNote||{html:'',visible:true,locked:false};const sheet=studio?.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};const sheetHasData=Object.values(sheet.cells||{}).some(value=>String(value).trim()!=='');const sheetForView=sheetPreviewOpen&&!sheet.visible?{...sheet,visible:true}:sheet;const charts=studio?.charts||[];
-  useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setSelected('');setActiveAnchor(null);setActiveSegment(null);setMultiSelected([]);setHoveredShape('');setOverlapItems([]);setOverlapAt(null);setFocus('');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool(sharedAccess?'select':'note');setWorkspaceMode(sharedAccess?'layout':'note');setSheetSelection(undefined);setSheetPreviewOpen(false);const layers=(record.content as StudioNoteDoc).layers;setActiveLayer((sharedAccess?layers.find(l=>(l.studioKind||'canvas')==='layout'&&l.visible&&!l.locked)?.id:undefined)||layers.find(l=>(l.studioKind||'canvas')==='canvas'&&l.visible&&!l.locked)?.id||layers.find(l=>l.visible&&!l.locked)?.id||layers[0]?.id||'');scroll.current?.scrollTo(0,0);},[record?.id]);
+  useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&!record.id.startsWith('local-');previousId.current=record.id;if(promoted)return;setFixedHeight(0);setSelected('');setActiveAnchor(null);setActiveSegment(null);setMultiSelected([]);setHoveredShape('');setOverlapItems([]);setOverlapAt(null);setFocus('');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool(sharedAccess?'select':'note');setWorkspaceMode(sharedAccess?'layout':'note');setSheetSelection(undefined);setSheetPreviewOpen(false);const layers=(record.content as StudioNoteDoc).layers;setActiveLayer((sharedAccess?layers.find(l=>(l.studioKind||'canvas')==='layout'&&l.visible&&!l.locked)?.id:undefined)||layers.find(l=>(l.studioKind||'canvas')==='canvas'&&l.visible&&!l.locked)?.id||layers.find(l=>l.visible&&!l.locked)?.id||layers[0]?.id||'');scroll.current?.scrollTo(0,0);},[record?.id]);
   useEffect(()=>{const fit=()=>{
     const d=current.current;if(!d)return;const viewportWidth=scroll.current?.clientWidth||innerWidth;
     const previous=fittedViewport.current;const promoted=previous.id.startsWith('local-')&&!d.id.startsWith('local-');
@@ -357,7 +362,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   }
   function chooseTool(next:typeof tool){
     if(next!=='sheet'&&workspaceMode==='excel'&&!sheetHasData)setSheetPreviewOpen(false);
-    if(next==='note'||next==='text'){setWorkspaceMode('note');setTool(next);return;}
+    if(next==='note'){setWorkspaceMode('note');setTool(next);return;}
+    if(next==='text'){activateFamily('layout');setTool(next);return;}
     if(next==='sheet'){useSheetLayer();return;}
     if(next==='pen'||next==='eraser'){activateFamily('canvas');setTool(next);setFocus('');return;}
     if(next==='select'||next==='vertex'||next==='magic'||next==='line'||next==='rect'||next==='ellipse'){activateFamily('layout');setTool(next);setFocus('');return;}
@@ -437,9 +443,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(files.length){e.preventDefault();void placeImages(files);return;}
     const text=e.clipboardData.getData('text/plain');if(text.trim()){e.preventDefault();addBlock(escapeHTML(text).replace(/\n/g,'<br>'));}
   }
-  async function placeImages(files:File[]){
+  async function placeImages(files:File[],targetLayerId?:string){
     if(!files.length||attaching||organizing)return;
-    if(workspaceMode==='note'&&imagePlacement==='inline'){
+    if(!targetLayerId&&workspaceMode==='note'&&imagePlacement==='inline'){
       await attach(files);
       return;
     }
@@ -447,7 +453,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     try{
       const r=current.current;if(!r)return;
       let working=r.content as StudioNoteDoc;
-      let layer=writableLayer(working,'layout');
+      let layer=targetLayerId?working.layers.find(l=>l.id===targetLayerId):writableLayer(working,'layout');
+      if(targetLayerId&&(!layer||layer.locked))throw new Error('読み込み先レイヤーが見つからないかロックされています');
       if(!layer){
         layer={id:id32(),name:'レイアウト '+(working.layers.filter(l=>l.studioKind==='layout').length+1),visible:true,locked:false,studioKind:'layout'};
         working={...working,layers:[...working.layers,layer]};
@@ -471,13 +478,67 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         const viewWidth=(scroll.current?.clientWidth||900)/scale;
         if(imageAlign==='center')x=Math.max(40,(viewWidth-w)/2);
         if(imageAlign==='right')x=Math.max(40,viewWidth-w-40);
-        const item:Item={id:id32(),kind:'image',layerId:layer.id,x,y,w,h,color:'#000000',width:1,opacity:1,imageId:localImageId};
+        const item:Item={id:id32(),kind:'image',layerId:layer.id,x,y,w,h,color:'#000000',width:1,opacity:1,imageId:localImageId,keepLayer:!!targetLayerId};
         working={...working,items:[...working.items,item]};y+=40;
       }
-      commit(working as NoteDoc);setSelected(working.items.at(-1)?.id||'');setTool('select');
+      const latest=current.current;if(!latest||latest.id!==notes.resolveId(r.id))throw new Error('読み込み先ノートが切り替わりました');
+      const added=working.items.filter(i=>!r.content.items.some(old=>old.id===i.id));
+      commit({...latest.content,layers:latest.content.layers.some(l=>l.id===layer!.id)?latest.content.layers:[...latest.content.layers,layer],items:[...latest.content.items,...added]} as NoteDoc);setSelected(added.at(-1)?.id||'');setTool('select');
       if(navigator.onLine)void notes.save();
     }catch(err){notes.setError(err instanceof Error?err.message:'画像を配置できません');}
     finally{setAttaching(false);}
+  }
+  function requestLayerImport(kind:'image'|'pdf'|'text'){
+    if(!record)return;layerImportTarget.current={id:layerProperties,docId:record.id};
+    (kind==='image'?layerImageInput:kind==='pdf'?layerPdfInput:noteTextInput).current?.click();
+  }
+  async function importNoteText(file:File){
+    const target=layerImportTarget.current;if(!target)return;
+    setAttaching(true);
+    try{
+      if(file.size>8*1024*1024)throw new Error('テキストの読み込みは8MBまでです');
+      const text=await file.text(),latest=current.current;
+      if(!latest||latest.id!==notes.resolveId(target.docId))throw new Error('読み込み先ノートが切り替わりました');
+      const d=latest.content as StudioNoteDoc,state=d.fixedNote||{html:'',visible:true,locked:false};
+      if(state.locked)throw new Error('ノートレイヤーのロックを解除してください');
+      const html=/\.md$/i.test(file.name)?markdownHTML(text):'<p>'+escapeHTML(text).replace(/\r?\n/g,'<br>')+'</p>';
+      commit({...d,fixedNote:{...state,visible:true,html:state.html+html}} as NoteDoc);await notes.persistPending();setLayerImportProgress('テキストをノート末尾へ追加しました');
+    }catch(error){notes.setError(String(error));}finally{setAttaching(false);}
+  }
+  async function importLayerPdf(file:File){
+    const target=layerImportTarget.current;if(!target)return;setAttaching(true);let done=0;
+    try{
+      const {readPdfPages}=await import('@/lib/pdf-import');
+      const originalId='local-'+id32();let originalSaved=false;
+      await readPdfPages(file,async(blob,page,total)=>{
+        const latest=current.current;if(!latest||latest.id!==notes.resolveId(target.docId))throw new Error('読み込み先ノートが切り替わりました');
+        let d=latest.content as StudioNoteDoc;const layer=d.layers.find(l=>l.id===target.id);if(!layer||layer.locked)throw new Error('読み込み先レイヤーのロックを解除してください');
+        if(!originalSaved){await putLocalImage(originalId,file);originalSaved=true;}
+        const imageId='local-'+id32();await putLocalImage(imageId,blob);
+        const url=URL.createObjectURL(blob);let w=800,h=1100;try{const image=new Image();image.src=url;await image.decode();w=image.naturalWidth;h=image.naturalHeight;}finally{URL.revokeObjectURL(url);}
+        // Re-read after image decoding so simultaneous text edits are preserved.
+        d=current.current!.content as StudioNoteDoc;
+        const item:Item={id:id32(),kind:'image',layerId:layer.id,keepLayer:true,x:80,y:80+(page-1)*1200,w:w*Math.min(1,900/w),h:h*Math.min(1,900/w),imageId,color:'#000000',width:1,opacity:1};
+        const attachments=d.attachments?.some(a=>a.id===originalId)?d.attachments:[...(d.attachments||[]),{id:originalId,name:file.name,mime:'application/pdf',size:file.size,pending:true}];
+        commit({...d,items:[...d.items,item],attachments});await notes.persistPending();done=page;setLayerImportProgress('PDF '+page+' / '+total+'ページを端末に保存しました');
+      });
+      setLayerImportProgress('PDF '+done+'ページと原本を読み込みました');setWorkspaceMode('layout');setTool('select');setActiveLayer(target.id);
+    }catch(error){notes.setError('PDF読み込み：'+String(error)+(done?'（'+done+'ページは端末に保存済み）':''));}
+    finally{setAttaching(false);}
+  }
+  async function exportLayer(kind:'png'|'json'|'txt'|'md'|'docx'){
+    if(!record)return;const d=record.content as StudioNoteDoc;
+    const name=layerProperties==='note'?(d.studioNames?.note||'ノート'):d.layers.find(l=>l.id===layerProperties)?.name||'レイヤー';
+    try{
+      const content:StudioNoteDoc=layerProperties==='note'?{...d,blocks:[],items:[],paintStrokes:[],charts:[]}:{...d,fixedNote:{html:'',visible:false,locked:false},items:d.items.filter(i=>i.layerId===layerProperties),paintStrokes:d.paintStrokes?.filter(i=>i.layerId===layerProperties),blocks:d.blocks?.filter(b=>b.layerId===layerProperties),layers:d.layers.filter(l=>l.id===layerProperties),charts:d.charts?.filter(c=>c.layerId===layerProperties)};
+      const selectedRecord={...record,title:name,content};
+      if(kind==='txt')exportPlain(selectedRecord);
+      else if(kind==='md')download(name+'.md',exportMarkdown(selectedRecord));
+      else if(kind==='docx')await exportDocx(selectedRecord);
+      else if(kind==='json')download(name+'.json',JSON.stringify({format:'kaerunote-layer',version:1,content},null,2),'application/json');
+      else{const area=layerProperties==='note'?document.querySelector<HTMLElement>('.notes-fixed-editor'):scroll.current;
+        if(area)await exportPng(area,name,node=>{const id=node.getAttribute?.('data-layer-id');if(id)return id===layerProperties;return !node.matches?.('.notes-fixed-layer,.notes-sheet-layer,.notes-chart,.notes-overlap-picker,.notes-fine-panel,[data-shape-handle]');});}
+    }catch(error){notes.setError('レイヤー書き出し：'+String(error));}
   }
   function createChart(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!sheetSelection)return;
     const range=sheetSelection.start+(sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:'');const chart:ChartItem={id:id32(),layerId:'graph-root',x:120+(scroll.current?.scrollLeft||0)/scale,y:120+(scroll.current?.scrollTop||0)/scale,w:520,h:310,type:chartType,range,visible:true,locked:false,name:'グラフ '+((d.charts||[]).length+1)};commit({...d,charts:[...(d.charts||[]),chart]} as NoteDoc);setSelected(chart.id);setChartOpen(false);setTool('select');}
@@ -984,7 +1045,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   }
   function gridStyle(d:NoteDoc|undefined){
     const step=d?.gridSpacing||24;
-    return{backgroundImage:d?.grid==='none'?'none':d?.grid==='iso'?'repeating-linear-gradient(30deg,transparent 0,transparent '+(step-1)+'px,#e3dfd5 '+(step-1)+'px,#e3dfd5 '+step+'px),repeating-linear-gradient(150deg,transparent 0,transparent '+(step-1)+'px,#e3dfd5 '+(step-1)+'px,#e3dfd5 '+step+'px)':'linear-gradient(#e3dfd5 1px,transparent 1px),linear-gradient(90deg,#e3dfd5 1px,transparent 1px)',backgroundSize:d?.grid==='iso'?'auto':step+'px '+step+'px'};
+    if(d?.grid==='none')return{backgroundImage:'none'};
+    if(d?.grid==='iso'){
+      const h=step*Math.sqrt(3)/2;
+      const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+step+'" height="'+h*2+'"><path d="M0 0L'+step/2+' '+h+'L'+step+' '+h*2+'M'+step+' 0L'+step/2+' '+h+'L0 '+h*2+'M0 0H'+step+'M0 '+h+'H'+step+'M0 '+h*2+'H'+step+'" fill="none" stroke="#e3dfd5" stroke-width="1"/></svg>';
+      return{backgroundImage:'url("data:image/svg+xml,'+encodeURIComponent(svg)+'")',backgroundSize:step+'px '+h*2+'px'};
+    }
+    return{backgroundImage:'linear-gradient(#e3dfd5 1px,transparent 1px),linear-gradient(90deg,#e3dfd5 1px,transparent 1px)',backgroundSize:step+'px '+step+'px'};
   }
   function snapCanvas(p:Point){
     const d=current.current?.content;if(!d?.snap||d.grid==='none')return p;const step=d.gridSpacing||24;
@@ -1021,7 +1088,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function pressureWidth(base:number,p?:number){const pressure=p&&p>0?p:.5;return Math.max(.8,base*(.38+pressure*1.05));}
   function paintStrokeView(value:PaintStroke){
     const mode=value.brush||'pen',b=graphicBox(value),cx=b.x+b.w/2,cy=b.y+b.h/2;
-    return <g key={value.id} data-stroke={value.id} transform={value.rotation?`rotate(${value.rotation} ${cx} ${cy})`:undefined} opacity={doc?.layers.find(l=>l.id===value.layerId)?.opacity??1} strokeLinecap="round" strokeLinejoin="round" fill="none">
+    return <g key={value.id} data-stroke={value.id} data-layer-id={value.layerId} transform={value.rotation?`rotate(${value.rotation} ${cx} ${cy})`:undefined} opacity={doc?.layers.find(l=>l.id===value.layerId)?.opacity??1} strokeLinecap="round" strokeLinejoin="round" fill="none">
       {mode!=='marker'&&value.points.length>1?
         <g stroke={value.color} opacity={value.opacity}>{value.points.slice(1).map((point,index)=><line key={index} x1={value.points[index].x} y1={value.points[index].y} x2={point.x} y2={point.y} strokeWidth={value.pressure===false?value.width:pressureWidth(value.width,point.p)}/>)}</g>:
         <polyline points={stroke(value.points)} stroke={value.color} strokeWidth={value.width} opacity={value.opacity}/>}
@@ -1062,7 +1129,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         {!!recentSearches.length&&<div className="notes-search-history" aria-label="最近の検索">{recentSearches.map(value=><button key={value} title={value} onClick={()=>{setQuery(value);setSearchScope('all');}}>{value}</button>)}</div>}
         <div className="notes-search-options"><label>検索範囲<select aria-label="検索範囲" value={searchScope} onChange={e=>setSearchScope(e.target.value as 'all'|'filtered')}><option value="all">全カテゴリ横断</option><option value="filtered">選択中のカテゴリ・タグ</option></select></label><small>{trash?'ゴミ箱内を検索':'タイトル・本文・タグ・添付名'} · 空白でAND検索</small></div>
         <div className="notes-navigation"><button className={!trash&&!category?'active':''} onClick={()=>{setTrash(false);setCategory('');setTag('');setQuery('');}}>すべてのメモ <small>{notes.list.filter(n=>!n.note?.trashedAt).length}</small></button><button className={trash?'active':''} onClick={()=>{setTrash(true);setQuery('');setCategory('');setTag('');}}><Trash2 size={15}/>ゴミ箱 <small>{notes.list.filter(n=>n.note?.trashedAt).length}</small></button></div>
-        <CategoryTree paths={categories} notes={notes.list} selected={category} onSelect={navigateCategory} disabled={organizing||importing||attaching} onManage={()=>setCategoryManager(true)}/>
+        <CategoryTree paths={categories} notes={notes.list} selected={category} onSelect={navigateCategory} disabled={organizing||importing||attaching} onManage={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onCreate={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onDelete={()=>{setCategoryManagerKind('delete');setCategoryManager(true);}}/>
         <div className="notes-filters"><label><Tag size={15}/><select aria-label="タグで絞り込み" value={tag} onChange={e=>{setTag(e.target.value);setQuery('');}}><option value="">すべてのタグ</option>{tags.map(t=><option key={t}>{t}</option>)}</select></label></div>
         <div className="notes-count" role="status">{searching?(searchScope==='all'?'横断検索':'絞り込み検索'):trash?'ゴミ箱':category||'すべてのメモ'} · {filtered.length} 件</div>
         <div className="kn-category-list-heading">
@@ -1117,7 +1184,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <small>参照元ノート：{sheetDependents.length}件</small>
             </>}</div>}
           </>}
-          <div className="notes-tool-group notes-inspector-toggle">
+          <div className="notes-tool-group notes-inspector-toggle"><button onClick={()=>setLayerProperties(workspaceMode==='note'?'note':activeLayer)} disabled={!record} title="選択レイヤーの名前・透明度・読み込み・書き出し">プロパティ</button>
             <button className={!relatedPanel&&layersOpen?'active':''} onClick={()=>{setRelatedPanel(false);setLayersOpen(v=>relatedPanel?true:!v);}} title="レイヤーパネルを開閉" aria-expanded={!relatedPanel&&layersOpen}>{!relatedPanel&&layersOpen?<ChevronDown size={15}/>:<ChevronRight size={15}/>} レイヤー</button>
             <button className={relatedPanel?'active':''} onClick={()=>{setRelatedPanel(v=>!v);setLayersOpen(true);}} title="ChatGPTが関連付けたノートを表示">関連ノート</button>
           </div>
@@ -1154,7 +1221,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             </div>}
         </div>}
         {workspaceMode!=='note'&&canvasDetailsOpen&&<div id="kn-editor-details" className="notes-details" role="region" aria-label="Canvas詳細ツール" inert={!!meta.trashedAt||organizing}>
-          {workspaceMode==='canvas'&&!selectedGraphic&&<div className="notes-tool-group"><strong>ペン設定</strong><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label><label><input type="checkbox" checked={inkPressure} onChange={e=>setInkPressure(e.target.checked)}/>筆圧</label></div>}
+          {workspaceMode==='canvas'&&(tool==='pen'||tool==='eraser'||!selectedGraphic)&&<div className="notes-tool-group"><strong>ペン設定</strong><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label><label><input type="checkbox" checked={inkPressure} onChange={e=>setInkPressure(e.target.checked)}/>筆圧</label></div>}
           {selectedGraphic&&<div className="notes-shape-inspector" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',padding:'4px 8px'}}>
             <label>線色 <input type="color" value={/^#[0-9a-f]{6}$/i.test(selectedGraphic.color)?selectedGraphic.color:'#263443'} onChange={e=>editSelectedShape(i=>({...i,color:e.target.value}))}/></label>
             {selectedShape&&<><label>塗り <input type="color" value={selectedShape.fill&&/^#[0-9a-f]{6}$/i.test(selectedShape.fill)?selectedShape.fill:'#ffffff'} onChange={e=>editSelectedShape(i=>({...i,fill:e.target.value}))}/></label>
@@ -1213,7 +1280,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <button className="notes-drawer-handle right" onClick={()=>setDrawer(drawer==='right'?'':'right')}>‹</button>
             <div className={`notes-focus-drawer top ${drawer==='top'?'open':''}`}><ColorStudio color={inkColor} onChange={value=>{setInkColor(value);if(workspaceMode==='note')format('foreColor',value);window.setTimeout(()=>setDrawer(''),850);}}/><div className="notes-focus-drawing-controls"><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label></div></div>
             <div className={`notes-focus-drawer left ${drawer==='left'?'open':''}`}><button onClick={()=>chooseTool('pen')}><Pencil size={20}/><small>ペン</small></button><button onClick={()=>chooseTool('eraser')}><Eraser size={20}/><small>消し</small></button><button onClick={()=>chooseTool('select')}><MousePointer2 size={20}/><small>選択</small></button><button onClick={()=>chooseTool('hand')}><Hand size={20}/><small>移動</small></button></div>
-            <div className={`notes-focus-drawer right ${drawer==='right'?'open':''}`}>{studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}</div>
+            <div className={`notes-focus-drawer right ${drawer==='right'?'open':''}`}>{studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer} onProperties={setLayerProperties}/>}</div>
           </>}
           <nav className="notes-studio-tools" aria-label="制作ツール">
             <button className={'studio-family '+(workspaceMode==='note'?'active':'')} onClick={useNoteLayer} title="ノートレイヤー"><Type size={22}/><small>ノート</small></button>
@@ -1241,14 +1308,14 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           </nav>
           <div className="notes-stage-center">
             <div ref={scroll} className="notes-scroll" onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const files=Array.from(e.dataTransfer.files);const images=files.filter(file=>file.type.startsWith('image/'));if(images.length===files.length&&files.length)void placeImages(images);else void attach(files);}}>
-              {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div className="notes-surface" style={{width:width*scale,height:height*scale}}>
+              {!record?<div className="notes-welcome"><h2>メモを準備しています</h2><p>文章も、手書きも、ここに。</p><button onClick={()=>void createNote()}>新しいメモを作る</button></div>:<div className="notes-surface" style={{width:Math.max(width*scale,scroll.current?.clientWidth||0),height:Math.max(height*scale,fixedHeight)}}>
                 <div ref={plane} className={`notes-plane tool-${tool}`} tabIndex={0} style={{...gridStyle(doc),width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
                   onPasteCapture={pasteWorkspace} onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
                   <SpreadsheetLayer sheet={sheetForView} active={tool==='sheet'} selection={sheetSelection} onChange={updateSheet} onSelect={setSheetSelection}/>
                   <svg className="notes-ink" width={width} height={height}>
                     <defs>{doc?.items.filter(i=>i.kind==='image'&&i.clip).map(i=><clipPath key={i.id} id={'kn-clip-'+i.id} clipPathUnits="userSpaceOnUse"><rect x={i.clip!.x} y={i.clip!.y} width={i.clip!.w} height={i.clip!.h}/></clipPath>)}</defs>
-                    {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><g key={l.id} opacity={l.opacity??1}><LegacyImage docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/></g>)}
-                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(i=><g key={i.id} data-stroke={i.id} stroke={i.color} strokeWidth={i.width} opacity={(i.opacity??1)*(doc.layers.find(l=>l.id===i.layerId)?.opacity??1)} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined} clipPath={i.kind==='image'&&i.clip?'url(#kn-clip-'+i.id+')':undefined}>
+                    {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><g key={l.id} data-layer-id={l.id} opacity={l.opacity??1}><LegacyImage docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/></g>)}
+                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(i=><g key={i.id} data-stroke={i.id} data-layer-id={i.layerId} stroke={i.color} strokeWidth={i.width} opacity={(i.opacity??1)*(doc.layers.find(l=>l.id===i.layerId)?.opacity??1)} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined} clipPath={i.kind==='image'&&i.clip?'url(#kn-clip-'+i.id+')':undefined}>
                       {workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')&&(()=>{
                         const b=shapeBox(i);
                         return i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h} stroke="transparent" strokeWidth={Math.max(16,i.width)} pointerEvents="stroke"/>:
@@ -1312,15 +1379,16 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
                     onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
                 </div>
+                {record&&<FixedNoteLayer docId={record.id} html={fixedNote.html} opacity={fixedNote.opacity??1} width={scroll.current?.clientWidth||innerWidth} viewportHeight={scroll.current?.clientHeight||400} onHeight={setFixedHeight} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
               </div>}
             </div>
-            {record&&<FixedNoteLayer docId={record.id} html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
+
           </div>
           {!focusMode&&workspaceMode==='excel'&&sheetDependents.length>0&&<div className="kn-sheet-dependents" role="region" aria-label="このExcelレイヤーを参照しているノート">
             <strong>このExcelを参照中</strong>
             {sheetDependents.map(d=><button key={d.id} title={d.title} onClick={()=>void notes.open(d.id)}>{d.title}</button>)}
           </div>}
-          {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'layout':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
+          {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'layout':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer} onProperties={setLayerProperties}/>}
           {!focusMode&&layersOpen&&relatedPanel&&<aside className="notes-layer-panel kn-related-panel" aria-label="関連ノート">
             <div className="notes-layer-title"><strong>関連ノート</strong><button onClick={()=>setRelatedPanel(false)} title="レイヤー一覧に戻る">←</button></div>
             {meta.relatedNotes?.length?meta.relatedNotes.map(item=><button key={item.id} onClick={()=>void notes.open(item.id)} title={item.reason}>
@@ -1445,9 +1513,25 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         <div className="notes-dialog-actions"><button onClick={()=>setTableOpen(false)}>キャンセル</button><button className="notes-primary" onClick={applyTable}>適用</button></div>
       </section>
     </div>}
-    {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing||classificationStatus==='syncing'} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
+    {categoryManager&&<CategoryManager paths={categories} initial={category} initialKind={categoryManagerKind} busy={organizing||classificationStatus==='syncing'} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
     {deleteOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">メモをゴミ箱へ移動</h2><p>「{record?.title}」をゴミ箱へ移動します。あとから復元できます。</p><button onClick={()=>setDeleteOpen(false)}>キャンセル</button><button className="notes-primary" onClick={()=>setTrashed(true)}>ゴミ箱へ移動</button></section></div>}
     {chartOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="chart-title"><div className="notes-settings-title"><h2 id="chart-title">グラフを作成</h2><button onClick={()=>setChartOpen(false)} aria-label="閉じる"><X size={18}/></button></div><p>Excelレイヤーで選択した範囲を参照する、グラフレイヤーの子オブジェクトを作成します。元データを変更するとグラフも更新されます。</p><label>種類<select value={chartType} onChange={e=>setChartType(e.target.value as ChartItem['type'])}><option value="bar">棒グラフ</option><option value="line">折れ線グラフ</option><option value="pie">円グラフ</option></select></label><div className="notes-dialog-actions"><button onClick={()=>setChartOpen(false)}>キャンセル</button><button className="notes-primary" onClick={createChart}>作成</button></div></section></div>}
+    {layerProperties&&studio&&<div className="notes-modal"><section className="kn-layer-properties" role="dialog" aria-modal="true" aria-labelledby="layer-properties-title">
+      <div className="notes-settings-title"><h2 id="layer-properties-title">レイヤープロパティ</h2><button onClick={()=>setLayerProperties('')} aria-label="レイヤープロパティを閉じる"><X size={20}/></button></div>
+      {(()=>{const isNote=layerProperties==='note',layer=isNote?{id:'note',name:studio.studioNames?.note||'ノート',...fixedNote}:studio.layers.find(l=>l.id===layerProperties);if(!layer)return <p>レイヤーが見つかりません</p>;
+        const patch=(value:Record<string,unknown>)=>{const d=current.current?.content as StudioNoteDoc;if(isNote){const {name,...properties}=value;commit({...d,studioNames:name?{...d.studioNames,note:String(name)}:d.studioNames,fixedNote:{...d.fixedNote!,...properties}} as NoteDoc);}else commit({...d,layers:d.layers.map(l=>l.id===layerProperties?{...l,...value}:l)});};
+        return <><label>名前<input aria-label="レイヤー名" maxLength={60} value={layer.name} onChange={e=>patch({name:e.target.value})}/></label>
+          <label>不透明度<input aria-label="プロパティの不透明度" type="range" min="0" max="100" value={Math.round((layer.opacity??1)*100)} onChange={e=>patch({opacity:Number(e.target.value)/100})}/><output>{Math.round((layer.opacity??1)*100)}%</output></label>
+          <label><input type="checkbox" checked={layer.visible} onChange={e=>patch({visible:e.target.checked})}/>表示</label><label><input type="checkbox" checked={layer.locked} onChange={e=>patch({locked:e.target.checked})}/>ロック</label>
+          <div className="kn-layer-property-actions"><strong>読み込み</strong>{isNote?<button disabled={attaching||layer.locked} onClick={()=>requestLayerImport('text')}>テキスト読み込み（TXT／MD）</button>:<><button disabled={attaching||layer.locked} onClick={()=>requestLayerImport('image')}>画像読み込み</button><button disabled={attaching||layer.locked} onClick={()=>requestLayerImport('pdf')}>PDF読み込み</button></>}</div>
+          {layerImportProgress&&<p role="status">{layerImportProgress}</p>}
+          <div className="kn-layer-property-actions"><strong>書き出し</strong>{isNote?<><button onClick={()=>void exportLayer('txt')}>TXT</button><button onClick={()=>void exportLayer('md')}>MD</button><button onClick={()=>void exportLayer('docx')}>Word</button></>:<><button disabled={!layer.visible} onClick={()=>void exportLayer('png')}>表示範囲をPNG</button><button onClick={()=>void exportLayer('json')}>配置JSON</button></>}</div>
+          {!isNote&&<small>配置JSONの画像はノート内の参照です。PDFは各ページを画像として配置し、原本も添付に保持します。</small>}
+        </>;})()}
+    </section></div>}
+    <input hidden ref={layerImageInput} type="file" accept="image/*" multiple onChange={e=>{const target=layerImportTarget.current;if(target&&current.current?.id===notes.resolveId(target.docId))void placeImages(Array.from(e.target.files||[]),target.id);e.target.value='';}}/>
+    <input hidden ref={layerPdfInput} type="file" accept="application/pdf,.pdf" onChange={e=>{if(e.target.files?.[0])void importLayerPdf(e.target.files[0]);e.target.value='';}}/>
+    <input hidden ref={noteTextInput} type="file" accept="text/plain,text/markdown,.txt,.md" onChange={e=>{if(e.target.files?.[0])void importNoteText(e.target.files[0]);e.target.value='';}}/>
     <input ref={aiAudioInput} hidden type="file" accept=".flac,.mp3,.mp4,.mpeg,.mpga,.m4a,.ogg,.wav,.webm,audio/*" onChange={e=>{const file=e.target.files?.[0];if(file)void transcribeAudio(file);e.target.value='';}}/>
     <input ref={fileInput} hidden type="file" multiple onChange={e=>{void attach(Array.from(e.target.files||[]));e.target.value='';}}/>
     <input ref={imageInput} hidden type="file" accept="image/*" multiple onChange={e=>{void placeImages(Array.from(e.target.files||[]));e.target.value='';}}/>

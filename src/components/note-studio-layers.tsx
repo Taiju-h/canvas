@@ -8,7 +8,7 @@ import { cleanHTML, type NoteDoc } from '@/lib/notes';
 export type SheetData={visible:boolean;locked:boolean;rows:number;cols:number;cells:Record<string,string>};
 export type ChartItem={id:string;layerId:string;x:number;y:number;w:number;h:number;type:'bar'|'line'|'pie';range:string;title?:string;visible?:boolean;locked?:boolean;name?:string};
 export type StudioLayer=NoteDoc['layers'][number] & {studioKind?:'canvas'|'layout'};
-export type StudioNoteDoc=Omit<NoteDoc,'layers'> & {layers:StudioLayer[];fixedNote?:{html:string;visible:boolean;locked:boolean};sheet?:SheetData;charts?:ChartItem[];studioOrder?:('note'|'canvas'|'layout'|'graph')[];studioNames?:{note?:string;canvas?:string;layout?:string;excel?:string}};
+export type StudioNoteDoc=Omit<NoteDoc,'layers'> & {layers:StudioLayer[];fixedNote?:{html:string;visible:boolean;locked:boolean;opacity?:number};sheet?:SheetData;charts?:ChartItem[];studioOrder?:('note'|'canvas'|'layout'|'graph')[];studioNames?:{note?:string;canvas?:string;layout?:string;excel?:string}};
 
 export type CellRange={start:string;end:string};
 
@@ -27,7 +27,7 @@ export function displayCell(sheet:SheetData,key:string,seen=new Set<string>()):s
   try{const value=Function('"use strict";return ('+expr+')')();return Number.isFinite(value)?String(Math.round(value*1e8)/1e8):'#ERR!';}catch{return '#ERR!';}
 }
 
-export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void}){
+export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,opacity=1,width,viewportHeight,onHeight}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void}){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);
   useEffect(()=>{
     const el=ref.current;if(!el)return;
@@ -49,10 +49,11 @@ export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPast
     void hydrate();
     return()=>{live=false;urls.forEach(URL.revokeObjectURL);};
   },[html,docId,visible]);
+  useEffect(()=>{const el=ref.current;if(!el||!onHeight)return;const measure=()=>onHeight(el.scrollHeight);const observer=new ResizeObserver(measure);observer.observe(el);measure();return()=>observer.disconnect();},[docId,visible,onHeight]);
   if(!visible)return null;
   const emit=()=>{if(locked)return;const el=ref.current;if(el){flowNoteColumns(el);onChange(cleanHTML(el.innerHTML));}};
-  return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー">
-    <div ref={ref} className="notes-fixed-editor" role="textbox" aria-label="固定ノート本文" aria-multiline="true" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
+  return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー" style={{opacity,width}}>
+    <div ref={ref} className="notes-fixed-editor" style={{minHeight:viewportHeight||400}} role="textbox" aria-label="固定ノート本文" aria-multiline="true" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
       onPaste={e=>{e.preventDefault();if(e.clipboardData.files.length){onPaste(Array.from(e.clipboardData.files));return;}
         const html=e.clipboardData.getData('text/html');document.execCommand(html?'insertHTML':'insertText',false,html?cleanHTML(html):e.clipboardData.getData('text/plain'));emit();}}
       data-placeholder="ここは固定ノートです。キャンバスを拡大・縮小しても、この文字は動きません。"
@@ -108,7 +109,7 @@ export function ChartsLayer({sheet,charts,visibleLayers}:{sheet:SheetData;charts
   </div>;})}</>;
 }
 
-export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onNoteTool,onSheetTool}:{doc:StudioNoteDoc;activeLayer:string;onActive:(id:string)=>void;onSelectObject:(id:string,kind:'text'|'chart')=>void;onChange:(next:StudioNoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void}){
+export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onNoteTool,onSheetTool,onProperties}:{doc:StudioNoteDoc;activeLayer:string;onActive:(id:string)=>void;onSelectObject:(id:string,kind:'text'|'chart')=>void;onChange:(next:StudioNoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void;onProperties?:(id:string)=>void}){
   const note=doc.fixedNote||{html:'',visible:true,locked:false};
   const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
   const charts=doc.charts||[];
@@ -146,7 +147,7 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
     className="notes-layer-group-name" value={displayName(kind,options[0])} aria-label="レイヤー種別の表示名"
     title="表示名を変更します。既存データの種類は変わりません"
     onClick={e=>e.stopPropagation()} onChange={e=>renameGroup(kind,e.target.value)}>
-    {options.map(name=><option key={name} value={name}>{name}</option>)}
+    {[...new Set([displayName(kind,options[0]),...options])].map(name=><option key={name} value={name}>{name}</option>)}
   </select>;
 
   const patchLayer=(id:string,patch:Record<string,unknown>)=>onChange({...doc,layers:doc.layers.map(l=>l.id===id?{...l,...patch}:l)});
@@ -175,7 +176,7 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
     if(kind==='note')return <div className="notes-layer-group" key="note">
       <div className="notes-layer-parent-label active-family" onClick={onNoteTool}><strong>▤</strong>{namePicker('note',['ノート','テキスト','ワード'])}<small>文字・文章</small>{groupButtons('note')}</div>
       <div className="notes-layer-children">
-        <div className="notes-layer-child-row"><button className="notes-layer-child" onClick={onNoteTool}><span>固定ノート</span><small>ワープロ</small></button><button onClick={()=>onChange({...doc,fixedNote:{...note,visible:!note.visible}})}>{note.visible?'◉':'○'}</button><button onClick={()=>onChange({...doc,fixedNote:{...note,locked:!note.locked}})}>{note.locked?'🔒':'🔓'}</button></div>
+        <div className="notes-layer-child-row"><button className="notes-layer-child" onClick={onNoteTool}><span>{doc.studioNames?.note||'固定ノート'}</span><small>ワープロ</small></button><button onClick={()=>onChange({...doc,fixedNote:{...note,visible:!note.visible}})}>{note.visible?'◉':'○'}</button><button onClick={()=>onChange({...doc,fixedNote:{...note,locked:!note.locked}})}>{note.locked?'🔒':'🔓'}</button>{onProperties&&<button aria-label="ノートレイヤーのプロパティ" onClick={()=>onProperties('note')}>プロパティ</button>}</div>
 
       </div>
     </div>;
@@ -183,16 +184,16 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
     if(kind==='canvas')return <div className="notes-layer-group" key="canvas">
       <div className="notes-layer-parent-label"><strong>✎ キャンバス</strong><small>手書き・ペン</small>{groupButtons('canvas')}<button className="notes-layer-add" title="キャンバスレイヤーを追加" onClick={()=>addLayer('canvas')}>＋</button></div>
       <div className="notes-layer-list">{canvasLayers.map(layer=><div key={layer.id} className={'notes-layer-row '+(activeLayer===layer.id?'active':'')} onClick={()=>onActive(layer.id)}>
-        <button title="表示" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><span>{layer.name}</span>
-        <button onClick={e=>{e.stopPropagation();moveChild(layer.id,-1);}}>↑</button><button onClick={e=>{e.stopPropagation();moveChild(layer.id,1);}}>↓</button><button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button><button title="名前変更" onClick={e=>{e.stopPropagation();renameLayer(layer.id);}}>✎</button><button title="レイヤーを削除（内容は別レイヤーに移動）" onClick={e=>{e.stopPropagation();removeLayer(layer.id);}}>✕</button>
+        <button title="表示" onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><button className="kn-layer-properties-link" aria-label={layer.name+'のプロパティ'} onClick={e=>{e.stopPropagation();onProperties?.(layer.id);}}>{layer.name}<small>{Math.round((layer.opacity??1)*100)}% · プロパティ</small></button>
+        <button onClick={e=>{e.stopPropagation();moveChild(layer.id,-1);}}>↑</button><button onClick={e=>{e.stopPropagation();moveChild(layer.id,1);}}>↓</button><button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}} title={layer.locked?'ロックを解除':'レイヤーをロック'}>{layer.locked?'🔒':'🔓'}</button><button title="名前変更" onClick={e=>{e.stopPropagation();renameLayer(layer.id);}}>✎</button><button title="レイヤーを削除（内容は別レイヤーに移動）" onClick={e=>{e.stopPropagation();removeLayer(layer.id);}}>✕</button>
       </div>)}{!canvasLayers.length&&<button className="notes-layer-empty-button" onClick={()=>addLayer('canvas')}>＋ キャンバスレイヤー</button>}</div>
     </div>;
 
     if(kind==='layout')return <div className="notes-layer-group" key="layout">
       <div className="notes-layer-parent-label"><strong>◇</strong>{namePicker('layout',['レイアウト','オブジェクト'])}<small>図形・画像・文章ブロック</small>{groupButtons('layout')}<button className="notes-layer-add" title="レイアウトレイヤーを追加" onClick={()=>addLayer('layout')}>＋</button></div>
       <div className="notes-layer-list">{layoutLayers.map(layer=><div key={layer.id} className={'notes-layer-row '+(activeLayer===layer.id?'active':'')} onClick={()=>onActive(layer.id)}>
-        <button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><span>{layer.name}</span>
-        <button onClick={e=>{e.stopPropagation();moveChild(layer.id,-1);}}>↑</button><button onClick={e=>{e.stopPropagation();moveChild(layer.id,1);}}>↓</button><button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}}>{layer.locked?'🔒':'🔓'}</button>
+        <button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{visible:!layer.visible});}}>{layer.visible?'◉':'○'}</button><button className="kn-layer-properties-link" aria-label={layer.name+'のプロパティ'} onClick={e=>{e.stopPropagation();onProperties?.(layer.id);}}>{layer.name}<small>{Math.round((layer.opacity??1)*100)}% · プロパティ</small></button>
+        <button onClick={e=>{e.stopPropagation();moveChild(layer.id,-1);}}>↑</button><button onClick={e=>{e.stopPropagation();moveChild(layer.id,1);}}>↓</button><button onClick={e=>{e.stopPropagation();patchLayer(layer.id,{locked:!layer.locked});}} title={layer.locked?'ロックを解除':'レイヤーをロック'}>{layer.locked?'🔒':'🔓'}</button>
       </div>)}{(doc.blocks||[]).map((block,index)=><button key={block.id} className="notes-layer-child" onClick={()=>onSelectObject(block.id,'text')}><span>テキスト {index+1}</span><small>{cleanHTML(block.html).replace(/<[^>]+>/g,' ').trim().slice(0,22)||'空のテキスト'}</small></button>)}{!layoutLayers.length&&<button className="notes-layer-empty-button" onClick={()=>addLayer('layout')}>＋ レイアウトレイヤー</button>}</div>
     </div>;
 

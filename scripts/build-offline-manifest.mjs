@@ -1,4 +1,4 @@
-import { copyFile, readdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, rm, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -9,8 +9,24 @@ const assets = join(output, "assets");
 const manifest = JSON.parse(await readFile(join(output, ".vite", "manifest.json"), "utf8"));
 const built = new Set(Object.values(manifest).flatMap(entry => [entry.file, ...entry.css || [], ...entry.assets || []])
   .filter(name => name.startsWith("assets/")));
-await Promise.all((await readdir(assets)).filter(name => !built.has("assets/" + name))
-  .map(name => unlink(join(assets, name))));
+// PDF worker support files are part of the same atomic offline/Android bundle.
+const pdfSupport=join(assets,'pdf-support');
+await rm(pdfSupport,{recursive:true,force:true});
+await mkdir(pdfSupport,{recursive:true});
+for(const folder of ['cmaps','standard_fonts','wasm']){
+  await cp(join(root,'node_modules','pdfjs-dist',folder),join(pdfSupport,folder),{recursive:true});
+}
+async function assetFiles(directory,prefix='assets'){
+  const found=[];
+  for(const entry of await readdir(directory,{withFileTypes:true})){
+    const relative=prefix+'/'+entry.name;
+    if(entry.isDirectory())found.push(...await assetFiles(join(directory,entry.name),relative));
+    else found.push(relative);
+  }
+  return found;
+}
+for(const name of await assetFiles(pdfSupport,'assets/pdf-support'))built.add(name);
+await Promise.all((await assetFiles(assets)).filter(name=>!built.has(name)).map(name=>unlink(join(output,name))));
 const files = [...built].sort().map(name => base + name);
 await writeFile(join(output, "offline-assets.json"), JSON.stringify(files));
 const serviceWorker = await readFile(join(root, "public", "sw.js"), "utf8");

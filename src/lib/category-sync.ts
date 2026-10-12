@@ -11,6 +11,7 @@ export function applyClassification(note:Classification,operations:CategoryOpera
   for(const op of operations){
     if(op.kind==='create'||!inCategory(value.category,op.source))continue;
     if(op.kind==='move')value.category=movedCategory(value.category,op.source,op.target);
+    else if(op.kind==='delete')value.category=op.target;
     else{value.tags=[...new Set([...value.tags,op.target])];if(op.remove)value.category='';}
   }
   return value;
