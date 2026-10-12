@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage, saveLocalRevision } from './local-docs';
-import { api, blankNote, id32, indexOf, normalizeNote, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
+import { api, blankNote, id32, indexOf, normalizeNote, uploadAttachment, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
 import { mergeSharedNotes, mergeSharedTitle } from './shared-merge';
 import {inCategory,movedCategory} from './note-organization';
 import type {CategoryOperation} from '../components/note-categories';
@@ -98,6 +98,23 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
             show(next); await persist(next); await deleteLocalDoc(key); key=result.id;
           }
           show(next); await persist(next);
+          const pending=next.content.attachments?.filter(a=>a.pending)||[];
+          if(pending.length){
+            // Mark the local note unsynced before uploading binary. An interrupted
+            // transfer must not strand an apparently saved note without its files.
+            const waiting={...next,dirty:true};show(waiting);await persist(waiting);
+            for(const attachment of pending){
+              const blob=await getLocalImage(attachment.id);
+              if(!blob)throw new Error('添付ファイルの元データが端末にありません：'+attachment.name);
+              await uploadAttachment(key,attachment,blob,undefined,sharedAccess?.token);
+            }
+            const latest=records.current.get(key)||waiting;
+            const updated={...latest,content:{...latest.content,attachments:latest.content.attachments?.map(a=>
+              pending.some(p=>p.id===a.id)?{...a,pending:false}:a)},dirty:true};
+            show(updated);await persist(updated);
+            report('添付ファイルの送信が完了・メモを更新中',key);
+            continue;
+          }
           if(!next.dirty&&!shared)await saveLocalRevision({...next,base:next.content,dirty:!!next.dirty,owner:true,accountId});
           report(next.dirty?'同期待ち':'保存済み',key);
         } catch (err) {
@@ -229,7 +246,16 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
         else if(navigator.onLine&&!target.id.startsWith('local-')) void open(target.id);
       } else if(!active.current) await create();
     })().catch(err=>setError(String(err)));
-    const online=()=>{for(const n of records.current.values())if(n.dirty)void save(n.id);};
+    const online=()=>{
+      void listLocalDocs().then(rows=>{
+        if(!navigator.onLine||shared)return;
+        for(const doc of rows.filter(row=>row.accountId===accountId&&row.dirty)){
+          if(!records.current.has(doc.id))records.current.set(doc.id,{...doc,content:normalizeNote(doc.content)});
+          void save(doc.id);
+        }
+      }).catch(()=>{});
+      for(const n of records.current.values())if(n.dirty)void save(n.id);
+    };
     const before=(e:BeforeUnloadEvent)=>{if([...records.current.values()].some(n=>n.dirty)){e.preventDefault();e.returnValue='';}};
     addEventListener('online',online);addEventListener('beforeunload',before);
     // Near-live changes are pulled without ever replacing a dirty local draft.
