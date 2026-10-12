@@ -19,6 +19,7 @@ function kn_ai_guard(): void
     $history=array_values(array_filter($_SESSION['kn_ai_rate'] ?? [],static fn($t)=>is_int($t)&&$t>$now-60));
     if (count($history)>=6) canvas_json(['error'=>'AI処理は1分間に6回までです'],429);
     $history[]=$now;$_SESSION['kn_ai_rate']=$history;
+    session_write_close(); // Do not block other KaeruNote calls while the AI request runs.
 }
 function kn_ai_request(string $path, array $data, bool $multipart=false): array
 {
@@ -91,6 +92,7 @@ function kn_ai_action(PDO $db,string $actor,string $action): void
     $instruction=$action==='organize'
         ?'以下の日本語メモを整理してください。事実や数値を変えず、見出し・要点・次の作業を短くまとめます。元のメモは上書きせず提案だけ返してください。'
         :'以下のノートと候補のタイトル・分類から、関連が強い候補を最大8件選んでください。必ずJSONのみで {"related":[{"id":"32桁のID","reason":"理由"}]} と返します。根拠が弱い候補は含めないでください。';
+    $allowedRelated=[];
     $candidateText='';
     if ($action==='related'){
         $q=$db->prepare('SELECT id,title,content_json FROM canvas_documents WHERE owner_id=? AND id<>? ORDER BY updated_at DESC LIMIT 150');
@@ -98,6 +100,7 @@ function kn_ai_action(PDO $db,string $actor,string $action): void
         $lines=[];
         foreach($rows as $other){
             $data=json_decode((string)$other['content_json'],true) ?: [];
+            $allowedRelated[$other['id']]=true;
             $category=(string)($data['note']['category'] ?? '');
             $snippet=mb_substr(strip_tags((string)($data['fixedNote']['html'] ?? '')),0,240);
             $lines[]=$other['id'].' / '.mb_substr((string)$other['title'],0,70).' / '.mb_substr($category,0,60).' / '.$snippet;
@@ -119,7 +122,7 @@ function kn_ai_action(PDO $db,string $actor,string $action): void
       foreach(($decoded['related'] ?? []) as $entry){
         if(!is_array($entry))continue;
         $relatedId=(string)($entry['id'] ?? '');
-        if(!preg_match('/^[a-f0-9]{32}$/D',$relatedId))continue;
+        if(!preg_match('/^[a-f0-9]{32}$/D',$relatedId)||!isset($allowedRelated[$relatedId]))continue;
         $listed[]=['id'=>$relatedId,'reason'=>mb_substr((string)($entry['reason'] ?? ''),0,150)];
       }
     }
