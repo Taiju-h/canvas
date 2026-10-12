@@ -1,4 +1,6 @@
 import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
+import {getLocalImage} from '@/lib/local-docs';
+import {fileURL} from '@/lib/notes';
 import { useEffect, useRef, useState } from 'react';
 import { cleanHTML, type NoteDoc } from '@/lib/notes';
 
@@ -24,15 +26,44 @@ export function displayCell(sheet:SheetData,key:string,seen=new Set<string>()):s
   try{const value=Function('"use strict";return ('+expr+')')();return Number.isFinite(value)?String(Math.round(value*1e8)/1e8):'#ERR!';}catch{return '#ERR!';}
 }
 
-export function FixedNoteLayer({html,visible,locked,active,onChange}:{html:string;visible:boolean;locked:boolean;active:boolean;onChange:(html:string)=>void}){
+export function FixedNoteLayer({docId,html,visible,locked,active,onChange}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onChange:(html:string)=>void}){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);
-  useEffect(()=>{const el=ref.current;if(!el)return;const safe=cleanHTML(html);if(document.activeElement!==el&&el.innerHTML!==safe)el.innerHTML=safe;},[html]);
+  useEffect(()=>{
+    const el=ref.current;if(!el)return;
+    const safe=cleanHTML(html);
+    if(document.activeElement!==el&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
+  },[html]);
+  useEffect(()=>{
+    const el=ref.current;if(!el)return;
+    let live=true;const urls:string[]=[];
+    const hydrate=async()=>{
+      for(const image of Array.from(el.querySelectorAll<HTMLImageElement>('img[data-kn-local-image]'))){
+        const imageId=image.dataset.knLocalImage||'';if(!imageId)continue;
+        const blob=await getLocalImage(imageId).catch(()=>undefined);
+        if(!live)return;
+        if(blob){const url=URL.createObjectURL(blob);urls.push(url);image.src=url;}
+        else if(docId&&!docId.startsWith('local-'))image.src=fileURL(docId,imageId);
+      }
+    };
+    void hydrate();
+    return()=>{live=false;urls.forEach(URL.revokeObjectURL);};
+  },[html,docId,visible]);
   if(!visible)return null;
   const emit=()=>{if(locked)return;const el=ref.current;if(el)onChange(cleanHTML(el.innerHTML));};
   return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー">
     <div ref={ref} className="notes-fixed-editor" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
       data-placeholder="ここは固定ノートです。キャンバスを拡大・縮小しても、この文字は動きません。"
-      onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;emit();}} onKeyDown={e=>noteEditorKeyDown(e,emit)} onClick={e=>noteCheckboxClick(e,emit)} onBlur={emit}/>
+      onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;emit();}} onKeyDown={e=>noteEditorKeyDown(e,emit)} onClick={e=>{
+        noteCheckboxClick(e,emit);
+        const link=(e.target as Element).closest<HTMLAnchorElement>('a[data-kn-local-file]');
+        const fileId=link?.dataset.knLocalFile;
+        if(!link||!fileId)return;
+        e.preventDefault();
+        void getLocalImage(fileId).then(blob=>{
+          if(blob){const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=link.textContent||'attachment';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),20000);}
+          else if(docId&&!docId.startsWith('local-'))window.open(fileURL(docId,fileId),'_blank','noopener,noreferrer');
+        });
+      }} onBlur={emit}/>
   </div>;
 }
 
