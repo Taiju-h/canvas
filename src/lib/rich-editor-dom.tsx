@@ -1,3 +1,4 @@
+import type * as React from 'react';
 /** Shared contenteditable behaviour used by both fixed notes and layout text boxes. */
 export function noteEditorKeyDown(event:React.KeyboardEvent<HTMLElement>,emit:()=>void){
   if(event.key!=='Tab')return;
