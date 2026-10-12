@@ -825,24 +825,57 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       <section className="notes-editor">
         <div inert={!!meta.trashedAt||organizing||meta.importState==='pending'} className={`notes-toolbar ${workspaceMode==='note'?'notes-toolbar-word':''} ${meta.importState==='pending'||meta.trashedAt||organizing?'notes-disabled':''}`} role="toolbar" aria-label="編集オプション">
           {workspaceMode==='note'?<>
-            <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
+            <div className="notes-tool-group"><button title="元に戻す" onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button title="やり直す" onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
             <div className="notes-tool-group notes-format" onMouseDown={e=>e.preventDefault()}>
-              <button title="太字" onClick={()=>format('bold')}><Bold size={17}/></button><button title="斜体" onClick={()=>format('italic')}><Italic size={17}/></button>
-              <select aria-label="文字サイズ" defaultValue="3" onChange={e=>format('fontSize',e.target.value)}>
-                <option value="1">10</option><option value="2">12</option><option value="3">16</option><option value="4">20</option><option value="5">28</option><option value="6">36</option><option value="7">48</option>
-              </select>
+              <button title="太字" onClick={()=>format('bold')}><Bold size={17}/></button>
+              <button title="斜体" onClick={()=>format('italic')}><Italic size={17}/></button>
+              <button title="下線" onClick={()=>format('underline')}><Underline size={17}/></button>
+              <button title="文字を小さく" aria-label="文字サイズを小さく" onClick={()=>chooseFont(-1)}>A−</button>
+              <span className="notes-font-step">{[10,12,16,20,28,36,48][fontStep-1]}px</span>
+              <button title="文字を大きく" aria-label="文字サイズを大きく" onClick={()=>chooseFont(1)}>A＋</button>
               <button className="notes-color-button" title="文字色" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>文字色</button>
-              <button title="見出し1" onClick={()=>format('formatBlock','h1')}>H1</button><button title="見出し2" onClick={()=>format('formatBlock','h2')}>H2</button><button title="本文" onClick={()=>format('formatBlock','p')}>本文</button>
-              <button title="箇条書き" onClick={()=>format('insertUnorderedList')}><List size={18}/></button><button title="チェックリスト" onClick={()=>format('insertHTML','<p><input type="checkbox"> やること</p>')}><ListChecks size={18}/></button>
+              <button title="見出し1" onClick={()=>format('formatBlock','h1')}>H1</button><button title="見出し2" onClick={()=>format('formatBlock','h2')}>H2</button>
+              <button title="本文" onClick={()=>format('formatBlock','p')}>本文</button>
+              <label className="notes-bullet-picker" title="箇条書きのマークの大きさ">●
+                <select aria-label="リストのマーク" value={bulletSize} onChange={e=>applyBullets(e.target.value as typeof bulletSize)}>
+                  <option value="large">● 大</option><option value="medium">● 中</option><option value="small">・ 小</option>
+                </select>
+              </label>
+              <button title="選んだマークの箇条書き" onClick={()=>applyBullets(bulletSize)}><List size={18}/></button>
+              <button title="チェックリスト（文字なしで挿入）" onClick={()=>insertRichHTML('<ul class="kn-checklist"><li><input type="checkbox"> <span>&nbsp;</span></li></ul>')}><ListChecks size={18}/></button>
             </div>
-            <div className="notes-tool-group"><button onClick={()=>addBlock()} title="自由配置テキストボックス"><Type size={18}/><span>テキストボックス</span></button><button onClick={()=>fileInput.current?.click()} title="ファイル添付"><Paperclip size={18}/><span>添付</span></button></div>
+            <div className="notes-tool-group notes-note-insert" onMouseDown={e=>e.preventDefault()}>
+              <button title="通常の表を挿入" onClick={()=>openTableSettings('table')}><Table2 size={17}/><span>表</span></button>
+              <button title="段組みの表組みレイアウト" onClick={()=>openTableSettings('columns')}><Columns3 size={17}/><span>表組み</span></button>
+              <button title="ノートにファイルを添付" onClick={()=>fileInput.current?.click()}><Paperclip size={17}/><span>添付</span></button>
+              <button title="ノートの作業エリアを拡大" onClick={toggleFocusMode}><Maximize2 size={17}/></button>
+              <button className={advancedOpen?'active':''} onClick={()=>setAdvancedOpen(x=>!x)} title="高度な書式オプションを開閉" aria-expanded={advancedOpen}><ChevronDown size={16}/><span>詳細</span></button>
+            </div>
+            {advancedOpen&&<div className="notes-tool-group notes-advanced-format" onMouseDown={e=>e.preventDefault()}>
+              <button title="上付き" onClick={()=>format('superscript')}><Superscript size={16}/></button>
+              <button title="下付き" onClick={()=>format('subscript')}><Subscript size={16}/></button>
+              <button title="蛍光ペン（文字背景色）" onClick={()=>format('backColor','#fff170')}><Highlighter size={16}/></button>
+              <button title="手書き風の赤丸" onClick={()=>applyRedMark('circle')}>赤丸</button>
+              <button title="手書き風の赤線" onClick={()=>applyRedMark('underline')}>赤線</button>
+              <button title="手書き風の赤波線" onClick={()=>applyRedMark('wave')}>波線</button>
+              <label>ルビ色<input type="color" value={rubyColor} onChange={e=>setRubyColor(e.target.value)}/></label>
+              <button title="選んだ漢字にルビ。Shiftを押すと前回の読みを使用" onClick={e=>ruby(e.shiftKey)}>ルビ</button>
+            </div>}
+            {tableSelected&&<div className="notes-tool-group notes-table-controls" onMouseDown={e=>e.preventDefault()}>
+              <strong>表の編集</strong>
+              <button title="行を追加" onClick={()=>editTable('row+',lastTable.current,lastCell.current)}>行＋</button>
+              <button title="行を削除" onClick={()=>editTable('row-',lastTable.current,lastCell.current)}>行−</button>
+              <button title="列を追加" onClick={()=>editTable('col+',lastTable.current,lastCell.current)}>列＋</button>
+              <button title="列を削除" onClick={()=>editTable('col-',lastTable.current,lastCell.current)}>列−</button>
+              <button title="最初の表設定を再表示" onClick={()=>openTableSettings('table',true)}>設定</button>
+            </div>}
           </>:<>
             <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
             {(workspaceMode==='canvas')&&<div className="notes-tool-group"><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label></div>}
             {(workspaceMode==='layout')&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
             {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>}</div>}
           </>}
-          <div className="notes-tool-group"><button className={layersOpen?'active':''} onClick={()=>setLayersOpen(v=>!v)} title="レイヤーパネル">レイヤー</button></div>
+          <div className="notes-tool-group"><button className={layersOpen?'active':''} onClick={()=>setLayersOpen(v=>!v)} title="レイヤーパネルを開閉" aria-expanded={layersOpen}>{layersOpen?<ChevronDown size={15}/>:<ChevronLeft size={15}/>} レイヤー</button></div>
         </div>
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
         <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：色・太さ・透明度は上のツールから変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>固定ノート：通常のワープロ入力です。下のキャンバスをズーム・移動しても文字サイズと位置は変わりません。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：キャンバス上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
@@ -1039,6 +1072,22 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           {shareEnabled&&<button disabled={shareBusy} onClick={()=>void revokeShare()}>共有を停止</button>}
         </div>
         <p className="notes-share-footnote">※ リンクの扱いに注意してください。未公開の情報を含む作品は、必要な相手だけに渡してください。</p>
+      </section>
+    </div>}
+    {tableOpen&&<div className="notes-modal" onMouseDown={e=>{if(e.target===e.currentTarget)setTableOpen(false);}}>
+      <section role="dialog" aria-modal="true" aria-labelledby="kn-table-title" className="kn-table-dialog">
+        <div className="notes-settings-title"><h2 id="kn-table-title">{tableOpts.kind==='columns'?'段組み・表組み':'表'}の設定</h2>
+          <button aria-label="閉じる" onClick={()=>setTableOpen(false)}><X size={18}/></button></div>
+        <p>通常の表は行と列にデータを入力します。表組みはレイアウト用で、セルを自由に文章配置に使えます。</p>
+        <label>種類<select value={tableOpts.kind} onChange={e=>setTableOpts(o=>({...o,kind:e.target.value as TableOptions['kind']}))}><option value="table">通常の表</option><option value="columns">段組みレイアウト</option></select></label>
+        <div className="kn-table-options-row"><label>行数<input type="number" min={1} max={20} value={tableOpts.rows} onChange={e=>setTableOpts(o=>({...o,rows:Math.max(1,Math.min(20,Number(e.target.value)||1))}))}/></label>
+          <label>列数<input type="number" min={1} max={12} value={tableOpts.cols} onChange={e=>setTableOpts(o=>({...o,cols:Math.max(1,Math.min(12,Number(e.target.value)||1))}))}/></label>
+          <label>幅（画面％）<input type="number" min={10} max={100} value={tableOpts.width} onChange={e=>setTableOpts(o=>({...o,width:Math.max(10,Math.min(100,Number(e.target.value)||10))}))}/></label></div>
+        <label>横位置<select value={tableOpts.align} onChange={e=>setTableOpts(o=>({...o,align:e.target.value as TableOptions['align']}))}><option value="fit">画面幅にフィット</option><option value="left">左</option><option value="center">中央</option><option value="right">右</option></select></label>
+        <label>高さ<select value={tableOpts.height} onChange={e=>setTableOpts(o=>({...o,height:e.target.value as TableOptions['height']}))}><option value="auto">自動（推奨）</option><option value="fixed">固定（文字が見切れる場合があります）</option></select></label>
+        {tableOpts.height==='fixed'&&<label>高さ（文字の行数）<input type="number" min={1} max={50} value={tableOpts.lines} onChange={e=>setTableOpts(o=>({...o,lines:Math.max(1,Math.min(50,Number(e.target.value)||1))}))}/></label>}
+        <label>文字のあふれ方<select value={tableOpts.flow} onChange={e=>setTableOpts(o=>({...o,flow:e.target.value as TableOptions['flow']}))}><option value="expand">セルを拡張</option><option value="next">次のセルへ（手動移動・自動連結は開発中）</option></select></label>
+        <div className="notes-dialog-actions"><button onClick={()=>setTableOpen(false)}>キャンセル</button><button className="notes-primary" onClick={applyTable}>適用</button></div>
       </section>
     </div>}
     {categoryManager&&<CategoryManager paths={categories} initial={category} busy={organizing} onClose={()=>setCategoryManager(false)} onApply={organize}/>}
