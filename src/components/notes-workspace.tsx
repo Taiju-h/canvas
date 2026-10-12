@@ -4,6 +4,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, FileText, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
+import {WorkspaceContextMenu,type WorkspaceMenuItem} from './workspace-context-menu';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
 import { useNotes, type SharedAccess } from '@/lib/use-notes';
 import { api, blankNote, block, cleanHTML, markdownHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
@@ -213,18 +214,15 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   useEffect(()=>{
     if(!categoryBrowserOpen)return;
     const escape=(event:KeyboardEvent)=>{
-      if(event.key!=='Escape'||document.querySelector('[role="dialog"],.notes-modal'))return;
+      if(event.key!=='Escape'||document.querySelector('[role="dialog"],.notes-modal,.kn-workspace-popup'))return;
       event.preventDefault();collapseCategoryBrowser();
     };
-    const resumeWork=(event:PointerEvent)=>{
-      const target=event.target as Element;
-      if(target.closest('.notes-sidebar,.notes-modal,[role="dialog"]'))return;
-      setCategoryBrowserOpen(false);
-    };
-    document.addEventListener('keydown',escape);document.addEventListener('pointerdown',resumeWork);
-    return()=>{document.removeEventListener('keydown',escape);document.removeEventListener('pointerdown',resumeWork);};
+    document.addEventListener('keydown',escape);
+    return()=>document.removeEventListener('keydown',escape);
   },[categoryBrowserOpen]);
-  const [sidebarAutoClose,setSidebarAutoClose]=useState(()=>{try{return localStorage.getItem('kn-sidebar-autoclose')!=='off';}catch{return true;}});
+  // Manual navigation is the new default, including devices with the old ON preference.
+  const [sidebarAutoClose,setSidebarAutoClose]=useState(()=>preference('kn-navigation-autoclose','off')==='on');
+  const [workspaceMenu,setWorkspaceMenu]=useState<{x:number;y:number;noteId:string;range:Range|null;copyText:string}|null>(null);
   const [relatedPanel,setRelatedPanel]=useState(false);
   const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);
   const [aiConfigured,setAiConfigured]=useState<boolean|null>(null);
@@ -327,7 +325,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     typing.current={id,at:Date.now()};commit({...d,blocks:d.blocks?.map(b=>b.id===id?{...b,html,h:height}:b)},newGroup);}
   function undo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const previous=undoStack.current.pop();if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
   function redo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const next=redoStack.current.pop();if(!d||!next)return;undoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(next);redraw(v=>v+1);}
-  function toggleSidebar(){if(sharedAccess)return;setCategoryBrowserOpen(false);setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
+  function toggleSidebar(){if(sharedAccess)return;setWorkspaceMenu(null);setCategoryBrowserOpen(false);if(focusMode){setFocusMode(false);setLayersOpen(focusRestore.current.layersOpen);setDrawer('');}setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
   useEffect(()=>{
     if(!shareOpen||!record||record.id.startsWith('local-')||sharedAccess)return;
     let mounted=true;
@@ -608,6 +606,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc||action.current||(!e.isPrimary&&e.pointerType==='touch'))return;setSelected(id);setFocus('');typing.current=null;
     action.current={pointerId:e.pointerId,kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
   function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
+    if(e.button===2)return;
     if(action.current||(!e.isPrimary&&e.pointerType==='touch')){e.preventDefault();return;}
     suppressClick.current=false;
     const target=e.target as Element;
@@ -761,6 +760,65 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(id)updateBlock(id,el.innerHTML,el.scrollHeight+54);
     const fixed=el?.closest?.('.notes-fixed-editor') as HTMLElement|null;
     if(fixed)updateFixedNote(fixed.innerHTML);
+  }
+  function openWorkspaceMenu(target:Element,x:number,y:number){
+    const selection=window.getSelection(),root=target.closest<HTMLElement>('.notes-fixed-editor,.note-content');
+    const selectedRange=root&&selection?.rangeCount&&root.contains(selection.getRangeAt(0).commonAncestorContainer)?selection.getRangeAt(0).cloneRange():null;
+    const range=root?.getAttribute('contenteditable')==='true'?selectedRange:null;
+    if(range)formatCaret.current=range.cloneRange();
+    let copyText=selectedRange?.toString()||'';
+    if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement)copyText=target.value.slice(target.selectionStart||0,target.selectionEnd||0);
+    const graphicId=target.closest('[data-stroke]')?.getAttribute('data-stroke');
+    if(graphicId&&!selectedIds.includes(graphicId))selectGraphic(graphicId);
+    setWorkspaceMenu({x,y,noteId:record?.id||'',range,copyText});
+  }
+  async function clipboardWorkspace(action:'copy'|'cut'|'paste'){
+    const menu=workspaceMenu;if(!menu)return;
+    try{
+      // Write first: a rejected clipboard request must never remove local text.
+      if(action!=='paste')await navigator.clipboard.writeText(menu.copyText);
+      const text=action==='paste'?await navigator.clipboard.readText():'';
+      if(action==='copy')return;
+      const latest=current.current;
+      if(!latest||latest.id!==notes.resolveId(menu.noteId)||organizingRef.current||latest.content.note?.trashedAt)throw new Error('編集先が変わりました。もう一度右クリックしてください。');
+      if(menu.range){
+        const node=menu.range.startContainer,element=node instanceof Element?node:node.parentElement;
+        const root=element?.closest<HTMLElement>('.notes-fixed-editor,.note-content');
+        if(!root||!node.isConnected||root.getAttribute('contenteditable')!=='true')throw new Error('入力位置が変わりました。もう一度右クリックしてください。');
+        root.focus();const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(menu.range);formatCaret.current=menu.range;
+        format(action==='cut'?'delete':'insertText',text);
+      }else if(action==='paste'&&tool==='sheet')pasteIntoSheet(text);
+      else if(action==='paste'&&workspaceMode!=='note'&&text)addBlock(escapeHTML(text).replace(/\n/g,'<br>'));
+    }catch(error){notes.setError('クリップボードを利用できません。'+(error instanceof Error?error.message:'キーボードのコピー・貼り付けも使えます。'));}
+  }
+  function workspaceMenuItems():WorkspaceMenuItem[]{
+    const editable=!!doc&&!notes.busy&&!organizing&&!importing&&!attaching&&!meta.trashedAt&&meta.importState!=='pending';
+    const menu=workspaceMenu!;
+    const items:WorkspaceMenuItem[]=[];
+    if(!sharedAccess)items.push(
+      {id:'navigation',label:sidebar?'左メニューを隠す':'左メニューを表示',icon:<PanelLeft size={16}/>,onSelect:toggleSidebar},
+      {id:'categories',label:'カテゴリ・Noteを選ぶ',icon:<Folder size={16}/>,disabled:organizing||importing||attaching,onSelect:()=>{if(focusMode){setFocusMode(false);setLayersOpen(focusRestore.current.layersOpen);}setSidebar(true);setTrash(false);setCategoryBrowserOpen(true);}},
+      {id:'new',label:'このカテゴリに新規Note',icon:<Plus size={16}/>,disabled:!editable,onSelect:()=>void createNote()});
+    if(menu.range||menu.copyText)items.push(
+      {id:'copy',label:'コピー',icon:<Copy size={16}/>,separatorBefore:true,disabled:!menu.copyText,onSelect:()=>void clipboardWorkspace('copy')},
+      {id:'cut',label:'切り取り',disabled:!editable||!menu.range||!menu.copyText,onSelect:()=>void clipboardWorkspace('cut')});
+    if(menu.range||workspaceMode!=='note')items.push({id:'paste',label:'貼り付け',disabled:!editable,onSelect:()=>void clipboardWorkspace('paste')});
+    if(menu.range)items.push({id:'bold',label:'太字',icon:<Bold size={16}/>,disabled:!editable,onSelect:()=>{formatCaret.current=menu.range;format('bold');}});
+    items.push(
+      {id:'undo',label:'元に戻す',icon:<Undo2 size={16}/>,separatorBefore:true,disabled:!editable||!undoStack.current.length,onSelect:undo},
+      {id:'redo',label:'やり直す',icon:<Redo2 size={16}/>,disabled:!editable||!redoStack.current.length,onSelect:redo},
+      {id:'details',label:(workspaceMode==='note'?'Note':'Canvas')+'の詳細'+((workspaceMode==='note'?advancedOpen:canvasDetailsOpen)?'を閉じる':'を表示'),icon:<Settings2 size={16}/>,separatorBefore:true,onSelect:()=>workspaceMode==='note'?setAdvancedOpen(open=>!open):setCanvasDetailsOpen(open=>!open)});
+    if(workspaceMode!=='note')items.push(
+      {id:'pen',label:'ペン',icon:<Pencil size={16}/>,disabled:!editable,onSelect:()=>chooseTool('pen')},
+      {id:'select',label:'図形を選択',icon:<MousePointer2 size={16}/>,disabled:!editable,onSelect:()=>chooseTool('select')},
+      {id:'hand',label:'画面を移動',icon:<Hand size={16}/>,onSelect:()=>chooseTool('hand')},
+      {id:'zoom-in',label:'拡大',icon:<ZoomIn size={16}/>,separatorBefore:true,disabled:scale>=4,onSelect:()=>zoomTo(scale+.1)},
+      {id:'zoom-out',label:'縮小',icon:<ZoomOut size={16}/>,disabled:scale<=.2,onSelect:()=>zoomTo(scale-.1)},
+      {id:'zoom-reset',label:'倍率を100%に戻す',onSelect:()=>zoomTo(1)});
+    if(selectedShape)items.push(
+      {id:'front',label:'選択図形を最前面へ',separatorBefore:true,disabled:!editable||!!doc?.layers.find(layer=>layer.id===selectedShape.layerId)?.locked,onSelect:()=>reorderGraphic('front')},
+      {id:'back',label:'選択図形を最背面へ',disabled:!editable||!!doc?.layers.find(layer=>layer.id===selectedShape.layerId)?.locked,onSelect:()=>reorderGraphic('back')});
+    return items;
   }
   function chooseFont(delta:number){
     const next=Math.max(1,Math.min(7,fontStep+delta));
@@ -977,7 +1035,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
   function navigateCategory(path:string){setCategoryBrowserOpen(true);setCategory(path);setTrash(false);setQuery('');setTag('');}
   function collapseCategoryBrowser(){setCategoryBrowserOpen(false);requestAnimationFrame(()=>document.querySelector<HTMLButtonElement>('.notes-category-open')?.focus({preventScroll:true}));}
-  function finishNoteSelection(){setCategoryBrowserOpen(false);if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus()));}
+  function finishNoteSelection(){if(sidebarAutoClose){setCategoryBrowserOpen(false);setSidebar(false);}requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus()));}
   async function openNote(id:string){(document.activeElement as HTMLElement)?.blur();if(await notes.open(id))finishNoteSelection();}
   async function createNote(){try{(document.activeElement as HTMLElement)?.blur();await notes.persistPending();setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);finishNoteSelection();}catch(error){notes.setError(String(error));}}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
@@ -1128,7 +1186,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       <polyline points={stroke(value.points)} stroke="transparent" strokeWidth={Math.max(18,value.width)} pointerEvents={workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')||tool==='eraser'?'stroke':'none'}/>
     </g>;
   }
-  return <main className={`notes-app ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''}`}>
+  return <main className={`notes-app ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''}`}
+    onPointerDownCapture={event=>{if(event.button===2){event.preventDefault();event.stopPropagation();}}}
+    onContextMenu={event=>{event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
+    {workspaceMenu&&<WorkspaceContextMenu point={workspaceMenu} items={workspaceMenuItems()} onClose={()=>setWorkspaceMenu(null)}/>}
     <header className="notes-header notes-header-compact">
       {!sharedAccess&&<button className="notes-header-icon" onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={19}/></button>}
       <strong className="notes-brand">Kaeru<span>Note</span></strong>
@@ -1146,7 +1207,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       </div>
     </header>
     <div className="notes-layout">
-      {!sharedAccess&&sidebar&&<><button className="notes-sidebar-backdrop" aria-label="メモ一覧を閉じる" onClick={toggleSidebar}/><aside className="notes-sidebar">
+      {!sharedAccess&&sidebar&&<><div className="notes-sidebar-backdrop" aria-hidden="true"/><aside className="notes-sidebar">
         <div className="notes-sidebar-head"><small>MY WORKSPACE</small><div className="notes-sidebar-head-actions">
           <button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button>
           <div className="notes-sidebar-more">
@@ -1271,7 +1332,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           {doc&&doc.layers.find(l=>l.id===activeLayer)&&<div className="notes-tool-group"><strong>レイヤー設定</strong><button onClick={()=>setLayersOpen(true)}>表示・ロック・重なり順</button><label>不透明度<input aria-label="レイヤー不透明度" type="range" min="0" max="100" value={Math.round((doc.layers.find(l=>l.id===activeLayer)?.opacity??1)*100)} onChange={e=>commit({...doc,layers:doc.layers.map(l=>l.id===activeLayer?{...l,opacity:Number(e.target.value)/100}:l)})}/></label></div>}
         </div>}
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
-        <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：太さ・透明度・筆圧は「詳細」で変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>ノートの文字サイズはCanvasのズームとは独立しています。上下スクロールはCanvasと連動します。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：レイアウト上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
+        <div className="notes-context">{!sharedAccess&&<button className="notes-menu-window" aria-label="作業メニューを開閉" aria-expanded={sidebar} onClick={toggleSidebar} title="左メニューを表示／非表示"><PanelLeft size={17}/></button>}<span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：太さ・透明度・筆圧は「詳細」で変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>ノートの文字サイズはCanvasのズームとは独立しています。上下スクロールはCanvasと連動します。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：レイアウト上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
           {workspaceMode==='layout'&&<div className="notes-shape-tools" role="toolbar" aria-label="図形の選択ツール">
             <strong>図形編集 v0.4.2</strong>
             <button className={tool==='select'?'active':''} onClick={()=>chooseTool('select')} title="図形全体を選択して移動・拡縮・回転"><MousePointer2 size={16}/> 黒矢印</button>
@@ -1461,9 +1522,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           <h3>表示と操作</h3>
           <label className="notes-check"><input type="checkbox" checked={sidebarAutoClose} onChange={e=>{
             setSidebarAutoClose(e.target.checked);
-            try{localStorage.setItem('kn-sidebar-autoclose',e.target.checked?'on':'off');}catch{}
+            savePreference('kn-navigation-autoclose',e.target.checked?'on':'off');
           }}/>Noteを開く・新規作成したら左のメニューを自動で閉じる</label>
-          <p>初期設定はONです。OFFにすると複数のメモを連続して選びやすくなります。</p>
+          <p>初期設定はOFFです。左メニューはウインドウマークで、カテゴリ選択は「閉じる」で手動開閉できます。</p>
           <button disabled={offlinePreparing} onClick={()=>void prepareOffline()}>{offlinePreparing?'オフライン準備中…':'すべてのノートと添付を端末に保存'}</button>
           {offlineProgress&&<p role="status">ノート {offlineProgress.done}/{offlineProgress.total}件、添付 {offlineProgress.files}件、未取得 {offlineProgress.errors}件</p>}
           <p>ネット接続中に一度実行すると、端末の容量が許す範囲で全ノート・画像・添付を保存します。保存済みの内容は通信なしで開けます。端末の空き容量とブラウザの保存制限に注意してください。</p>

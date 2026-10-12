@@ -52,7 +52,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  try{
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
   const context=await browser.newContext({viewport:{width:1280,height:950}});const page=await context.newPage();lastPage=page;page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
-  await page.addInitScript(()=>localStorage.setItem('kn-category-browsing:workspace-fixture','open')); // Retired preference must not restore the overlay.
+  await page.addInitScript(()=>{localStorage.setItem('kn-category-browsing:workspace-fixture','open');localStorage.setItem('kn-sidebar-autoclose','on');window.fixtureClipboard='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{if(window.failFixtureClipboard)throw new Error('fixture permission denied');window.fixtureClipboard=text;},readText:async()=>window.fixtureClipboard}});}); // Retired preference must not restore the overlay.
   await page.goto('http://127.0.0.1:5187/canvas/');await page.getByLabel('メモのタイトル',{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
   assert.equal(await page.locator('.notes-category-browser').count(),0,'startup keeps the chooser within the sidebar');
   const inlineList=await page.locator('.notes-list').boundingBox(),inlineSidebar=await page.locator('.notes-sidebar').boundingBox();
@@ -68,8 +68,50 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-category-open'));
   assert.ok(await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).evaluate(n=>n===document.activeElement),'Escape restores focus to the chooser trigger');
   await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await page.getByLabel('メモのタイトル',{exact:true}).click();
-  assert.equal(await page.locator('.notes-category-browser').count(),0,'working outside the chooser folds it automatically');
+  assert.equal(await page.locator('.notes-category-browser').count(),1,'working outside the chooser must not suddenly close it');
   assert.equal(new URL(page.url()).searchParams.get('d'),initialNoteId);assert.equal(await page.locator('.notes-fixed-editor').innerHTML(),initialBody);
+  // Manual is the default even when this device saved the old automatic ON setting.
+  await page.getByRole('region',{name:'選択フォルダのNote一覧'}).locator('.notes-list-item').filter({hasText:'既存ノートB'}).click();
+  await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートB');
+  assert.equal(await page.locator('.notes-category-browser').count(),1,'opening a Note keeps the manual chooser open');
+  await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),0);
+  await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),1);assert.equal(await page.locator('.notes-category-browser').count(),0);
+  const popup=page.getByRole('menu',{name:'作業メニュー',exact:true}),editor=page.locator('.notes-fixed-editor');
+  const selectText=async()=>editor.evaluate(el=>{el.focus();const range=document.createRange();range.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);});
+  const rightText=async()=>{await selectText();await editor.click({button:'right',position:{x:35,y:35}});await popup.waitFor();};
+  await editor.fill('右クリックの文字選択');await rightText();
+  await popup.getByRole('menuitem',{name:'コピー',exact:true}).click();await page.waitForFunction(()=>window.fixtureClipboard==='右クリックの文字選択');
+  await page.evaluate(()=>window.failFixtureClipboard=true);await rightText();await popup.getByRole('menuitem',{name:'切り取り',exact:true}).click();
+  await page.getByText(/クリップボードを利用できません/).waitFor();assert.equal(await editor.innerText(),'右クリックの文字選択','rejected clipboard cut must preserve local text');
+  await page.evaluate(()=>window.failFixtureClipboard=false);await page.getByLabel('通知を閉じる',{exact:true}).click();
+  await rightText();await popup.getByRole('menuitem',{name:'太字',exact:true}).click();assert.ok(await editor.locator('b,strong').count(),'formatting applies to the selection saved before menu focus');
+  await page.evaluate(()=>window.fixtureClipboard='ポップアップから貼り付け');await rightText();await popup.getByRole('menuitem',{name:'貼り付け',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor').textContent==='ポップアップから貼り付け');
+  await rightText();await popup.getByRole('menuitem',{name:'切り取り',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.notes-fixed-editor').textContent);
+  assert.equal(await page.evaluate(()=>window.fixtureClipboard),'ポップアップから貼り付け');
+  await editor.click({button:'right',position:{x:35,y:35}});await popup.getByRole('menuitem',{name:'貼り付け',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor').textContent==='ポップアップから貼り付け');
+  await editor.click({button:'right',position:{x:35,y:35}});await popup.getByRole('menuitem',{name:'Noteの詳細を表示',exact:true}).click();assert.equal(await page.getByRole('region',{name:'ノート詳細ツール'}).count(),1);
+  await editor.click({button:'right',position:{x:35,y:35}});await popup.getByRole('menuitem',{name:'Noteの詳細を閉じる',exact:true}).click();
+  await editor.click({button:'right',position:{x:35,y:35}});await popup.getByRole('menuitem',{name:'左メニューを隠す',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),0);
+  await editor.click({button:'right',position:{x:35,y:35}});await popup.getByRole('menuitem',{name:'カテゴリ・Noteを選ぶ',exact:true}).click();assert.equal(await page.locator('.notes-category-browser').count(),1);
+  const prevented=await page.locator('.notes-header input').evaluate(el=>{const event=new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:450,clientY:28,button:2});el.dispatchEvent(event);return event.defaultPrevented;});assert.ok(prevented,'native browser context menu is replaced');
+  await popup.waitFor();await page.keyboard.press('End');assert.ok(await popup.getByRole('menuitem').last().evaluate(n=>n===document.activeElement));await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');assert.ok(await popup.getByRole('menuitem').nth(1).evaluate(n=>n===document.activeElement));
+  await page.keyboard.press('Escape');assert.equal(await popup.count(),0);assert.equal(await page.locator('.notes-category-browser').count(),1,'dismissing the context popup does not dismiss navigation');
+  await page.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).click();
+  await page.getByTitle('キャンバスレイヤー',{exact:true}).click();
+  const strokesBefore=await page.locator('.notes-ink [data-stroke]').count();
+  const stageBounds=await page.locator('.notes-stage-center').boundingBox();await page.mouse.click(stageBounds.x+100,stageBounds.y+150,{button:'right'});await popup.waitFor();
+  assert.equal(await page.locator('.notes-ink [data-stroke]').count(),strokesBefore,'right-click in pen mode must not draw a stroke');
+  await popup.getByRole('menuitem',{name:'Canvasの詳細を表示',exact:true}).click();assert.equal(await page.getByRole('region',{name:'Canvas詳細ツール'}).count(),1);
+  await page.mouse.click(1274,943,{button:'right'});await popup.waitFor();const popupBounds=await popup.boundingBox();
+  assert.ok(popupBounds.x>=0&&popupBounds.y>=0&&popupBounds.x+popupBounds.width<=1280&&popupBounds.y+popupBounds.height<=950,'context popup stays within the viewport near bottom/right edges');
+  await page.screenshot({path:'/tmp/kaeru-workspace-context-menu.png'});await page.keyboard.press('Escape');
+  await page.getByLabel('Canvasの詳細',{exact:true}).click();assert.equal(await page.getByRole('region',{name:'Canvas詳細ツール'}).count(),0); // Leave the later detail-opening test at its original starting state.
+  await page.getByTitle('ノートレイヤー',{exact:true}).click();await page.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
+  // Automatic closing is still available only after an explicit opt-in.
+  await page.getByLabel('環境設定と書き出し',{exact:true}).click();
+  await page.getByLabel('Noteを開く・新規作成したら左のメニューを自動で閉じる',{exact:true}).check();
+  await page.getByLabel('環境設定と書き出し',{exact:true}).click();
   const pick=async category=>{if(!await page.locator('.notes-category-browser').count())await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();const row=page.locator('[data-category-path='+JSON.stringify(category)+']');await row.scrollIntoViewIfNeeded();const b=await row.boundingBox();await page.mouse.move(b.x+8,b.y+b.height/2);await page.waitForTimeout(240);await row.click();await page.mouse.move(900,40);};
   for(const category of ['仕事','仕事 / 開発','仕事 / 開発 / KaeruNote']){await pick(category);assert.equal(await page.locator('.notes-sidebar').count(),1,'category must not close sidebar');}
   const chooser=page.locator('.notes-category-browser'),filePane=page.getByRole('region',{name:'選択フォルダのNote一覧'});
@@ -181,7 +223,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await mp.addInitScript(()=>{localStorage.setItem('kn-sidebar-autoclose','off');localStorage.setItem('kn-note-details','open');});
   await mp.goto('http://127.0.0.1:5187/canvas/');await mp.getByLabel('メモ一覧を開く',{exact:true}).click();await mp.locator('.notes-list-item').first().click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).waitFor();
-  assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'opening a note returns the borrowed workspace even with sidebar auto-close off');
+  assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'opening an inline Note does not expand the chooser');
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await mp.locator('.notes-category-cascade-stage').waitFor();
   await mp.getByRole('region',{name:'選択フォルダのNote一覧'}).waitFor();
   await mp.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).tap();
@@ -191,9 +233,11 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.ok(mobileCreate.x>=0&&mobileCreate.x+mobileCreate.width<=390&&mobileCreate.y+mobileCreate.height<=mobileChooser.y+mobileChooser.height,'touch users can reach new Note within the chooser');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile-picker.png'});
   const categoryBounds=await mp.locator('.notes-category-cascade-stage').boundingBox();assert.ok(categoryBounds.x+categoryBounds.width<=390-15,'category browser fits the mobile viewport');
-  await mp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
+  const mobilePreviousId=new URL(mp.url()).searchParams.get('d');await mp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).click();await mp.waitForFunction(id=>new URL(location.href).searchParams.get('d')!==id,mobilePreviousId);assert.equal(await mp.locator('.notes-sidebar').count(),1);
+  assert.equal(await mp.locator('.notes-category-browser').count(),1,'manual creation leaves the chooser open');
+  await mp.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).tap();
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).waitFor();
-  assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'creating a note returns the borrowed workspace');
+  assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'manual close returns the borrowed workspace');
   await mp.getByLabel('サイドバーを閉じる',{exact:true}).click();await mp.getByLabel('ノートの詳細',{exact:true}).waitFor();
   const bounds=await mp.getByLabel('ノートの詳細',{exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391,'detail button within mobile width');const ribbon=await mp.locator('.notes-basic-ribbon').boundingBox();assert.ok(bounds.y>=ribbon.y&&bounds.y+bounds.height<=ribbon.y+ribbon.height,'detail stays visible outside the scrolling basic controls');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile.png'});
@@ -219,7 +263,9 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(new URL(tp.url()).searchParams.get('d'),tabletNoteId,'restoring files keeps the current Note');
   await tp.screenshot({path:'/tmp/kaeru-workspace-tablet-picker.png'});
   await tp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).tap();
-  await tp.waitForFunction(()=>!document.querySelector('.notes-sidebar'));
+  await tp.waitForFunction(id=>new URL(location.href).searchParams.get('d')!==id,tabletNoteId);
+  assert.equal(await tp.locator('.notes-category-browser').count(),1);
+  await tp.getByRole('button',{name:'作業メニューを開閉',exact:true}).tap();assert.equal(await tp.locator('.notes-sidebar').count(),0);
   await tablet.close();
   const bridgeContext=await browser.newContext({viewport:{width:1100,height:850}});const bp=await bridgeContext.newPage();lastPage=bp;
   await bp.addInitScript(()=>{window.updateCalls={download:0,activate:0};window.CanvasApp={applyWebUpdate:()=>{window.updateCalls.download++;dispatchEvent(new CustomEvent('canvas-update-ready'));},activateWebUpdate:()=>window.updateCalls.activate++,confirmWebUpdate:()=>{}};});
