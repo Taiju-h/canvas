@@ -11,7 +11,7 @@ import { importJex } from '@/lib/import-jex';
 import { inverseTransformPoint, type Point, type Item } from '@/lib/canvas';
 import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, type CellRange, type ChartItem, type SheetData, type StudioNoteDoc } from './note-studio-layers';
 import '../notes.css';
-import { getLocalImage, getLocalDoc, putLocalImage } from '@/lib/local-docs';
+import { getLocalImage, getLocalDoc, putLocalImage, listLocalDocs } from '@/lib/local-docs';
 import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
 import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
 import {listLocalRevisions,type LocalRevision} from '@/lib/local-docs';
@@ -772,8 +772,37 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       let paths=categoryPaths(server.categories);
       for(const op of first.pending)paths=locallyApplyCategory(paths,op);
       if(paths.some(p=>p.length>200)||paths.length>2000)throw new Error('カテゴリの容量上限を超えています');
+      // Apply queued moves/tags to remote notes that were NOT edited locally.
+      // Dirty local notes carry their own metadata changes and use the normal
+      // document save path, avoiding overwriting unsynced offline work.
+      const locallyDirty=new Set((await listLocalDocs()).filter(n=>n.accountId===accountId&&n.dirty).map(n=>n.id));
+      const remoteRows:import('@/lib/notes').NoteIndex[]=[];
+      for(let offset=0;offset<5000;offset+=100){
+        const response=await fetch('/canvas/api.php?path='+encodeURIComponent('/api/notes-index')+'&offset='+offset,
+          {credentials:'same-origin',cache:'no-store'});
+        if(!response.ok)throw new Error('分類同期のためのメモ一覧を取得できません');
+        const page=await response.json() as {documents:import('@/lib/notes').NoteIndex[];hasMore:boolean};
+        remoteRows.push(...page.documents);
+        if(!page.hasMore)break;
+      }
+      const updates:{id:string;revision:number;category:string;tags:string[]}[]=[];
+      for(const row of remoteRows){
+        if(locallyDirty.has(row.id))continue;
+        let category=row.note?.category||'',tags=row.note?.tags||[];
+        for(const op of first.pending){
+          if(op.kind==='move'&&inCategory(category,op.source))category=movedCategory(category,op.source,op.target);
+          if(op.kind==='tag'&&inCategory(category,op.source)){
+            tags=[...new Set([...tags,op.target])];if(op.remove)category='';
+          }
+        }
+        if(category!==(row.note?.category||'')||tags.join('\u001f')!==(row.note?.tags||[]).join('\u001f'))
+          updates.push({id:row.id,revision:row.revision,category,tags});
+      }
       const synced=await(await api('/api/note-workspace',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({revision:server.revision,categories:paths,updates:[]})})).json() as {categories:string[];revision:number};
+        body:JSON.stringify({revision:server.revision,categories:paths,updates})})).json() as {
+        categories:string[];revision:number;changed:{id:string;revision:number;updated_at:number;note:NoteMeta}[]
+      };
+      if(synced.changed?.length)await notes.acceptMetadata(synced.changed);
       const current=workspaceRef.current;
       const remaining=current.pending.slice(first.pending.length);
       // Operations added while syncing remain in the queue and on the display.
