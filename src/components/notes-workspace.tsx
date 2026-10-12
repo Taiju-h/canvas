@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
+import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
@@ -214,6 +214,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [tableOpen,setTableOpen]=useState(false);
   const [tableSelected,setTableSelected]=useState(false);
   const savedCaret=useRef<Range|null>(null);
+  const editingTable=useRef(false);
   const lastTable=useRef<HTMLTableElement|null>(null);
   const lastCell=useRef<HTMLTableCellElement|null>(null);
   const [tableOpts,setTableOpts]=useState<TableOptions>({kind:'table',rows:3,cols:3,width:100,align:'fit',height:'auto',lines:4,flow:'expand'});
@@ -675,6 +676,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     list.closest('.notes-fixed-editor,.note-content')?.dispatchEvent(new Event('input',{bubbles:true}));
   }
   function openTableSettings(kind:'table'|'columns',edit=false){
+    editingTable.current=edit;
     const selection=window.getSelection();
     savedCaret.current=selection?.rangeCount&&selectedNoteRoot()?selection.getRangeAt(0).cloneRange():null;
     const table=edit?(currentTable()||lastTable.current):null;
@@ -698,10 +700,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       selection.removeAllRanges();selection.addRange(savedCaret.current);
     }
     const current=lastTable.current;
-    if(current&&current.isConnected&&tableSelected){
+    if(editingTable.current&&current&&current.isConnected){
       setTableOptions(current,tableOpts);
     }else insertRichHTML(tableMarkup(tableOpts));
-    savedCaret.current=null;setTableOpen(false);
+    editingTable.current=false;savedCaret.current=null;setTableOpen(false);
   }
   useEffect(()=>{
     const onSelect=()=>{
@@ -1017,7 +1019,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button role="menuitem" onClick={()=>{setSidebarMenuOpen(false);setSettings(true);}}><Settings2 size={16}/>メモの整理・設定</button>
             </div>}
           </div>
-          <button className="notes-sidebar-close" onClick={()=>{setSidebarMenuOpen(false);toggleSidebar();}} aria-label="サイドバーを閉じる" title="閉じる"><X size={20}/></button>
+          <button className="notes-sidebar-close" onClick={()=>{setSidebarMenuOpen(false);toggleSidebar();}} aria-label="サイドバーを閉じる" title="左のメニューを閉じる"><ChevronLeft size={20}/></button>
         </div></div>
         <label className="notes-search"><Search size={17}/><input ref={searchInput} placeholder="全メモの本文・タグを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)} onBlur={()=>rememberSearch()} onKeyDown={e=>{if(e.key==='Enter')rememberSearch();}}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
         {!!recentSearches.length&&<div className="notes-search-history" aria-label="最近の検索">{recentSearches.map(value=><button key={value} title={value} onClick={()=>{setQuery(value);setSearchScope('all');}}>{value}</button>)}</div>}
@@ -1099,7 +1101,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             </>}</div>}
           </>}
           <div className="notes-tool-group notes-inspector-toggle">
-            <button className={!relatedPanel&&layersOpen?'active':''} onClick={()=>{setRelatedPanel(false);setLayersOpen(v=>relatedPanel?true:!v);}} title="レイヤーパネルを開閉" aria-expanded={!relatedPanel&&layersOpen}>{!relatedPanel&&layersOpen?<ChevronDown size={15}/>:<ChevronLeft size={15}/>} レイヤー</button>
+            <button className={!relatedPanel&&layersOpen?'active':''} onClick={()=>{setRelatedPanel(false);setLayersOpen(v=>relatedPanel?true:!v);}} title="レイヤーパネルを開閉" aria-expanded={!relatedPanel&&layersOpen}>{!relatedPanel&&layersOpen?<ChevronDown size={15}/>:<ChevronRight size={15}/>} レイヤー</button>
             <button className={relatedPanel?'active':''} onClick={()=>{setRelatedPanel(v=>!v);setLayersOpen(true);}} title="ChatGPTが関連付けたノートを表示">関連ノート</button>
           </div>
         </div>
