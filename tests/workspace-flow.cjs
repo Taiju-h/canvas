@@ -53,11 +53,11 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
   const context=await browser.newContext({viewport:{width:1280,height:950}});const page=await context.newPage();lastPage=page;page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await page.goto('http://127.0.0.1:5187/canvas/');await page.getByLabel('メモのタイトル',{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
-  const pick=async category=>{await page.locator('[data-category-path='+JSON.stringify(category)+']').click();await page.mouse.move(900,40);};
+  const pick=async category=>{const row=page.locator('[data-category-path='+JSON.stringify(category)+']');await row.scrollIntoViewIfNeeded();const b=await row.boundingBox();await page.mouse.move(b.x+8,b.y+b.height/2);await page.waitForTimeout(240);await row.click();await page.mouse.move(900,40);};
   for(const category of ['仕事','仕事 / 開発','仕事 / 開発 / KaeruNote']){await pick(category);assert.equal(await page.locator('.notes-sidebar').count(),1,'category must not close sidebar');}
   const chooser=page.locator('.notes-category-browser'),filePane=page.getByRole('region',{name:'選択フォルダのNote一覧'});
   const folders=await page.locator('.notes-category-cascade-stage').boundingBox(),files=await filePane.boundingBox();
-  assert.ok(files.x>=folders.x+folders.width-1,'Note list is beside the chosen folders, not below the sidebar');
+  assert.ok(files.x>folders.x&&files.x<folders.x+folders.width&&files.width>=500,'Note sheet overlaps folders while leaving readable files');
   await pick('仕事 / 開発 / KaeruNote / 子');await filePane.getByRole('heading',{name:'子',exact:true}).waitFor();
   assert.equal(await filePane.locator('.notes-list-item').count(),1);assert.ok(await filePane.innerText().then(t=>t.includes('子カテゴリのノート')));
   const createBounds=await filePane.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).boundingBox(),chooserBounds=await chooser.boundingBox();
@@ -65,7 +65,17 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.screenshot({path:'/tmp/kaeru-workspace-folder-picker.png'});
   const parentPane=await page.locator('.notes-category-multi-pane').nth(1).boundingBox();
   await page.mouse.move(parentPane.x+5,parentPane.y+65);await page.waitForTimeout(240);
-  assert.equal(await filePane.locator('.notes-list-item').count(),1,'previewing a parent does not cover or replace the selected folder files');
+  assert.equal(await filePane.locator('.notes-list-item').count(),1,'parent preview preserves the selected folder files');
+  const raisedParent=await page.locator('.notes-category-multi-pane').nth(1).boundingBox();
+  assert.ok(raisedParent.x+raisedParent.width>files.x+files.width*.7,'second folder sheet reaches across the third sheet and files');
+  assert.ok(raisedParent.width>folders.width*.65,'raised parent has room for readable folder names');
+  assert.ok(await page.locator('.notes-category-multi-pane').nth(1).evaluate(n=>getComputedStyle(n).backgroundColor==='rgb(250, 246, 237)'),'folder uses the warm app palette');
+  await page.screenshot({path:'/tmp/kaeru-workspace-folder-parent.png'});
+  const fileEdge=await filePane.boundingBox();
+  await page.mouse.move(fileEdge.x+fileEdge.width-12,fileEdge.y+65);await page.waitForTimeout(240);
+  assert.ok(await page.locator('.notes-category-files-layer').evaluate(n=>n.classList.contains('is-front')),'right edge restores the files');
+  assert.equal(await filePane.locator('.notes-list-item').count(),1);
+  await page.screenshot({path:'/tmp/kaeru-workspace-folder-files-restored.png'});
   await filePane.locator('.notes-list-item').filter({hasText:'子カテゴリのノート'}).click();
   await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='子カテゴリのノート'&&!document.querySelector('.notes-sidebar'));
   await page.getByLabel('メモ一覧を開く',{exact:true}).click();
