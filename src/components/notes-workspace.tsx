@@ -987,8 +987,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       }
       const rows:Classification[]=remoteRows.map(row=>({id:row.id,title:row.title,revision:row.revision,category:row.note?.category||'',tags:row.note?.tags||[]}));
       const snapshot={...server,categories:categoryPaths([...server.categories,...rows.map(row=>row.category)])};
-      const planned=planCategorySync(first,snapshot,rows);
-      const fingerprint=JSON.stringify({revision:server.revision,rows:rows.map(r=>[r.id,r.category,r.tags]),pending:first.pending});
+      const localRows=(await listLocalDocs()).filter(n=>n.accountId===accountId&&n.dirty).map(n=>({id:n.id,title:n.title,revision:n.revision,category:(n.content as NoteDoc).note?.category||'',tags:(n.content as NoteDoc).note?.tags||[]}));
+      const planned=planCategorySync(first,snapshot,rows,localRows);
+      const fingerprint=JSON.stringify({revision:server.revision,rows:[...rows].sort((a,b)=>a.id.localeCompare(b.id)).map(r=>[r.id,r.category,r.tags]),pending:first.pending,local:[...localRows].sort((a,b)=>a.id.localeCompare(b.id)).map(r=>[r.id,r.category,r.tags])});
       // A choice only applies to the exact remote classification the user saw.
       if(planned.conflicts.length&&(!first.resolution||first.conflictFingerprint!==fingerprint)){
         updateWorkspace({...workspaceRef.current,conflicts:planned.conflicts,resolution:undefined,conflictFingerprint:fingerprint});setClassificationStatus('conflict');return;
@@ -1034,6 +1035,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       const updated:OfflineWorkspace={...previous,categories:next,pending:[...previous.pending,op],updatedAt:Date.now(),conflicts:undefined,resolution:undefined,conflictFingerprint:undefined,baseCategories:previous.pending.length?previous.baseCategories:existing,baseNotes:previous.pending.length?previous.baseNotes:notes.list.map(row=>({id:row.id,title:row.title,revision:row.revision,category:row.note?.category||'',tags:row.note?.tags||[]}))};
       updateWorkspace(updated);setClassificationStatus('pending');
       await notes.settleSaves();
+      const settled=workspaceRef.current;updateWorkspace({...settled,baseNotes:settled.baseNotes?.map(n=>({...n,id:notes.resolveId(n.id)}))});
       if(op.kind!=='create')await notes.applyOfflineCategory(op);
       navigateCategory(op.kind==='tag'?'':op.target);
       if(op.kind==='tag')setTag(op.target);

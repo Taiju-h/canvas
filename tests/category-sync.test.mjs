@@ -72,3 +72,10 @@ test('category deletion keeps notes and tags, assigning the selected surviving p
  const plan=planCategorySync(deleting,{categories:[...state.baseCategories,'家庭'],revision:1},[row]);
  assert.equal(plan.conflicts.length,0);assert.equal(plan.updates[0].category,'仕事');assert.ok(plan.categories.includes('家庭'));assert.ok(!plan.categories.includes('仕事 / 開発'));
 });
+test('manual classification edits made while the queue is pending are preserved',()=>{
+ const local={...row,category:'手動で指定した分類',tags:['手動タグ']};
+ const plan=planCategorySync(state,{categories:state.baseCategories,revision:1},[row],[local]);
+ assert.equal(plan.conflicts.length,0);assert.equal(plan.updates[0].category,local.category);assert.deepEqual(plan.updates[0].tags,local.tags);
+ const competing=planCategorySync(state,{categories:state.baseCategories,revision:2},[{...row,category:'他端末'}],[local]);
+ assert.ok(competing.conflicts.some(c=>c.local.includes(local.category)));
+});

@@ -103,7 +103,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.getByLabel('レイヤープロパティを閉じる',{exact:true}).click();
 
   // No network is needed to switch cached notes or create categories.
-  await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを管理',exact:true}).click();
+  if(!await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを管理',exact:true}).click();
   await page.getByLabel('カテゴリの操作').selectOption('move');await page.getByLabel('対象カテゴリ',{exact:true}).selectOption('仕事 / 開発 / KaeruNote');await page.getByLabel('新しいカテゴリ名',{exact:true}).fill('復旧テスト');await page.getByRole('button',{name:'カテゴリを保存',exact:true}).click();
   const pending=await page.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')));assert.equal(pending.pending.length,1);assert.ok(pending.baseNotes.length);
   // Competing remote metadata becomes a persistent choice, never a reload instruction.
