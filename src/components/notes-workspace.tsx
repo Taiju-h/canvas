@@ -200,6 +200,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [fontStep,setFontStep]=useState(3);
   const [bulletSize,setBulletSize]=useState<'large'|'medium'|'small'>('large');
   const [rubyColor,setRubyColor]=useState('#9d5b30');
+  const [imagePlacement,setImagePlacement]=useState<'inline'|'overlay'>('inline');
+  const [imageAlign,setImageAlign]=useState<'left'|'center'|'right'>('left');
   const [tableOpen,setTableOpen]=useState(false);
   const [tableSelected,setTableSelected]=useState(false);
   const lastTable=useRef<HTMLTableElement|null>(null);
@@ -379,17 +381,47 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(files.length){e.preventDefault();void placeImages(files);return;}
     const text=e.clipboardData.getData('text/plain');if(text.trim()){e.preventDefault();addBlock(escapeHTML(text).replace(/\n/g,'<br>'));}
   }
-  async function placeImages(files:File[]){if(!files.length||attaching||organizing)return;setAttaching(true);
-    try{await notes.save();const r=current.current;if(!r||r.id.startsWith('local-'))throw new Error('画像配置にはサーバーへの接続が必要です');let working=r.content as StudioNoteDoc;
-      let layer=writableLayer(working,'layout');if(!layer){const id=id32();layer={id,name:'レイアウト '+(working.layers.filter(l=>l.studioKind==='layout').length+1),visible:true,locked:false,studioKind:'layout'};working={...working,layers:[...working.layers,layer]};}setActiveLayer(layer.id);setWorkspaceMode('layout');
+  async function placeImages(files:File[]){
+    if(!files.length||attaching||organizing)return;
+    if(workspaceMode==='note'&&imagePlacement==='inline'){
+      await attach(files);
+      return;
+    }
+    setAttaching(true);
+    try{
+      const r=current.current;if(!r)return;
+      let working=r.content as StudioNoteDoc;
+      let layer=writableLayer(working,'layout');
+      if(!layer){
+        layer={id:id32(),name:'レイアウト '+(working.layers.filter(l=>l.studioKind==='layout').length+1),visible:true,locked:false,studioKind:'layout'};
+        working={...working,layers:[...working.layers,layer]};
+      }
+      setActiveLayer(layer.id);setWorkspaceMode('layout');
       let x=100+(scroll.current?.scrollLeft||0)/scale,y=100+(scroll.current?.scrollTop||0)/scale;
-      for(const file of files){if(!file.type.startsWith('image/'))continue;if(file.size===0||file.size>512*1024*1024)throw new Error('画像は1バイト～512MBです');
-        const a:Attachment={id:id32(),name:file.name,mime:file.type||'image/*',size:file.size};await uploadAttachment(r.id,a,file,undefined,sharedAccess?.token);
-        let w=640,h=420;const url=URL.createObjectURL(file);try{const dims=await new Promise<{w:number;h:number}>(resolve=>{const image=new Image();image.onload=()=>resolve({w:image.naturalWidth||640,h:image.naturalHeight||420});image.onerror=()=>resolve({w:640,h:420});image.src=url;});const ratio=Math.min(1,720/Math.max(1,dims.w),520/Math.max(1,dims.h));w=Math.max(80,Math.round(dims.w*ratio));h=Math.max(60,Math.round(dims.h*ratio));}finally{URL.revokeObjectURL(url);}
-        const item:Item={id:id32(),kind:'image',layerId:layer.id,x,y,w,h,color:'#000000',width:1,opacity:1,imageId:'file:'+a.id};working={...working,items:[...working.items,item],attachments:[...(working.attachments||[]),a]};x+=36;y+=36;
+      for(const file of files){
+        if(!file.type.startsWith('image/'))continue;
+        if(file.size===0||file.size>512*1024*1024)throw new Error('画像は1バイト～512MBです');
+        const localImageId='local-'+id32();
+        await putLocalImage(localImageId,file);
+        let w=640,h=420;const url=URL.createObjectURL(file);
+        try{
+          const dims=await new Promise<{w:number;h:number}>(resolve=>{
+            const image=new Image();image.onload=()=>resolve({w:image.naturalWidth||640,h:image.naturalHeight||420});
+            image.onerror=()=>resolve({w:640,h:420});image.src=url;
+          });
+          const ratio=Math.min(1,720/Math.max(1,dims.w),520/Math.max(1,dims.h));
+          w=Math.max(80,Math.round(dims.w*ratio));h=Math.max(60,Math.round(dims.h*ratio));
+        }finally{URL.revokeObjectURL(url);}
+        const viewWidth=(scroll.current?.clientWidth||900)/scale;
+        if(imageAlign==='center')x=Math.max(40,(viewWidth-w)/2);
+        if(imageAlign==='right')x=Math.max(40,viewWidth-w-40);
+        const item:Item={id:id32(),kind:'image',layerId:layer.id,x,y,w,h,color:'#000000',width:1,opacity:1,imageId:localImageId};
+        working={...working,items:[...working.items,item]};y+=40;
       }
       commit(working as NoteDoc);setSelected(working.items.at(-1)?.id||'');setTool('select');
-    }catch(err){notes.setError(err instanceof Error?err.message:'画像を配置できません');}finally{setAttaching(false);}
+      if(navigator.onLine)void notes.save();
+    }catch(err){notes.setError(err instanceof Error?err.message:'画像を配置できません');}
+    finally{setAttaching(false);}
   }
   function createChart(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d||!sheetSelection)return;
     const range=sheetSelection.start+(sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:'');const chart:ChartItem={id:id32(),layerId:'graph-root',x:120+(scroll.current?.scrollLeft||0)/scale,y:120+(scroll.current?.scrollTop||0)/scale,w:520,h:310,type:chartType,range,visible:true,locked:false,name:'グラフ '+((d.charts||[]).length+1)};commit({...d,charts:[...(d.charts||[]),chart]} as NoteDoc);setSelected(chart.id);setChartOpen(false);setTool('select');}
@@ -665,7 +697,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         const a:Attachment={id:id32(),name:file.name,mime:file.type||'application/octet-stream',size:file.size,pending:true};
         await putLocalImage(a.id,file);
         const encoded=escapeHTML(file.name),html=file.type.startsWith('image/')
-          ?'<p><img data-kn-local-image="'+a.id+'" alt="'+encoded+'"></p>'
+          ?'<p class="kn-image-wrap-'+imageAlign+'"><img data-kn-local-image="'+a.id+'" alt="'+encoded+'"></p>'
           :'<p><a href="#" data-kn-local-file="'+a.id+'">'+encoded+'</a></p>';
         if(workspaceMode==='note'){
           const fixed=working.fixedNote||{html:'',visible:true,locked:false};
@@ -883,6 +915,17 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button title="通常の表を挿入" onClick={()=>openTableSettings('table')}><Table2 size={17}/><span>表</span></button>
               <button title="段組みの表組みレイアウト" onClick={()=>openTableSettings('columns')}><Columns3 size={17}/><span>表組み</span></button>
               <button title="ノートにファイルを添付" onClick={()=>fileInput.current?.click()}><Paperclip size={17}/><span>添付</span></button>
+              <label className="kn-image-setting">画像
+                <select aria-label="画像の配置" value={imagePlacement} onChange={e=>setImagePlacement(e.target.value as typeof imagePlacement)}>
+                  <option value="inline">文章に回り込ませる</option><option value="overlay">上に重ねる</option>
+                </select>
+              </label>
+              <label className="kn-image-setting">位置
+                <select aria-label="画像の配置位置" value={imageAlign} onChange={e=>setImageAlign(e.target.value as typeof imageAlign)}>
+                  <option value="left">左</option><option value="center">中央</option><option value="right">右</option>
+                </select>
+              </label>
+              <button title="画像をノートに挿入" onClick={()=>imageInput.current?.click()}><ImagePlus size={17}/>画像</button>
               <button title="ノートの作業エリアを拡大" onClick={toggleFocusMode}><Maximize2 size={17}/></button>
               <button className={advancedOpen?'active':''} onClick={()=>setAdvancedOpen(x=>!x)} title="高度な書式オプションを開閉" aria-expanded={advancedOpen}><ChevronDown size={16}/><span>詳細</span></button>
             </div>
@@ -1056,7 +1099,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                     })}</div>}
                   </div>}
                   <ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/>
-                  {doc?.blocks?.map(noteBlock=><EditableBlock key={noteBlock.id} block={noteBlock} readOnly={tool!=='text'||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
+                  {doc?.blocks?.map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} block={noteBlock} readOnly={tool!=='text'||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
                     onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
                 </div>
