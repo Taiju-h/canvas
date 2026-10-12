@@ -128,6 +128,16 @@ if ($path === '/api/next-title') {
     }
 }
 
+if ($path === '/api/ai' && $method === 'GET') {
+    canvas_json(['configured'=>trim((string)(getenv('KAERUNOTE_OPENAI_API_KEY') ?: ''))!=='']);
+}
+if (str_starts_with($path, '/api/ai/')) {
+    if ($method !== 'POST') canvas_json(['error'=>'操作が不正です'],405);
+    $actor=canvas_current_actor();
+    if (!$actor) canvas_json(['error'=>'ログインが必要です'],401);
+    require_once dirname(__DIR__,2).'/server/ai.php';
+    kn_ai_action(canvas_db(),$actor,substr($path,8));
+}
 if ($path === '/api/note-workspace') {
     $actor = canvas_current_actor();
     if (!$actor) canvas_json(['error' => '利用者情報を入力してください'], 401);
