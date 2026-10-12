@@ -1,6 +1,6 @@
 import type {StudioNoteDoc} from '@/components/note-studio-layers';
 import {getLocalDoc,putLocalDoc,putLocalImage} from './local-docs';
-import { api, blankNote, block, escapeHTML, fileURL, markdownHTML, uploadAttachment, type NoteRecord, type NoteIndex, type Attachment, type NoteMeta, type NoteDoc, id32 } from './notes';
+import { api, cleanHTML, blankNote, block, escapeHTML, fileURL, markdownHTML, uploadAttachment, type NoteRecord, type NoteIndex, type Attachment, type NoteMeta, type NoteDoc, id32 } from './notes';
 import { notebookPath, type JexArchive } from './jex';
 
 export async function importJex(archive:JexArchive, existing:NoteIndex[], progress:(message:string)=>void, cancelled:()=>boolean,accountId?:string) {
@@ -57,7 +57,7 @@ export async function importJex(archive:JexArchive, existing:NoteIndex[], progre
     }
     const converted=source.body.replace(/:\/([a-f0-9]{32})/g,(original,id:string)=>
       attachments.some(a=>a.id===id)?fileURL(record.id,id):map.has(id)?`?d=${map.get(id)}`:original);
-    const root=document.createElement('div');root.innerHTML=source.meta.markup_language==='2'?converted:markdownHTML(converted);
+    const root=document.createElement('div');root.innerHTML=source.meta.markup_language==='2'?cleanHTML(converted):markdownHTML(converted);
     for(const a of attachments){
       const url=fileURL(record.id,a.id);
       root.querySelectorAll('img').forEach(img=>{if(img.getAttribute('src')===url){img.setAttribute('data-kn-local-image',a.id);img.removeAttribute('src');}});
