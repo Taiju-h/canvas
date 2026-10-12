@@ -336,3 +336,34 @@
 .notes-layer-row button[title^="名前変更"],.notes-layer-row button[title^="レイヤーを削除"]{font-size:12px;min-width:22px}
 .notes-layer-group-name{max-width:90px;min-width:67px;font-size:12px;border:1px solid transparent;background:transparent;font-weight:bold;padding:2px}
 .notes-layer-group-name:hover,.notes-layer-group-name:focus{border-color:#d5c6a7;background:#fff}
+
+
+/* KaeruNote offline media, exported layouts, saved cell references and settings */
+.notes-fixed-editor .kn-image-wrap-left img,.note-content .kn-image-wrap-left img{float:left;max-width:min(45%,420px);height:auto;margin:6px 14px 8px 0}
+.notes-fixed-editor .kn-image-wrap-right img,.note-content .kn-image-wrap-right img{float:right;max-width:min(45%,420px);height:auto;margin:6px 0 8px 14px}
+.notes-fixed-editor .kn-image-wrap-center,.note-content .kn-image-wrap-center{text-align:center;display:block;clear:both}
+.notes-fixed-editor .kn-image-wrap-center img,.note-content .kn-image-wrap-center img{max-width:90%;height:auto;margin:8px auto}
+.notes-fixed-editor .kn-sheet-ref,.note-content .kn-sheet-ref{display:inline-block;min-width:20px;padding:0 3px;border-bottom:1px dashed #7aa4c7;color:#23588a;background:#ecf6ff}
+.notes-fixed-editor .kn-sheet-ref[data-kn-ref],.note-content .kn-sheet-ref[data-kn-ref]{cursor:default}
+.notes-fixed-editor img[data-kn-local-image],.note-content img[data-kn-local-image]{max-width:100%}
+.kn-settings-group{display:grid;gap:7px;border-top:1px solid #e4ddd0;border-bottom:1px solid #e4ddd0;padding:12px 0;margin:10px 0}
+.kn-settings-group h3{font-size:13px;font-weight:700;color:#68553a;margin:0 0 4px}
+.kn-settings-group p{margin:0 0 4px;font-size:11px;color:#8b7b69;line-height:1.5}
+.kn-settings-group button{justify-self:start;display:flex;align-items:center;gap:6px;border:1px solid #ddd4c4;background:#fff;padding:8px 10px;border-radius:5px;font-size:12px}
+.kn-settings-group .notes-check{margin:5px 0;display:flex;align-items:flex-start;gap:8px;line-height:1.45;font-size:12px}
+.kn-settings-group .notes-check input{width:16px;height:16px;flex-shrink:0}
+.kn-image-setting{display:flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap}
+.kn-image-setting select{max-width:130px;padding:5px 3px;border:1px solid #e3dac9;font-size:11px}
+.kn-revisions-dialog{width:min(460px,calc(100vw - 32px));max-height:80vh;overflow:auto;display:grid;gap:8px}
+.kn-revisions-dialog>p{font-size:12px;color:#786b5a}
+.kn-revision-row{display:flex;align-items:center;gap:8px;min-height:39px;padding:7px;border:1px solid #e2d9ca;border-radius:5px;text-align:left}
+.kn-revision-row:hover{background:#f6efdf}
+.kn-revision-row strong{font-size:11px}
+.kn-revision-row span{flex:1;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kn-revision-row small{font-size:10px;color:#978574}
+.kn-related-panel{padding:16px;line-height:1.6}
+.kn-related-panel p{font-size:12px;color:#786b5a}
+.kn-related-panel button{border:1px solid #e5d8bf;border-radius:5px;padding:6px;font-size:11px}
+.kn-sheet-dependents{position:absolute;right:265px;bottom:14px;z-index:9;display:grid;gap:4px;width:165px;max-height:180px;overflow:auto;background:#fffef6;border:1px solid #d8c8a8;border-radius:7px;padding:8px}
+.kn-sheet-dependents strong{font-size:10px;color:#775b35}
+.kn-sheet-dependents button{font-size:11px;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
