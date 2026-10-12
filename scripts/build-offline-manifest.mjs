@@ -1,3 +1,4 @@
+import {commitTime} from "./build-revision.mjs";
 import { copyFile, cp, mkdir, rm, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -31,7 +32,7 @@ const files = [...built].sort().map(name => base + name);
 await writeFile(join(output, "offline-assets.json"), JSON.stringify(files));
 const serviceWorker = await readFile(join(root, "public", "sw.js"), "utf8");
 const buildId = createHash("sha256").update(JSON.stringify(files)).digest("hex").slice(0, 12);
-await writeFile(join(output, "build-version.json"), JSON.stringify({ buildId, commit: process.env.VITE_APP_COMMIT || "" }));
+await writeFile(join(output, "build-version.json"), JSON.stringify({ buildId, commitTime:commitTime(), commit: process.env.VITE_APP_COMMIT || "" }));
 await writeFile(join(output, "sw.js"), serviceWorker.replace("__BUILD_ID__", buildId));
 await copyFile(join(root, "public", "favicon.svg"), join(output, "favicon.svg"));
 const webManifest = JSON.parse(await readFile(join(root, "public", "manifest.webmanifest"), "utf8"));

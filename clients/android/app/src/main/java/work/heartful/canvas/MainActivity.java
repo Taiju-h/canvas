@@ -77,11 +77,13 @@ public final class MainActivity extends ComponentActivity {
 
         // An older downloaded UI must not override the Web bundle in a newer APK.
         android.content.SharedPreferences shell = getSharedPreferences("canvas-shell", MODE_PRIVATE);
-        if (shell.getInt("installedVersion", 0) != BuildConfig.VERSION_CODE) {
+        String bundledCommit = readWebVersion(null).optString("commit", "");
+        if (shell.getInt("installedVersion", 0) != BuildConfig.VERSION_CODE ||
+            !shell.getString("bundledCommit", "").equals(bundledCommit)) {
             deleteTree(new File(getFilesDir(), "canvas-web"));
             deleteTree(new File(getFilesDir(), "canvas-web-next"));
             deleteTree(new File(getFilesDir(), "canvas-web-old"));
-            shell.edit().putInt("installedVersion", BuildConfig.VERSION_CODE).apply();
+            shell.edit().putInt("installedVersion", BuildConfig.VERSION_CODE).putString("bundledCommit", bundledCommit).apply();
         }
         // A process death before the new bundle confirms startup rolls back only static UI.
         if (!shell.getString("pendingCommit", "").isEmpty()) rollbackWebUpdate();
@@ -436,6 +438,18 @@ public final class MainActivity extends ComponentActivity {
         getSharedPreferences("canvas-shell", MODE_PRIVATE).edit().remove("pendingCommit").apply();
     }
 
+    private JSONObject readWebVersion(File root) {
+        try (InputStream input = root == null ? getAssets().open("canvas/build-version.json") : new java.io.FileInputStream(new File(root, "build-version.json"));
+             java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024]; int count;
+            while ((count = input.read(buffer)) != -1) {
+                if (output.size() + count > 16384) throw new IOException("更新情報が不正です");
+                output.write(buffer, 0, count);
+            }
+            return new JSONObject(new String(output.toByteArray(), StandardCharsets.UTF_8));
+        } catch (Exception error) { return new JSONObject(); }
+    }
+
     private void downloadWebUpdate() throws Exception {
         File staging = new File(getFilesDir(), "canvas-web-next");
         deleteTree(staging);
@@ -450,6 +464,13 @@ public final class MainActivity extends ComponentActivity {
         String[] fixed = {"index.html", "build-version.json", "manifest.webmanifest", "favicon.svg", "sw.js"};
         for (String name : fixed) writeFile(staging, name, fetchBytes(CANVAS_ROOT + name + "?native=" + System.currentTimeMillis()));
 
+        JSONObject candidate = readWebVersion(staging), bundled = readWebVersion(null);
+        File installedDir = new File(getFilesDir(), "canvas-web");
+        JSONObject installed = installedDir.exists() ? readWebVersion(installedDir) : bundled;
+        if (!WebVersions.canInstall(candidate.optLong("commitTime", 0), installed.optLong("commitTime", 0), bundled.optLong("commitTime", 0))) {
+            throw new IOException("公開Web版が同梱または取得済みの画面より古いため、現在の画面を使います");
+        }
+
         for (int i = 0; i < files.length(); i++) {
             String remotePath = files.getString(i);
             String relative = WebAssetPaths.relative(remotePath);
@@ -461,6 +482,7 @@ public final class MainActivity extends ComponentActivity {
         JSONObject finalVersion = new JSONObject(new String(fetchBytes(CANVAS_ROOT + "build-version.json?native=" + System.currentTimeMillis()), StandardCharsets.UTF_8));
         if (!version.getString("buildId").equals(finalVersion.getString("buildId")) ||
             !version.getString("commit").equals(finalVersion.getString("commit")) ||
+            version.optLong("commitTime", 0) != finalVersion.optLong("commitTime", 0) ||
             !version.getString("commit").matches("[a-fA-F0-9]{7,40}")) throw new IOException("取得中にWeb版が更新されました。もう一度更新してください");
         String index = new String(java.nio.file.Files.readAllBytes(new File(staging, "index.html").toPath()), StandardCharsets.UTF_8);
         if (!index.contains("assets/") || !index.contains("<html")) throw new IOException("更新画面が不正です");

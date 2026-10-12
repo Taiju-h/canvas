@@ -1,4 +1,4 @@
-import {sameCommit,prepareWebUpdate} from "@/lib/web-update";
+import {hasNewerWebVersion,prepareWebUpdate} from "@/lib/web-update";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import NotesWorkspace from "@/components/notes-workspace";
@@ -99,7 +99,7 @@ function UpdateBadge() {
         // Fetching build-version.json twice compared the same remote value and never detected updates.
         const runningCommit=import.meta.env.VITE_APP_COMMIT as string | undefined;
         const remote=await fetch("/canvas/build-version.json?check="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject());
-        if(live)setAvailable(!!runningCommit&&!!remote?.commit&&!sameCommit(runningCommit,remote.commit));
+        if(live)setAvailable(hasNewerWebVersion(runningCommit,import.meta.env.VITE_APP_COMMIT_TIME,remote));
       }catch{}
     };
     const timer=window.setTimeout(()=>void check(),800);
