@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
+import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
@@ -13,6 +13,8 @@ import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, type CellRan
 import '../notes.css';
 import { getLocalImage, getLocalDoc } from '@/lib/local-docs';
 import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
+import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
+import {listLocalRevisions,type LocalRevision} from '@/lib/local-docs';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
   const [url,setURL]=useState('');
@@ -192,6 +194,17 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [activeAnchor,setActiveAnchor]=useState<ActiveAnchor|null>(null);const [activeSegment,setActiveSegment]=useState<ActiveAnchor|null>(null);const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
+  const [advancedOpen,setAdvancedOpen]=useState(false);
+  const [fontStep,setFontStep]=useState(3);
+  const [bulletSize,setBulletSize]=useState<'large'|'medium'|'small'>('large');
+  const [rubyColor,setRubyColor]=useState('#9d5b30');
+  const [tableOpen,setTableOpen]=useState(false);
+  const [tableSelected,setTableSelected]=useState(false);
+  const lastTable=useRef<HTMLTableElement|null>(null);
+  const lastCell=useRef<HTMLTableCellElement|null>(null);
+  const [tableOpts,setTableOpts]=useState<TableOptions>({kind:'table',rows:3,cols:3,width:100,align:'fit',height:'auto',lines:4,flow:'expand'});
+  const [revisionsOpen,setRevisionsOpen]=useState(false);
+  const [revisions,setRevisions]=useState<LocalRevision[]>([]);
   const [focusMode,setFocusMode]=useState(false);const [focusFloat,setFocusFloat]=useState({x:0,y:0});const [focusDrag,setFocusDrag]=useState<{dx:number;dy:number}|null>(null);const [drawer,setDrawer]=useState<'top'|'left'|'right'|''>('');const [colorOpen,setColorOpen]=useState(false);const [colorFading,setColorFading]=useState(false);
   const [archive,setArchive]=useState<JexArchive|null>(null);const [importOpen,setImportOpen]=useState(false);const [importMessage,setImportMessage]=useState('');const [importing,setImporting]=useState(false);
   const [attaching,setAttaching]=useState(false);
@@ -552,8 +565,80 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(a.kind==='shape'){const shape=draftShape;setDraftShape(null);if(!cancel&&shape&&Math.hypot(shape.w,shape.h)>2){commit({...a.original,items:[...a.original.items,shape]});setSelected(shape.id);setActiveLayer(shape.layerId);}return;}
     if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){if(cancel&&a.moved)notes.change(a.original);else if(a.moved){undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
   }
-  function format(command:string,value?:string){typing.current=null;document.execCommand(command,false,value);const el=document.activeElement as HTMLElement;
-    const id=el.closest('[data-note-block]')?.getAttribute('data-note-block');if(id)updateBlock(id,el.innerHTML,el.scrollHeight+54);}
+  function format(command:string,value?:string){
+    typing.current=null;
+    document.execCommand(command,false,value);
+    const el=document.activeElement as HTMLElement;
+    const id=el?.closest?.('[data-note-block]')?.getAttribute('data-note-block');
+    if(id)updateBlock(id,el.innerHTML,el.scrollHeight+54);
+    const fixed=el?.closest?.('.notes-fixed-editor') as HTMLElement|null;
+    if(fixed)updateFixedNote(fixed.innerHTML);
+  }
+  function chooseFont(delta:number){
+    const next=Math.max(1,Math.min(7,fontStep+delta));
+    setFontStep(next);format('fontSize',String(next));
+  }
+  function applyBullets(size:'large'|'medium'|'small'){
+    setBulletSize(size);
+    const element=window.getSelection()?.anchorNode?.parentElement;
+    let list=element?.closest('ul');
+    if(!list){format('insertUnorderedList');list=window.getSelection()?.anchorNode?.parentElement?.closest('ul')||null;}
+    if(!list)return;
+    list.classList.add('kn-bullet-list');
+    list.setAttribute('data-kn-list',size);
+    list.closest('.notes-fixed-editor,.note-content')?.dispatchEvent(new Event('input',{bubbles:true}));
+  }
+  function openTableSettings(kind:'table'|'columns',edit=false){
+    const table=edit?(currentTable()||lastTable.current):null;
+    if(table){
+      const values=Array.from(table.rows);
+      setTableOpts({
+        kind:table.getAttribute('data-kn-layout')==='columns'?'columns':'table',
+        rows:values.length,cols:values[0]?.cells.length||1,
+        width:Number(table.getAttribute('data-kn-width'))||100,
+        align:(table.getAttribute('data-kn-align') as TableOptions['align'])||'fit',
+        height:table.getAttribute('data-kn-height')==='auto'?'auto':'fixed',
+        lines:Number(table.getAttribute('data-kn-height'))||4,
+        flow:table.getAttribute('data-kn-flow')==='next'?'next':'expand'
+      });
+    }else setTableOpts(o=>({...o,kind}));
+    setTableOpen(true);
+  }
+  function applyTable(){
+    const current=lastTable.current;
+    if(current&&current.isConnected&&tableSelected){
+      setTableOptions(current,tableOpts);
+    }else insertRichHTML(tableMarkup(tableOpts));
+    setTableOpen(false);
+  }
+  useEffect(()=>{
+    const onSelect=()=>{
+      const selected=currentTable(),cell=currentCell();
+      if(selected){lastTable.current=selected;lastCell.current=cell;}
+      const isInNote=!!window.getSelection()?.anchorNode?.parentElement?.closest('.notes-fixed-editor,.note-content');
+      setTableSelected(!!selected&&isInNote);
+    };
+    document.addEventListener('selectionchange',onSelect);
+    return()=>document.removeEventListener('selectionchange',onSelect);
+  },[]);
+  function ruby(skipPrompt=false){
+    const selected=selectedString().trim();if(!selected){notes.setError('ルビを付ける文字を選択してください');return;}
+    const memoryKey='kaerunote-ruby:'+selected,remembered=localStorage.getItem(memoryKey)||'';
+    const reading=skipPrompt&&remembered?remembered:window.prompt('「'+selected+'」の読みがな',remembered);
+    if(!reading)return;
+    localStorage.setItem(memoryKey,reading);
+    applyRuby(reading,rubyColor);
+  }
+  async function openRevisions(){
+    if(!record)return;
+    try{setRevisions(await listLocalRevisions(record.id));setRevisionsOpen(true);}
+    catch(error){notes.setError('端末の履歴を開けません：'+String(error));}
+  }
+  function restoreRevision(snapshot:LocalRevision){
+    if(!window.confirm(new Date(snapshot.createdAt).toLocaleString('ja-JP')+'の内容に戻しますか？ 現在の状態も保存してください。'))return;
+    notes.change(snapshot.content as NoteDoc,snapshot.title);
+    setRevisionsOpen(false);
+  }
   async function attach(files:File[]){const initial=current.current;if(!initial||initial.content.note?.importState==='pending'||initial.content.note?.trashedAt||organizing||attaching)return;setAttaching(true);
     try{await notes.save();const r=current.current;if(!r||r.id.startsWith('local-'))throw new Error('添付にはサーバーへの接続が必要です');
       const targetId=r.id;
