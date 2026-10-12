@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage } from './local-docs';
+import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage, saveLocalRevision } from './local-docs';
 import { api, blankNote, id32, indexOf, normalizeNote, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
 import { mergeSharedNotes, mergeSharedTitle } from './shared-merge';
 import {inCategory,movedCategory} from './note-organization';
@@ -60,6 +60,13 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     if (jobs.current.has(id)) return jobs.current.get(id)!;
     if (blocked.current.has(id)) return Promise.resolve();
     const job = (async()=> {
+      if(!navigator.onLine&&!shared){
+        await localJobs.current;
+        const local=records.current.get(id);
+        if(local)await saveLocalRevision({...local,base:local.content,owner:true,accountId});
+        report('端末に保存・履歴作成済み（同期待ち）',id);
+        return;
+      }
       let attempts=0;
       let key=id;
       while (navigator.onLine) {
@@ -90,7 +97,9 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
             if (active.current===key) { active.current=result.id; setURL(result.id); }
             show(next); await persist(next); await deleteLocalDoc(key); key=result.id;
           }
-          show(next); await persist(next); report(next.dirty?'同期待ち':'保存済み',key);
+          show(next); await persist(next);
+          if(!next.dirty&&!shared)await saveLocalRevision({...next,base:next.content,owner:true,accountId});
+          report(next.dirty?'同期待ち':'保存済み',key);
         } catch (err) {
           if ((err as {status?:number}).status===409&&attempts<2){
             try{
