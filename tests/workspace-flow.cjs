@@ -106,6 +106,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.mouse.click(1274,943,{button:'right'});await popup.waitFor();const popupBounds=await popup.boundingBox();
   assert.ok(popupBounds.x>=0&&popupBounds.y>=0&&popupBounds.x+popupBounds.width<=1280&&popupBounds.y+popupBounds.height<=950,'context popup stays within the viewport near bottom/right edges');
   await page.screenshot({path:'/tmp/kaeru-workspace-context-menu.png'});await page.keyboard.press('Escape');
+  await page.getByLabel('Canvasの詳細',{exact:true}).click();assert.equal(await page.getByRole('region',{name:'Canvas詳細ツール'}).count(),0); // Leave the later detail-opening test at its original starting state.
   await page.getByTitle('ノートレイヤー',{exact:true}).click();await page.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
   // Automatic closing is still available only after an explicit opt-in.
   await page.getByLabel('環境設定と書き出し',{exact:true}).click();
