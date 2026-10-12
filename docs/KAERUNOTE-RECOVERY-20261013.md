@@ -24,7 +24,7 @@ Web機能の二重実装はしない。Actionsは最新のWebビルドをAPK ass
 
 新版の更新は、全ファイルを別ディレクトリへ取得→端末保存確認→静的UI切替→起動したバンドルのコミット確認の順。取得中に本番のbuild-versionが変わった場合やファイル欠損では適用しない。ノートID・URLハッシュを保持する。更新確認が届くまで旧UIを残し、確認失敗／途中のプロセス終了では旧UIまたは同梱UIへ戻す。IndexedDB・Cookie・ユーザーデータは消去しない。日本語の変換中は更新を適用しない。
 
-Releaseは既存の4つのANDROID署名secretを使用する。欠落時は失敗とし、別鍵を生成しない。version変更を含む同一リポジトリPR／mainでビルドし、署名をapksignerで検証する。配布にはRelease署名APKを使用する。Debug署名APKを既存Releaseへ上書きする手順やアンインストールによるデータ消去を案内しない。
+Releaseは既存の4つのANDROID署名secretを使用する。欠落時は失敗とし、別鍵を生成しない。Androidシェル変更を含む同一リポジトリPR／mainでビルドし、署名をapksignerで検証する。配布にはRelease署名APKを使用する。Debug署名APKを既存Releaseへ上書きする手順やアンインストールによるデータ消去を案内しない。
 
 ## 検証手順
 
