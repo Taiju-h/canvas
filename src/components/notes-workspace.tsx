@@ -195,7 +195,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [sidebar,setSidebar]=useState(()=>sharedAccess?false:storedSidebar());
   const [sidebarAutoClose,setSidebarAutoClose]=useState(()=>{try{return localStorage.getItem('kn-sidebar-autoclose')!=='off';}catch{return true;}});
   const [relatedPanel,setRelatedPanel]=useState(false);
-  const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
+  const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);
+  const [offlinePreparing,setOfflinePreparing]=useState(false);
+  const [offlineProgress,setOfflineProgress]=useState<{done:number;total:number;files:number;errors:number}|null>(null);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<'pen'|'gpen'|'marker'>('gpen');
   const [activeLayer,setActiveLayer]=useState('');const [layersOpen,setLayersOpen]=useState(true);const [sheetSelection,setSheetSelection]=useState<CellRange|undefined>();const [sheetPreviewOpen,setSheetPreviewOpen]=useState(false);const [chartOpen,setChartOpen]=useState(false);const [chartType,setChartType]=useState<ChartItem['type']>('bar');const [chartLayer,setChartLayer]=useState('');const [draftShape,setDraftShape]=useState<Item|null>(null);
   const [selected,setSelected]=useState('');const [activeAnchor,setActiveAnchor]=useState<ActiveAnchor|null>(null);const [activeSegment,setActiveSegment]=useState<ActiveAnchor|null>(null);const [multiSelected,setMultiSelected]=useState<string[]>([]);const [multiMode,setMultiMode]=useState(false);const [hoveredShape,setHoveredShape]=useState('');const [overlapItems,setOverlapItems]=useState<string[]>([]);const [overlapAt,setOverlapAt]=useState<Point|null>(null);const [overlapOpen,setOverlapOpen]=useState(false);const [fineX,setFineX]=useState(0);const [fineY,setFineY]=useState(0);const [fineAngle,setFineAngle]=useState(0);const [focus,setFocus]=useState('');const [settings,setSettings]=useState(false);const [scale,setScale]=useState(1);
@@ -717,6 +719,17 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(range&&selection){selection.removeAllRanges();selection.addRange(range);}
     applyRuby(reading,rubyColor);
   }
+  async function prepareOffline(){
+    if(offlinePreparing)return;
+    setOfflinePreparing(true);setOfflineProgress(null);
+    try{
+      const result=await notes.prepareOffline(true,setOfflineProgress);
+      notes.setError(result.errors
+        ?'端末への準備：'+result.done+'件・添付'+result.files+'件を保存。'+result.errors+'件は保存できませんでした（空き容量や権限を確認してください）'
+        :'オフライン準備完了：'+result.done+'件のノートと添付'+result.files+'件を端末へ保存しました');
+    }catch(err){notes.setError('オフライン準備：'+String(err));}
+    finally{setOfflinePreparing(false);}
+  }
   async function openRevisions(){
     if(!record)return;
     try{setRevisions(await listLocalRevisions(record.id));setRevisionsOpen(true);}
@@ -1212,6 +1225,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             try{localStorage.setItem('kn-sidebar-autoclose',e.target.checked?'on':'off');}catch{}
           }}/>カテゴリ・ノートを選んだら左のメニューを自動で閉じる</label>
           <p>初期設定はONです。OFFにすると複数のメモを連続して選びやすくなります。</p>
+          <button disabled={offlinePreparing} onClick={()=>void prepareOffline()}>{offlinePreparing?'オフライン準備中…':'すべてのノートと添付を端末に保存'}</button>
+          {offlineProgress&&<p role="status">ノート {offlineProgress.done}/{offlineProgress.total}件、添付 {offlineProgress.files}件、未取得 {offlineProgress.errors}件</p>}
+          <p>ネット接続中に一度実行すると、端末の容量が許す範囲で全ノート・画像・添付を保存します。保存済みの内容は通信なしで開けます。端末の空き容量とブラウザの保存制限に注意してください。</p>
           <button onClick={()=>void openRevisions()}>ローカル履歴を表示</button>
           <p>保存時に端末内へ最大25世代を記録します。履歴から復元しても、元の世代は残ります。</p>
           <p>同期が不要なノート編集とカテゴリ変更は端末に保存します。共有やChatGPT連携にはネットワーク接続が必要です。</p>
