@@ -11,7 +11,7 @@ import { importJex } from '@/lib/import-jex';
 import { inverseTransformPoint, type Point, type Item } from '@/lib/canvas';
 import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, type CellRange, type ChartItem, type SheetData, type StudioNoteDoc } from './note-studio-layers';
 import '../notes.css';
-import { getLocalImage, getLocalDoc } from '@/lib/local-docs';
+import { getLocalImage, getLocalDoc, putLocalImage } from '@/lib/local-docs';
 import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
 import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
 import {listLocalRevisions,type LocalRevision} from '@/lib/local-docs';
@@ -652,18 +652,40 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     notes.change(snapshot.content as NoteDoc,snapshot.title);
     setRevisionsOpen(false);
   }
-  async function attach(files:File[]){const initial=current.current;if(!initial||initial.content.note?.importState==='pending'||initial.content.note?.trashedAt||organizing||attaching)return;setAttaching(true);
-    try{await notes.save();const r=current.current;if(!r||r.id.startsWith('local-'))throw new Error('添付にはサーバーへの接続が必要です');
-      const targetId=r.id;
-      for(const file of files){if(file.size===0||file.size>512*1024*1024)throw new Error('添付は1バイト～512MBです');
-        const a:Attachment={id:id32(),name:file.name,mime:file.type||'application/octet-stream',size:file.size};
-        await uploadAttachment(targetId,a,file,undefined,sharedAccess?.token);
-        if(current.current?.id!==targetId)throw new Error('元のメモに戻って添付してください');
-        const d=current.current.content;const url=fileURL(targetId,a.id);const html=file.type.startsWith('image/')?`<p><img src="${escapeHTML(url)}" alt="${escapeHTML(file.name)}"></p>`:`<p><a href="${escapeHTML(url)}">${escapeHTML(file.name)}</a></p>`;
-        const y=Math.max(80,...(d.blocks||[]).map(b=>b.y+(sizes[b.id]||b.h)+30));const b=block(80,y,html);
-        commit({...d,blocks:[...(d.blocks||[]),b],attachments:[...(d.attachments||[]),a]});setSelected(b.id);requestAnimationFrame(()=>scroll.current?.scrollTo({top:Math.max(0,(y-40)*scale),behavior:'smooth'}));
+  async function attach(files:File[]){
+    const initial=current.current;
+    if(!initial||initial.content.note?.importState==='pending'||initial.content.note?.trashedAt||organizing||attaching)return;
+    setAttaching(true);
+    try{
+      let working=initial.content as StudioNoteDoc;
+      let layer=working.layers.find(l=>l.id===activeLayer&&l.studioKind==='layout'&&l.visible&&!l.locked)||
+        working.layers.find(l=>l.studioKind==='layout'&&l.visible&&!l.locked);
+      for(const file of files){
+        if(file.size===0||file.size>512*1024*1024)throw new Error('添付は1バイト～512MBです');
+        const a:Attachment={id:id32(),name:file.name,mime:file.type||'application/octet-stream',size:file.size,pending:true};
+        await putLocalImage(a.id,file);
+        const encoded=escapeHTML(file.name),html=file.type.startsWith('image/')
+          ?'<p><img data-kn-local-image="'+a.id+'" alt="'+encoded+'"></p>'
+          :'<p><a href="#" data-kn-local-file="'+a.id+'">'+encoded+'</a></p>';
+        if(workspaceMode==='note'){
+          const fixed=working.fixedNote||{html:'',visible:true,locked:false};
+          working={...working,fixedNote:{...fixed,html:fixed.html+html},attachments:[...(working.attachments||[]),a]};
+        }else{
+          if(!layer){
+            layer={id:id32(),name:'レイアウト 1',visible:true,locked:false,studioKind:'layout'};
+            working={...working,layers:[...working.layers,layer]};
+          }
+          const y=Math.max(80,...(working.blocks||[]).map(b=>b.y+b.h+30));
+          const b={...block(80,y,html),layerId:layer.id};
+          working={...working,blocks:[...(working.blocks||[]),b],attachments:[...(working.attachments||[]),a]};
+        }
       }
-    }catch(err){notes.setError(err instanceof Error?err.message:'添付できません');}finally{setAttaching(false);}
+      commit(working as NoteDoc);
+      // IndexedDB stores the actual binary even without any connection.
+      // On reconnect useNotes uploads pending attachments and clears their flag.
+      if(navigator.onLine)void notes.save();
+    }catch(err){notes.setError(err instanceof Error?err.message:'添付できません');}
+    finally{setAttaching(false);}
   }
   function changeMeta(patch:Partial<NoteMeta>){if(!doc||meta.trashedAt||organizing)return;const next={...meta,...patch};
     next.organizationLog=[...(meta.organizationLog||[]).slice(-99),{at:new Date().toISOString(),category:next.category,tags:next.tags}];commit({...doc,note:next});}
@@ -1040,7 +1062,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                 </div>
               </div>}
             </div>
-            {record&&<FixedNoteLayer html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
+            {record&&<FixedNoteLayer docId={record.id} html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
           </div>
           {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
           {!focusMode&&layersOpen&&relatedPanel&&<aside className="notes-layer-panel kn-related-panel" aria-label="関連ノート">
