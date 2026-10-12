@@ -774,7 +774,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const d=current.current?.content as StudioNoteDoc|undefined;
     if(!d||!aiResult.trim())return;
     const fixed=d.fixedNote||{html:'',visible:true,locked:false};
-    commit({...d,fixedNote:{...fixed,html:fixed.html+'<h2>AI整理結果</h2><p>'+escapeHTML(aiResult).replace(/\n/g,'<br>')+'</p>'}});
+    commit({...d,fixedNote:{...fixed,html:fixed.html+'<h2>AI整理結果</h2><p>'+escapeHTML(aiResult).replace(/\n/g,'<br>')+'</p>'}} as NoteDoc);
     setAiResult('');
   }
   async function prepareOffline(){
