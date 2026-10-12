@@ -66,6 +66,8 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
   // At most three side-by-side panes remain visible; the full ancestry is always
   // accessible from the breadcrumb row, even for four or more nesting levels.
   const visible=panes.slice(-3);
+  const compact=!!notePicker&&room>0&&room<620;
+  const filesOverlaid=!!notePicker&&!compact;
   const trail=categoryParts(selected||openedPath).map((_,index,all)=>all.slice(0,index+1).join(' / '));
 
   useEffect(()=>{
@@ -109,7 +111,8 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
     {!expanded&&<button className="notes-category-open" disabled={disabled} onClick={onExpand} aria-label="カテゴリを選ぶ"><Folder size={17}/><span>{selected||'すべてのカテゴリ'}</span><ChevronRight size={16}/></button>}
     {!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}
     {expanded&&(!!paths.length||notePicker)&&<>
-      <div className={'notes-category-browser '+(notePicker?'has-note-picker ':'')+(notePicker&&room>0&&room<620?'is-compact':'')} ref={stageRef}
+      <div className={'notes-category-browser '+(notePicker?'has-note-picker ':'')+(compact?'is-compact':'')} ref={stageRef}
+        onKeyDownCapture={()=>{pointerType.current='keyboard';}}
         style={room?{width:Math.min(notePicker?960:820,room),...(notePicker?{height:Math.min(440,verticalRoom)}:{})}:undefined}>
       <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
         <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>
@@ -124,21 +127,22 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
         {visible.map((pane,i)=>{
           const isLast=i===visible.length-1;
           const left=(1-Math.pow(.8,i))*100;
-          const isPeeking=peekDepth!==null&&i>peekDepth;
+          const isPeeking=!filesOverlaid&&peekDepth!==null&&i>peekDepth;
           const zIndex=peekDepth===null?10+i: i===peekDepth?30:i>peekDepth?20+i:10+i;
-          const isFocused=peekDepth===null?isLast:peekDepth===i;
-          // A raised parent leaves the next pane's edge uncovered, so moving
-          // the pointer back to a child can bring that child to the front.
-          const width=(100-left)*(peekDepth===i&&!isLast ? .76 : 1);
+          const isFocused=peekDepth===null?!filesOverlaid&&isLast:peekDepth===i;
+          // Folder sheets can cover the files too. Keep a reachable edge on the
+          // right so the files/next sheet can always be brought back to the front.
+          const width=filesOverlaid?100-left-(visible.length-i)*36/Math.min(960,room||960)*100:
+            (100-left)*(peekDepth===i&&!isLast ? .94 : 1);
           return <section key={pane.parent||'root'} className={'notes-category-pane notes-category-multi-pane '+(isFocused?'is-focused ':'')+(isPeeking?'is-muted':'')}
             aria-label={pane.title}
             style={{left:left+'%',width:width+'%',zIndex,transform:isPeeking?'translateX(70%)':'translateX(0)',opacity:isPeeking?.55:1}}
-            onPointerEnter={event=>{if(event.pointerType==='mouse'){pointerType.current='mouse';setPeekDepth(isLast?null:i);}}}
+            onPointerEnter={event=>{if(event.pointerType==='mouse'){pointerType.current='mouse';setPeekDepth(isLast&&!filesOverlaid?null:i);}}}
             onPointerDownCapture={event=>{pointerType.current=event.pointerType;}}
-            onFocusCapture={()=>{if(pointerType.current==='touch'||pointerType.current==='pen')return;setPeekDepth(isLast?null:i);}}
+            onFocusCapture={()=>{if(pointerType.current==='touch'||pointerType.current==='pen')return;setPeekDepth(isLast&&!filesOverlaid?null:i);}}
             onClickCapture={event=>{
               if(pointerType.current==='mouse'||isFocused)return;
-              event.preventDefault();event.stopPropagation();setPeekDepth(isLast?null:i);
+              event.preventDefault();event.stopPropagation();setPeekDepth(isLast&&!filesOverlaid?null:i);
             }}>
             {pane.parent&&<button type="button" className="notes-category-level-label" disabled={disabled}
               title="タップで一つ上の階層を前面に出す" onClick={()=>setPeekDepth(Math.max(0,i-1))}>
@@ -158,9 +162,17 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
           </section>;
         })}
       </div>
-      {notePicker}
+      {notePicker&&<div className={'notes-category-files-layer '+(peekDepth===null?'is-front':'')}
+        style={filesOverlaid?{width:Math.max(54,Math.pow(.8,visible.length)*100)+'%'}:undefined}
+        onPointerEnter={event=>{if(event.pointerType==='mouse')setPeekDepth(null);}}
+        onFocusCapture={()=>{if(pointerType.current!=='touch'&&pointerType.current!=='pen')setPeekDepth(null);}}
+        onPointerDownCapture={event=>{pointerType.current=event.pointerType;}}
+        onClickCapture={event=>{
+          if(!filesOverlaid||peekDepth===null||pointerType.current==='mouse')return;
+          event.preventDefault();event.stopPropagation();setPeekDepth(null);
+        }}>{notePicker}</div>}
       </div></div>
-      <p className="notes-category-help">{notePicker?'フォルダを選び、一覧のNoteを開くか新規作成してください。':'親の階層は左端にマウスを乗せる／タップで表示。'}</p>
+      <p className="notes-category-help">{notePicker?(compact?'フォルダを選び、一覧のNoteを開くか新規作成してください。':'左端でフォルダを、右端でNote一覧を前面に表示。マウスを乗せる／タップで切り替え。'):'親の階層は左端にマウスを乗せる／タップで表示。'}</p>
     </>}
   </div>;
 }

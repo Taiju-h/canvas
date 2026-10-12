@@ -47,7 +47,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  assert.ok(boxes.at(-1).width>=480,'even the third overlaid pane remains readable');
  assert.ok(Math.abs((boxes[1].left-boxes[0].left)/boxes[0].width-.2)<.02);
  assert.ok(Math.abs((boxes[2].left-boxes[1].left)/boxes[1].width-.2)<.02);
- for(let i=0;i<3;i++){const b=await panes.nth(i).boundingBox();await page.mouse.move(b.x+5,b.y+65);await page.waitForTimeout(240);assert.ok((await panes.nth(i).getAttribute('class')).includes('is-focused'));}
+ for(let i=0;i<3;i++){await page.mouse.move(stage.x+stage.width-5,stage.y+65);await page.waitForTimeout(240);const b=await panes.nth(i).boundingBox();await page.mouse.move(b.x+5,b.y+65);await page.waitForTimeout(240);assert.ok((await panes.nth(i).getAttribute('class')).includes('is-focused'));if(i===1){const raised=await panes.nth(i).boundingBox();assert.ok(raised.width>stage.width*.73,'second-level parent covers most of the third sheet');}}
  await page.locator('.notes-category-breadcrumb button[title="仕事 / 会議 / 企画"]').click();
  assert.equal(await page.locator('#chosen').innerText(),'仕事 / 会議 / 企画');assert.ok((await panes.nth(1).getAttribute('class')).includes('is-focused'),'breadcrumb shows the pane containing the selected ancestor');
  await page.locator('.notes-category-breadcrumb button[title="仕事"]').click();assert.equal(await page.locator('#chosen').innerText(),'仕事');assert.ok((await panes.first().getAttribute('class')).includes('is-focused'));
