@@ -8,13 +8,14 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  const longParts=['長い大カテゴリの名前','長い第二階層の名前','長い第三階層の名前','長い第四階層の名前','長い末端カテゴリの名前'];
  const categories=['単純 / 末端A','単純 / 末端B','仕事 / 会議 / 企画 / 調査 / 結果','仕事 / 会議 / 企画 / 調査 / 資料','仕事 / 会議 / 別件',longParts.join(' / '),...roots,...Array.from({length:200},(_,i)=>'一覧399 / 子'+String(i).padStart(3,'0'))];
  const fixture=`import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {CategoryTree,CategoryManager} from '${baseline?'/__baseline-category.tsx':'/src/components/note-categories.tsx'}';import {categoryPaths} from '/src/lib/note-organization.ts';import '/src/styles.css';import '/src/notes.css';
+ window.categoryTestEvents=[];for(const type of ['pointerdown','pointerout','mousedown','mouseout','focusin','click'])document.addEventListener(type,e=>{window.categoryTestEvents.push({type,pointer:e.pointerType,target:e.target.className});if(window.categoryTestEvents.length>30)window.categoryTestEvents.shift();},true);
  const paths=categoryPaths(${JSON.stringify(categories)});const notes=paths.map((category,i)=>({id:String(i),note:{category,tags:[]}}));
  function Fixture(){const [selected,select]=useState(''),[manage,setManage]=useState(false),[tick,setTick]=useState(0);window.pickCategory=select;window.rerender=()=>setTick(v=>v+1);window.selectedCategory=selected;
  return <div className="notes-app" style={{display:'block',padding:20}}><aside className="notes-sidebar" style={{position:'relative',width:'min(380px,calc(100vw - 40px))',height:570,zIndex:1}}><CategoryTree paths={[...paths]} notes={notes} selected={selected} disabled={false} onSelect={select} onManage={()=>setManage(true)}/></aside><output id="chosen">{selected}</output>{manage&&<CategoryManager paths={paths} initial={selected} busy={false} onClose={()=>setManage(false)} onApply={async op=>{window.operations=(window.operations||[]).concat(op);}}/>}</div>};createRoot(document.getElementById('root')).render(<Fixture/>);`;
  const server=await createServer({server:{host:'127.0.0.1',port:5185},plugins:[{name:'category-fixture',configureServer(s){s.middlewares.use(async(req,res,next)=>{
  if(req.url?.startsWith('/canvas/__category-test.html')){res.setHeader('Content-Type','text/html');res.end(await s.transformIndexHtml(req.url,'<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/canvas/__category-fixture.tsx"></script></body></html>'));return;}next();});},resolveId(id){if(id.includes('__category-fixture.tsx')||id.includes('__baseline-category.tsx'))return id;},load(id){if(id.includes('__category-fixture.tsx'))return fixture;if(id.includes('__baseline-category.tsx'))return execFileSync('git',['show','dc21b1bf374291c360e76ca88e095d7715c9b166:src/components/note-categories.tsx'],{encoding:'utf8'});}}]});
  await server.listen();
- let browser,page;
+ let browser,page,mobile;
  try{
  browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
  page=await browser.newPage({viewport:{width:1200,height:900}});page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
@@ -58,10 +59,10 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  await page.getByRole('button',{name:'カテゴリを管理',exact:true}).click();await page.getByLabel('カテゴリの操作').selectOption('tag');await page.getByLabel('変換先のタグ').fill('保存版');await page.getByRole('button',{name:'タグへ変換',exact:true}).click();
  assert.deepEqual(await page.evaluate(()=>window.operations.map(({kind,source,target})=>({kind,source,target}))),[{kind:'create',source:'単純',target:'単純 / 新しい子'},{kind:'move',source:'単純',target:'仕事 / 移動先'},{kind:'move',source:'単純',target:'改名'},{kind:'tag',source:'単純',target:'保存版'}]);
  assert.deepEqual(errors,[]);
- const touch=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});const mobile=await touch.newPage();mobile.setDefaultTimeout(10000);
+ const touch=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true});mobile=await touch.newPage();mobile.setDefaultTimeout(10000);
  await mobile.goto('http://127.0.0.1:5185/canvas/__category-test.html');await mobile.locator('[data-category-path="単純"]').tap();await mobile.waitForTimeout(240);
  const mstage=await mobile.locator('.notes-category-cascade-stage').boundingBox();
- await mobile.touchscreen.tap(mstage.x+8,mstage.y+70);await mobile.waitForTimeout(240);assert.ok((await mobile.locator('.notes-category-multi-pane').first().getAttribute('class')).includes('is-focused'));assert.equal(await mobile.locator('#chosen').innerText(),'単純','first tap on covered parent only brings it forward');
+ await mobile.touchscreen.tap(mstage.x+8,mstage.y+70);await mobile.waitForTimeout(240);assert.ok((await mobile.locator('.notes-category-multi-pane').first().getAttribute('class')).includes('is-focused'),'touch parent preview: '+JSON.stringify(await mobile.evaluate(()=>({selected:window.selectedCategory,panes:Array.from(document.querySelectorAll('.notes-category-multi-pane')).map(n=>n.className),events:window.categoryTestEvents}))));assert.equal(await mobile.locator('#chosen').innerText(),'単純','first tap on covered parent only brings it forward');
  await mobile.touchscreen.tap(mstage.x+mstage.width-8,mstage.y+70);await mobile.waitForTimeout(240);assert.ok((await mobile.locator('.notes-category-multi-pane').last().getAttribute('class')).includes('is-focused'));assert.equal(await mobile.locator('#chosen').innerText(),'単純','first tap on covered child only brings it forward');
  await mobile.locator('[data-category-path="単純 / 末端A"]').tap();assert.equal(await mobile.locator('#chosen').innerText(),'単純 / 末端A');
  await mobile.locator('.notes-category-level-label').tap();await mobile.waitForTimeout(240);assert.ok((await mobile.locator('.notes-category-multi-pane').first().getAttribute('class')).includes('is-focused'));
@@ -71,5 +72,5 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  await mobile.screenshot({path:'/tmp/kaeru-category-overlay-mobile.png'});
  console.log('PASS leaf overlays, 80% overlap, mouse parent/child switching, 5 levels, breadcrumbs, 400 roots/200 children scroll, touch switching, create/rename/move/tag commands');
  await touch.close();
- }catch(error){if(page)await page.screenshot({path:'/tmp/kaeru-category-overlay-failure.png'});throw error;}finally{await browser?.close();await server.close();}
+ }catch(error){if(mobile)await mobile.screenshot({path:'/tmp/kaeru-category-overlay-mobile-failure.png'});if(page)await page.screenshot({path:'/tmp/kaeru-category-overlay-failure.png'});throw error;}finally{await browser?.close();await server.close();}
 })().catch(error=>{console.error(error);process.exit(1)});

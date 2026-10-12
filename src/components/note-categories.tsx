@@ -99,7 +99,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,disabled}:{
       </nav>
       <div className={'notes-category-cascade-stage multilevel '+(peekDepth!==null?'parent-peek':'')} role="group" aria-label="カテゴリの選択"
         onKeyDownCapture={()=>{pointerType.current='keyboard';}}
-        onMouseLeave={()=>setPeekDepth(null)}>
+        onPointerLeave={event=>{if(event.pointerType==='mouse')setPeekDepth(null);}}>
         {visible.map((pane,i)=>{
           const isLast=i===visible.length-1;
           const left=(1-Math.pow(.8,i))*100;
