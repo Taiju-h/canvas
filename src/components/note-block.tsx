@@ -1,3 +1,4 @@
+import {flowNoteColumns} from '@/lib/rich-note-commands';
 import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
@@ -27,7 +28,7 @@ export default function EditableBlock({docId,block,readOnly,focused,selected,onF
   },[docId,block.html]);
   useEffect(()=>{if(focused&&!readOnly)ref.current?.focus({preventScroll:true});},[focused,readOnly]);
   useEffect(()=>{const el=ref.current;if(!el)return;const observer=new ResizeObserver(()=>callback.current(Math.max(140,el.scrollHeight+54)));observer.observe(el);return()=>observer.disconnect();},[]);
-  function emit(){if(readOnly)return;const el=ref.current;if(el)onChange(cleanHTML(el.innerHTML),Math.max(140,el.scrollHeight+54));}
+  function emit(){if(readOnly)return;const el=ref.current;if(el){flowNoteColumns(el);onChange(cleanHTML(el.innerHTML),Math.max(140,el.scrollHeight+54));}}
   return <section data-note-block={block.id} className={`note-block ${selected?'selected':''}`} style={{left:block.x,top:block.y,width:block.w,minHeight:140,background:block.background||'#fff'}}>
     <button className="note-block-handle" title="ドラッグして移動" aria-label="文章ブロックを移動" onPointerDown={e=>onDrag(e)}>⠿</button>
     <div ref={ref} className="note-content" contentEditable={!readOnly} suppressContentEditableWarning role="textbox" aria-label="メモ本文" aria-multiline="true" data-placeholder="ここから書き始める…" spellCheck

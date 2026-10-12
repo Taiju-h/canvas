@@ -1,3 +1,4 @@
+import {flowNoteColumns} from '@/lib/rich-note-commands';
 import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
 import {getLocalImage} from '@/lib/local-docs';
 import {fileURL} from '@/lib/notes';
@@ -26,13 +27,13 @@ export function displayCell(sheet:SheetData,key:string,seen=new Set<string>()):s
   try{const value=Function('"use strict";return ('+expr+')')();return Number.isFinite(value)?String(Math.round(value*1e8)/1e8):'#ERR!';}catch{return '#ERR!';}
 }
 
-export function FixedNoteLayer({docId,html,visible,locked,active,onChange}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onChange:(html:string)=>void}){
+export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void}){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);
   useEffect(()=>{
     const el=ref.current;if(!el)return;
     const safe=cleanHTML(html);
-    if(document.activeElement!==el&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
-  },[html]);
+    if(!composing.current&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
+  },[html,visible,docId]);
   useEffect(()=>{
     const el=ref.current;if(!el)return;
     let live=true;const urls:string[]=[];
@@ -49,9 +50,11 @@ export function FixedNoteLayer({docId,html,visible,locked,active,onChange}:{docI
     return()=>{live=false;urls.forEach(URL.revokeObjectURL);};
   },[html,docId,visible]);
   if(!visible)return null;
-  const emit=()=>{if(locked)return;const el=ref.current;if(el)onChange(cleanHTML(el.innerHTML));};
+  const emit=()=>{if(locked)return;const el=ref.current;if(el){flowNoteColumns(el);onChange(cleanHTML(el.innerHTML));}};
   return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー">
-    <div ref={ref} className="notes-fixed-editor" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
+    <div ref={ref} className="notes-fixed-editor" role="textbox" aria-label="固定ノート本文" aria-multiline="true" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
+      onPaste={e=>{e.preventDefault();if(e.clipboardData.files.length){onPaste(Array.from(e.clipboardData.files));return;}
+        const html=e.clipboardData.getData('text/html');document.execCommand(html?'insertHTML':'insertText',false,html?cleanHTML(html):e.clipboardData.getData('text/plain'));emit();}}
       data-placeholder="ここは固定ノートです。キャンバスを拡大・縮小しても、この文字は動きません。"
       onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;emit();}} onKeyDown={e=>noteEditorKeyDown(e,emit)} onClick={e=>{
         noteCheckboxClick(e,emit);
@@ -126,13 +129,14 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
     const kind=(layer.studioKind||'canvas') as 'canvas'|'layout';
     const peers=doc.layers.filter(l=>l.id!==id&&(l.studioKind||'canvas')===kind);
     const destination=peers[0];
-    const itemCount=doc.items.filter(i=>i.layerId===id).length+(doc.paintStrokes||[]).filter(i=>i.layerId===id).length;
+    const itemCount=(doc.blocks||[]).filter(i=>i.layerId===id).length+(doc.charts||[]).filter(i=>i.layerId===id).length+doc.items.filter(i=>i.layerId===id).length+(doc.paintStrokes||[]).filter(i=>i.layerId===id).length;
     const message=destination
       ?'「'+layer.name+'」を削除し、'+itemCount+'個の内容を「'+destination.name+'」へ移動しますか？'
       :'「'+layer.name+'」を削除し、'+itemCount+'個の内容を新しいレイヤーへ移動しますか？';
     if(!window.confirm(message))return;
     const replacement=destination||{id:crypto.randomUUID().replace(/-/g,''),name:kind==='layout'?'レイアウト 1':'キャンバス 1',studioKind:kind,visible:true,locked:false};
     onChange({...doc,layers:[...doc.layers.filter(l=>l.id!==id),...(destination?[]:[replacement])],
+      blocks:doc.blocks?.map(i=>i.layerId===id?{...i,layerId:replacement.id}:i),
       items:doc.items.map(i=>i.layerId===id?{...i,layerId:replacement.id}:i),
       paintStrokes:doc.paintStrokes?.map(i=>i.layerId===id?{...i,layerId:replacement.id}:i),
       charts:doc.charts?.map(i=>i.layerId===id?{...i,layerId:replacement.id}:i)});

@@ -109,7 +109,7 @@ function kn_ai_action(PDO $db,string $actor,string $action): void
     }
     $model=(string)(getenv('KAERUNOTE_AI_MODEL') ?: 'gpt-4.1-mini');
     $response=kn_ai_request('responses',[
-        'model'=>$model,'instructions'=>$instruction,'max_output_tokens'=>1200,
+        'model'=>$model,'instructions'=>$instruction,'max_output_tokens'=>1200,'store'=>false,
         'input'=>"タイトル: ".(string)$row['title']."\n本文:\n".$text.$candidateText,
     ]);
     $output=kn_ai_output_text($response);

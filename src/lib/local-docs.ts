@@ -63,3 +63,14 @@ export async function saveLocalRevision(doc:LocalDoc,limit=25){
   const rows=await listLocalRevisions(doc.id);
   for(const item of rows.slice(limit))await operation<undefined>("revisions","readwrite",store=>store.delete(item.id));
 }
+
+/** Preserve offline history when the server assigns a permanent document ID. */
+export async function moveLocalRevisions(from:string,to:string){
+  const db=await database();
+  await new Promise<void>((resolve,reject)=>{
+    const tx=db.transaction('revisions','readwrite'),store=tx.objectStore('revisions');
+    const cursor=store.index('byDoc').openCursor(IDBKeyRange.only(from));
+    cursor.onsuccess=()=>{const row=cursor.result;if(row){row.update({...row.value,docId:to});row.continue();}};
+    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+  });
+}

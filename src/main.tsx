@@ -21,6 +21,7 @@ function cacheSession(value: Session) { try { localStorage.setItem("canvasSessio
 
 async function readSession(): Promise<Session> {
   const cached = cachedSession();
+  if(!navigator.onLine&&cached?.authenticated&&cached.accountId)return cached;
   const appBridge = (window as Window & {CanvasApp?:unknown}).CanvasApp;
   if (appBridge && cached?.authenticated && cached.accountId) {
     void fetch(API + encodeURIComponent("/api/session"), {
@@ -146,7 +147,8 @@ function App() {
 // and sw.js existed but were never used, so a restarted browser could not work
 // without network access.
 if('serviceWorker' in navigator){
-  void navigator.serviceWorker.register('/canvas/sw.js',{scope:'/canvas/'}).catch(error=>{
+  const base=location.pathname.startsWith('/canvas/')?'/canvas/':'/';
+  void navigator.serviceWorker.register(base+'sw.js',{scope:base}).catch(error=>{
     console.warn('KaeruNote offline cache registration failed',error);
   });
 }

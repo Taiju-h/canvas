@@ -16,7 +16,7 @@ import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, ty
 import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedNoteRoot,selectedString,insertRichHTML,applyRuby,applyRedMark,type TableOptions} from '@/lib/rich-note-commands';
 import {exportDocx,exportPng,exportPlain} from '@/lib/note-export';
 import {materializeSheetReferences,referenceSourceFromNote,referencedAliases} from '@/lib/sheet-references';
-import {listLocalRevisions,type LocalRevision} from '@/lib/local-docs';
+import {listLocalRevisions,saveLocalRevision,type LocalRevision} from '@/lib/local-docs';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
   const [url,setURL]=useState('');
@@ -38,7 +38,7 @@ function ColorStudio({color,onChange}:{color:string;onChange:(color:string)=>voi
   const wheel=(e:ReactPointerEvent<HTMLDivElement>)=>{const r=e.currentTarget.getBoundingClientRect(),dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2);const next=(Math.atan2(dy,dx)*180/Math.PI+450)%360;setH(next);onChange(hsbToHex(next,s,b));};
   const hsb=(H=h,S=s,B=b)=>{setH(H);setS(S);setB(B);onChange(hsbToHex(H,S,B));};
   const cmyk=(C=c,M=m,Y=y,K=k)=>{setC(C);setM(M);setY(Y);setK(K);onChange(cmykToHex(C,M,Y,K));};
-  return <div className="notes-color-studio" onMouseDown={e=>e.preventDefault()}>
+  return <div className="notes-color-studio" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
     <div className="notes-color-tabs"><Palette size={15}/>{(['palette','wheel','hsb','cmyk'] as ColorMode[]).map(v=><button key={v} className={mode===v?'active':''} onClick={()=>setMode(v)}>{v==='palette'?'パレット':v==='wheel'?'カラーサークル':v.toUpperCase()}</button>)}</div>
     {mode==='palette'&&<div className="notes-color-palette">{COLOR_PALETTE.map(v=><button key={v} title={v} aria-label={v} className={color.toLowerCase()===v?'active':''} style={{background:v}} onClick={()=>onChange(v)}/>)}</div>}
     {mode==='wheel'&&<div className="notes-color-wheel-wrap"><div className="notes-color-wheel" onPointerDown={wheel} onPointerMove={e=>{if(e.buttons)wheel(e);}}><i style={{transform:`rotate(${h}deg) translateX(42px)`}}/></div><div className="notes-color-sliders"><label>S <input type="range" min="0" max="100" value={s} onChange={e=>hsb(h,Number(e.target.value),b)}/></label><label>B <input type="range" min="0" max="100" value={b} onChange={e=>hsb(h,s,Number(e.target.value))}/></label></div></div>}
@@ -198,6 +198,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);
   const [aiConfigured,setAiConfigured]=useState<boolean|null>(null);
   const [aiBusy,setAiBusy]=useState(false);
+  const aiTarget=useRef('');
   const [aiResult,setAiResult]=useState('');
   const aiAudioInput=useRef<HTMLInputElement>(null);
   const [offlinePreparing,setOfflinePreparing]=useState(false);
@@ -209,12 +210,14 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [fontStep,setFontStep]=useState(3);
   const [bulletSize,setBulletSize]=useState<'large'|'medium'|'small'>('large');
   const [rubyColor,setRubyColor]=useState('#9d5b30');
+  const [highlightColor,setHighlightColor]=useState('#fff170');
   const [imagePlacement,setImagePlacement]=useState<'inline'|'overlay'>('inline');
   const [imageAlign,setImageAlign]=useState<'left'|'center'|'right'>('left');
   const [tableOpen,setTableOpen]=useState(false);
   const [tableSelected,setTableSelected]=useState(false);
   const savedCaret=useRef<Range|null>(null);
   const editingTable=useRef(false);
+  const formatCaret=useRef<Range|null>(null);
   const lastTable=useRef<HTMLTableElement|null>(null);
   const lastCell=useRef<HTMLTableCellElement|null>(null);
   const [tableOpts,setTableOpts]=useState<TableOptions>({kind:'table',rows:3,cols:3,width:100,align:'fit',height:'auto',lines:4,flow:'expand'});
@@ -366,19 +369,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   async function updateSpreadsheetReferences(changedSheet?:SheetData){
     const currentRecord=current.current;if(!currentRecord)return;
     const snapshot=currentRecord.content as StudioNoteDoc;
-    const own=referenceSourceFromNote(currentRecord.id,snapshot);
-    if(changedSheet)own.sheet=changedSheet;
+    await notes.refreshReferences(currentRecord.id);
+    if(current.current?.id!==currentRecord.id)return;
     const cached=await listLocalDocs();
-    const sources=cached.filter(row=>row.accountId===accountId)
-      .map(row=>referenceSourceFromNote(row.id,row.content as NoteDoc));
-    const fixed=snapshot.fixedNote||{html:'',visible:true,locked:false};
-    const html=materializeSheetReferences(fixed.html,own,sources);
-    const blocks=snapshot.blocks?.map(b=>({...b,html:materializeSheetReferences(b.html,own,sources)}));
-    if(html!==fixed.html||blocks?.some((b,i)=>b.html!==snapshot.blocks?.[i].html)){
-      const latest=current.current?.content as StudioNoteDoc|undefined;if(!latest)return;
-      const refreshedFixed=latest.fixedNote||fixed;
-      commit({...latest,fixedNote:{...refreshedFixed,html},blocks} as NoteDoc,false);
-    }
     const alias=currentRecord.content.note?.alias||'';
     const dependents=cached.filter(row=>row.id!==currentRecord.id&&row.accountId===accountId)
       .filter(row=>{
@@ -399,7 +392,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(!hasData&&!sheetHasData)return;
     setSheetPreviewOpen(false);
     commit({...d,sheet:{...next,visible:true}} as NoteDoc,false);
-    window.setTimeout(()=>{void updateSpreadsheetReferences(next);},900);
+
   }
   function leaveTransientSheet(){if(workspaceMode==='excel'&&!sheetHasData){setSheetPreviewOpen(false);setSheetSelection(undefined);}}
   function useNoteLayer(){leaveTransientSheet();setFocus('');setWorkspaceMode('note');setTool('note');(document.activeElement as HTMLElement)?.blur();}
@@ -652,7 +645,15 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(a.kind==='shape'){const shape=draftShape;setDraftShape(null);if(!cancel&&shape&&Math.hypot(shape.w,shape.h)>2){commit({...a.original,items:[...a.original.items,shape]});setSelected(shape.id);setActiveLayer(shape.layerId);}return;}
     if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){if(cancel&&a.moved)notes.change(a.original);else if(a.moved){undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
   }
+  function restoreFormatSelection(){
+    const range=formatCaret.current;if(!range?.startContainer.isConnected)return;
+    const node=range.startContainer,element=node instanceof Element?node:node.parentElement;
+    const root=element?.closest<HTMLElement>('.notes-fixed-editor,.note-content');
+    if(!root||root.getAttribute('contenteditable')!=='true')return;
+    root.focus();const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);
+  }
   function format(command:string,value?:string){
+    restoreFormatSelection();
     typing.current=null;
     document.execCommand(command,false,value);
     const el=document.activeElement as HTMLElement;
@@ -666,7 +667,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     setFontStep(next);format('fontSize',String(next));
   }
   function applyBullets(size:'large'|'medium'|'small'){
-    setBulletSize(size);
+    restoreFormatSelection();setBulletSize(size);
     const element=window.getSelection()?.anchorNode?.parentElement;
     let list=element?.closest('ul');
     if(!list){format('insertUnorderedList');list=window.getSelection()?.anchorNode?.parentElement?.closest('ul')||null;}
@@ -710,12 +711,14 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       const selected=currentTable(),cell=currentCell();
       if(selected){lastTable.current=selected;lastCell.current=cell;}
       const isInNote=!!window.getSelection()?.anchorNode?.parentElement?.closest('.notes-fixed-editor,.note-content');
+      const selection=window.getSelection();if(isInNote&&selection?.rangeCount)formatCaret.current=selection.getRangeAt(0).cloneRange();
       setTableSelected(!!selected&&isInNote);
     };
     document.addEventListener('selectionchange',onSelect);
     return()=>document.removeEventListener('selectionchange',onSelect);
   },[]);
   function ruby(skipPrompt=false){
+    restoreFormatSelection();
     const selection=window.getSelection(),range=selection?.rangeCount?selection.getRangeAt(0).cloneRange():null;
     const selected=selectedString().trim();if(!selected){notes.setError('ルビを付ける文字を選択してください');return;}
     const memoryKey='kaerunote-ruby:'+selected,remembered=localStorage.getItem(memoryKey)||'';
@@ -737,13 +740,15 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(!currentRecord||currentRecord.id.startsWith('local-')){notes.setError('ChatGPT接続は最初にノートをサーバーへ保存してください');return;}
     if(!navigator.onLine){notes.setError('AI処理にはネット接続が必要です。メモの編集はオフラインで続けられます');return;}
     if(send&&!window.confirm(action==='related'?'このノートと関連候補のタイトル・本文抜粋をOpenAI APIへ送信します。続けますか？':'このノートの内容をOpenAI APIへ送信して整理します。続けますか？'))return;
-    setAiBusy(true);
+    aiTarget.current=currentRecord.id;setAiBusy(true);
     try{
       await notes.save();
+      if(current.current?.id!==currentRecord.id)throw new Error('解析対象のノートを切り替えたため中止しました');
       if(current.current?.dirty||notes.conflict)throw new Error('同期が終わっていません。保存完了を確認してください');
       const response=await api('/api/ai/'+action,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({id:currentRecord.id})});
       const result=await response.json();
+      if(current.current?.id!==currentRecord.id)throw new Error('解析対象のノートを切り替えたため結果を反映しませんでした');
       if(action==='organize')setAiResult(String(result.text||''));
       else{
         const related=(result.related as {id:string;reason:string}[]||[])
@@ -761,11 +766,12 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(!file)return;
     if(!navigator.onLine){notes.setError('音声文字起こしにはネット接続が必要です');return;}
     if(!window.confirm('この音声をOpenAI APIへ送信して文字起こしします。続けますか？'))return;
-    setAiBusy(true);
+    aiTarget.current=current.current?.id||'';setAiBusy(true);
     try{
       const form=new FormData();form.set('audio',file);
       const response=await api('/api/ai/transcribe',{method:'POST',body:form});
       const result=await response.json() as {text:string};
+      if(current.current?.id!==aiTarget.current)throw new Error('対象のノートを切り替えたため結果を反映しませんでした');
       setAiResult(result.text||'');
     }catch(e){notes.setError('文字起こし：'+String(e));}
     finally{setAiBusy(false);}
@@ -773,6 +779,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function insertAIResult(){
     const d=current.current?.content as StudioNoteDoc|undefined;
     if(!d||!aiResult.trim())return;
+    if(current.current?.id!==aiTarget.current){notes.setError('AI結果を生成したノートを開いてから挿入してください');return;}
     const fixed=d.fixedNote||{html:'',visible:true,locked:false};
     commit({...d,fixedNote:{...fixed,html:fixed.html+'<h2>AI整理結果</h2><p>'+escapeHTML(aiResult).replace(/\n/g,'<br>')+'</p>'}} as NoteDoc);
     setAiResult('');
@@ -793,10 +800,14 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     try{setRevisions(await listLocalRevisions(record.id));setRevisionsOpen(true);}
     catch(error){notes.setError('端末の履歴を開けません：'+String(error));}
   }
-  function restoreRevision(snapshot:LocalRevision){
-    if(!window.confirm(new Date(snapshot.createdAt).toLocaleString('ja-JP')+'の内容に戻しますか？ 現在の状態も保存してください。'))return;
-    notes.change(snapshot.content as NoteDoc,snapshot.title);
-    setRevisionsOpen(false);
+  async function restoreRevision(snapshot:LocalRevision){
+    if(!window.confirm(new Date(snapshot.createdAt).toLocaleString('ja-JP')+'の内容に戻しますか？ 現在の状態も履歴に残します。'))return;
+    const before=current.current;if(!before)return;
+    try{
+      await saveLocalRevision({...before,base:before.content,dirty:!!before.dirty,owner:true,accountId});
+      if(current.current!==before){notes.setError('復元前の保存中に編集されました。もう一度復元してください');return;}
+      notes.change(snapshot.content as NoteDoc,snapshot.title);await notes.save();setRevisionsOpen(false);
+    }catch(err){notes.setError('復元前の履歴を保存できません：'+String(err));}
   }
   async function attach(files:File[]){
     const initial=current.current;
@@ -810,6 +821,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         if(file.size===0||file.size>512*1024*1024)throw new Error('添付は1バイト～512MBです');
         const a:Attachment={id:id32(),name:file.name,mime:file.type||'application/octet-stream',size:file.size,pending:true};
         await putLocalImage(a.id,file);
+        working=(current.current?.content||working) as StudioNoteDoc;
         const encoded=escapeHTML(file.name),html=file.type.startsWith('image/')
           ?'<p class="kn-image-wrap-'+imageAlign+'"><img data-kn-local-image="'+a.id+'" alt="'+encoded+'"></p>'
           :'<p><a href="#" data-kn-local-file="'+a.id+'">'+encoded+'</a></p>';
@@ -825,8 +837,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           const b={...block(80,y,html),layerId:layer.id};
           working={...working,blocks:[...(working.blocks||[]),b],attachments:[...(working.attachments||[]),a]};
         }
+        commit(working as NoteDoc);
       }
-      commit(working as NoteDoc);
       // IndexedDB stores the actual binary even without any connection.
       // On reconnect useNotes uploads pending attachments and clears their flag.
       if(navigator.onLine)void notes.save();
@@ -837,25 +849,22 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     next.organizationLog=[...(meta.organizationLog||[]).slice(-99),{at:new Date().toISOString(),category:next.category,tags:next.tags}];commit({...doc,note:next});}
   async function loadJex(file:File){setImportMessage('JEXを確認しています…');try{const value=await readJex(file);setArchive(value);setImportMessage('');}catch(err){setImportMessage(String(err));}}
   async function runImport(){if(!archive)return;cancelImport.current=false;setImporting(true);
-    try{await notes.save();const existing=await notes.refresh();const result=await importJex(archive,existing,setImportMessage,()=>cancelImport.current);
-      setImportMessage(`${result.completed}件を取り込みました。取り込み済み ${result.skipped}件は重複を避けてスキップしました。`);setArchive(null);await notes.refresh();
+    try{await notes.save();const existing=await notes.refresh();const result=await importJex(archive,existing,setImportMessage,()=>cancelImport.current,accountId);
+      setImportMessage(`${result.completed}件を取り込みました。取り込み済み ${result.skipped}件は重複を避けてスキップしました。`);setArchive(null);const rows=await notes.refresh();if(navigator.onLine)for(const row of rows)if(row.note?.importState==='complete')void notes.save(row.id);
     }catch(err){setImportMessage(err instanceof Error?err.message:'取り込みに失敗しました');await notes.refresh().catch(()=>{});}finally{setImporting(false);}}
   async function applyOrganization(file:File){try{
     if(file.size>2_000_000)throw new Error('整理ファイルが大きすぎます');
     const payload=JSON.parse(await file.text()) as {version:number;notes:{id:string;category:string;tags:string[];revision:number}[]};
     if(payload.version!==1||!Array.isArray(payload.notes))throw new Error('整理ファイルの形式が不正です');
-    const seen=new Set<string>();for(const entry of payload.notes){if(!/^[a-f0-9]{32}$/.test(entry.id)||seen.has(entry.id)||typeof entry.category!=='string'||entry.category.length>200||!Array.isArray(entry.tags)||entry.tags.length>50||entry.tags.some(t=>typeof t!=='string'||t.length>80)||!Number.isInteger(entry.revision))throw new Error('分類・タグ・IDの形式が不正です');seen.add(entry.id);}
-    await notes.save();let changed=0;
-    for(const entry of payload.notes){const cache=await getLocalDoc(entry.id);if(cache?.accountId===accountId && cache.dirty)throw new Error('未同期のメモがあります。同期してから分類を反映してください');const r=await(await api('/api/documents/'+entry.id)).json() as NoteRecord;if(r.revision!==entry.revision)throw new Error(`更新済みのメモがあるため停止しました（反映済み ${changed}件）。もう一度書き出して整理してください`);
-      const old=r.content.note||{category:'',tags:[]};r.content.note={...old,category:entry.category,tags:[...new Set(entry.tags)],organizationLog:[...(old.organizationLog||[]).slice(-99),{at:new Date().toISOString(),category:entry.category,tags:entry.tags}]};
-      await api('/api/documents/'+r.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:r.title,revision:r.revision,content:r.content})});changed++;}
-    await notes.refresh();if(record)await notes.open(record.id);notes.setError(`分類を${changed}件反映しました`);
+    const seen=new Set<string>();for(const entry of payload.notes){if(!/^(?:local-)?[a-f0-9]{32}$/.test(entry.id)||seen.has(entry.id)||typeof entry.category!=='string'||entry.category.length>200||!Array.isArray(entry.tags)||entry.tags.length>50||entry.tags.some(t=>typeof t!=='string'||t.length>80)||!Number.isInteger(entry.revision))throw new Error('分類・タグ・IDの形式が不正です');seen.add(entry.id);}
+    const changed=await notes.applyLocalMetadata(payload.notes);
+    notes.setError(`分類を${changed}件、端末に反映しました`);
   }catch(err){notes.setError(String(err));}}
   async function exportAll(){try{await notes.save();const rows=await notes.refresh();const texts:string[]=[];const entries:{id:string;category:string;tags:string[];revision:number}[]=[];
     for(const n of rows.filter(n=>!n.note?.trashedAt)){const cached=await getLocalDoc(n.id);let r:NoteRecord;
       if(cached?.accountId===accountId&&(cached.dirty||!navigator.onLine))r={...cached,content:cached.content as NoteDoc};
       else r=await(await api('/api/documents/'+n.id)).json() as NoteRecord;
-      texts.push(exportMarkdown(r));if(!n.id.startsWith('local-'))entries.push({id:r.id,category:r.content.note?.category||'',tags:r.content.note?.tags||[],revision:r.revision});}
+      texts.push(exportMarkdown(r));entries.push({id:r.id,category:r.content.note?.category||'',tags:r.content.note?.tags||[],revision:r.revision});}
     download('Canvas-メモ整理.md',texts.join('\n\n<!-- 次のメモ -->\n\n'));download('Canvas-分類.json',JSON.stringify({version:1,notes:entries},null,2),'application/json');
   }catch(err){notes.setError(String(err));}}
   const categories=categoryPaths([...(workspace?.categories||[]),...notes.list.map(n=>n.note?.category||'')]);
@@ -1036,7 +1045,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         <div inert={!!meta.trashedAt||organizing||meta.importState==='pending'} className={`notes-toolbar ${workspaceMode==='note'?'notes-toolbar-word':''} ${meta.importState==='pending'||meta.trashedAt||organizing?'notes-disabled':''}`} role="toolbar" aria-label="編集オプション">
           {workspaceMode==='note'?<>
             <div className="notes-tool-group"><button title="元に戻す" onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button title="やり直す" onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
-            <div className="notes-tool-group notes-format" onMouseDown={e=>e.preventDefault()}>
+            <div className="notes-tool-group notes-format" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
               <button title="太字" onClick={()=>format('bold')}><Bold size={17}/></button>
               <button title="斜体" onClick={()=>format('italic')}><Italic size={17}/></button>
               <button title="下線" onClick={()=>format('underline')}><Underline size={17}/></button>
@@ -1054,7 +1063,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button title="選んだマークの箇条書き" onClick={()=>applyBullets(bulletSize)}><List size={18}/></button>
               <button title="チェックリスト（文字なしで挿入）" onClick={()=>insertRichHTML('<ul class="kn-checklist"><li><input type="checkbox"> <span>&nbsp;</span></li></ul>')}><ListChecks size={18}/></button>
             </div>
-            <div className="notes-tool-group notes-note-insert" onMouseDown={e=>e.preventDefault()}>
+            <div className="notes-tool-group notes-note-insert" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
               <button title="通常の表を挿入" onClick={()=>openTableSettings('table')}><Table2 size={17}/><span>表</span></button>
               <button title="段組みの表組みレイアウト" onClick={()=>openTableSettings('columns')}><Columns3 size={17}/><span>表組み</span></button>
               <button title="ノートにファイルを添付" onClick={()=>fileInput.current?.click()}><Paperclip size={17}/><span>添付</span></button>
@@ -1070,19 +1079,19 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               </label>
               <button title="画像をノートに挿入" onClick={()=>imageInput.current?.click()}><ImagePlus size={17}/>画像</button>
               <button title="ノートの作業エリアを拡大" onClick={toggleFocusMode}><Maximize2 size={17}/></button>
-              <button className={advancedOpen?'active':''} onClick={()=>setAdvancedOpen(x=>!x)} title="高度な書式オプションを開閉" aria-expanded={advancedOpen}><ChevronDown size={16}/><span>詳細</span></button>
+              <button className={advancedOpen?'active':''} onClick={()=>setAdvancedOpen(x=>!x)} title="高度な書式オプションを開閉" aria-expanded={advancedOpen}>{advancedOpen?<ChevronDown size={16}/>:<ChevronRight size={16}/>}<span>詳細</span></button>
             </div>
-            {advancedOpen&&<div className="notes-tool-group notes-advanced-format" onMouseDown={e=>e.preventDefault()}>
+            {advancedOpen&&<div className="notes-tool-group notes-advanced-format" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
               <button title="上付き" onClick={()=>format('superscript')}><Superscript size={16}/></button>
               <button title="下付き" onClick={()=>format('subscript')}><Subscript size={16}/></button>
-              <button title="蛍光ペン（文字背景色）" onClick={()=>format('backColor','#fff170')}><Highlighter size={16}/></button>
+              <button title="蛍光ペン（文字背景色）" onClick={()=>format('backColor',highlightColor)}><Highlighter size={16}/></button><label title="選択した文字の背景色を指定します">背景色<input type="color" aria-label="文字背景色" value={highlightColor} onChange={e=>{setHighlightColor(e.target.value);format('backColor',e.target.value);}}/></label>
               <button title="手書き風の赤丸" onClick={()=>applyRedMark('circle')}>赤丸</button>
               <button title="手書き風の赤線" onClick={()=>applyRedMark('underline')}>赤線</button>
               <button title="手書き風の赤波線" onClick={()=>applyRedMark('wave')}>波線</button>
               <label>ルビ色<input type="color" value={rubyColor} onChange={e=>setRubyColor(e.target.value)}/></label>
               <button title="選んだ漢字にルビ。Shiftを押すと前回の読みを使用" onClick={e=>ruby(e.shiftKey)}>ルビ</button>
             </div>}
-            {tableSelected&&<div className="notes-tool-group notes-table-controls" onMouseDown={e=>e.preventDefault()}>
+            {tableSelected&&<div className="notes-tool-group notes-table-controls" onMouseDown={e=>{if((e.target as Element).closest('button'))e.preventDefault();}}>
               <strong>表の編集</strong>
               <button title="行を追加" onClick={()=>editTable('row+',lastTable.current,lastCell.current)}>行＋</button>
               <button title="行を削除" onClick={()=>editTable('row-',lastTable.current,lastCell.current)}>行−</button>
@@ -1093,7 +1102,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           </>:<>
             <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
             {(workspaceMode==='canvas')&&<div className="notes-tool-group"><select aria-label="ブラシ" value={brush} onChange={e=>setBrush(e.target.value as typeof brush)}><option value="gpen">Gペン</option><option value="pen">ペン</option><option value="marker">マーカー</option></select><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label></div>}
-            {(workspaceMode==='layout')&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
+            {(workspaceMode==='layout')&&<div className="notes-tool-group"><button onClick={()=>addBlock()}><Type size={18}/>テキストボックス</button><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
             {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<>
               <button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>
               <button onClick={()=>void updateSpreadsheetReferences()}>参照値を更新</button>
@@ -1106,7 +1115,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           </div>
         </div>
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
-        <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：色・太さ・透明度は上のツールから変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>固定ノート：通常のワープロ入力です。下のキャンバスをズーム・移動しても文字サイズと位置は変わりません。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：キャンバス上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
+        <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：色・太さ・透明度は上のツールから変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>固定ノート：通常のワープロ入力です。下のキャンバスをズーム・移動しても文字サイズと位置は変わりません。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：レイアウト上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
           {workspaceMode==='layout'&&<div className="notes-shape-tools" role="toolbar" aria-label="図形の選択ツール">
             <strong>図形編集 v0.4.2</strong>
             <button className={tool==='select'?'active':''} onClick={()=>chooseTool('select')} title="図形全体を選択して移動・拡縮・回転"><MousePointer2 size={16}/> 黒矢印</button>
@@ -1246,19 +1255,19 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                     })}</div>}
                   </div>}
                   <ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/>
-                  {doc?.blocks?.map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} block={noteBlock} readOnly={tool!=='text'||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
+                  {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} block={noteBlock} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
                     onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
                 </div>
               </div>}
             </div>
-            {record&&<FixedNoteLayer docId={record.id} html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote}/>}
+            {record&&<FixedNoteLayer docId={record.id} html={fixedNote.html} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
           </div>
           {!focusMode&&workspaceMode==='excel'&&sheetDependents.length>0&&<div className="kn-sheet-dependents" role="region" aria-label="このExcelレイヤーを参照しているノート">
             <strong>このExcelを参照中</strong>
             {sheetDependents.map(d=><button key={d.id} title={d.title} onClick={()=>void notes.open(d.id)}>{d.title}</button>)}
           </div>}
-          {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'note':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
+          {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'layout':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer}/>}
           {!focusMode&&layersOpen&&relatedPanel&&<aside className="notes-layer-panel kn-related-panel" aria-label="関連ノート">
             <div className="notes-layer-title"><strong>関連ノート</strong><button onClick={()=>setRelatedPanel(false)} title="レイヤー一覧に戻る">←</button></div>
             {meta.relatedNotes?.length?meta.relatedNotes.map(item=><button key={item.id} onClick={()=>void notes.open(item.id)} title={item.reason}>
@@ -1275,7 +1284,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <div className="notes-fine-buttons"><button onClick={()=>editSelectedShape(i=>moveGraphic(i,-1,0))}>←1</button><button onClick={()=>editSelectedShape(i=>moveGraphic(i,1,0))}>1→</button><button onClick={()=>editSelectedShape(i=>moveGraphic(i,0,-1))}>↑1</button><button onClick={()=>editSelectedShape(i=>moveGraphic(i,0,1))}>↓1</button></div>
           </div>}
         </div>
-        {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer">{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
+        {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer" onClick={e=>{e.preventDefault();void getLocalImage(a.id).then(blob=>{
+          if(blob){const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=a.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),20000);}
+          else if(navigator.onLine&&!record!.id.startsWith('local-'))window.open(fileURL(record!.id,a.id),'_blank','noopener,noreferrer');
+          else notes.setError('この添付は端末に未取得です。接続中に「すべてのノートと添付を端末に保存」を実行してください');
+        }).catch(err=>notes.setError('添付を開けません：'+String(err)));}}>{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
       </section>
       {!sharedAccess&&settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>環境設定・メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
         <section className="kn-settings-group">
@@ -1323,7 +1336,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           <button onClick={()=>{if(record)void exportDocx(record).catch(err=>notes.setError('Word書き出し失敗：'+String(err)));}}>Word（DOCX）で書き出す</button>
         </section>
         <button onClick={()=>record&&download(record.title+'.md',exportMarkdown(record))}><FileDown size={16}/>このメモをMDに書き出す</button>
-        <button onClick={()=>record&&download(record.title+'.txt',(doc?.blocks||[]).map(b=>{const el=document.createElement('div');el.innerHTML=cleanHTML(b.html);return el.innerText;}).join('\n\n'),'text/plain')}>テキストで書き出す</button>
+
         <button onClick={()=>void exportAll()}><FileDown size={16}/>全メモを整理用に書き出す</button>
         <p>書き出したMDと分類ファイルをChatGPTに渡して「整理して」と依頼できます。整理後の分類ファイルを読み込むと、カテゴリとタグを反映します。</p>
         <button disabled={organizing||!!meta.trashedAt} onClick={()=>organizationInput.current?.click()}><Upload size={16}/>整理した分類を読み込む</button>
@@ -1374,8 +1387,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           <label>幅（画面％）<input type="number" min={10} max={100} value={tableOpts.width} onChange={e=>setTableOpts(o=>({...o,width:Math.max(10,Math.min(100,Number(e.target.value)||10))}))}/></label></div>
         <label>横位置<select value={tableOpts.align} onChange={e=>setTableOpts(o=>({...o,align:e.target.value as TableOptions['align']}))}><option value="fit">画面幅にフィット</option><option value="left">左</option><option value="center">中央</option><option value="right">右</option></select></label>
         <label>高さ<select value={tableOpts.height} onChange={e=>setTableOpts(o=>({...o,height:e.target.value as TableOptions['height']}))}><option value="auto">自動（推奨）</option><option value="fixed">固定（文字が見切れる場合があります）</option></select></label>
-        {tableOpts.height==='fixed'&&<label>高さ（文字の行数）<input type="number" min={1} max={50} value={tableOpts.lines} onChange={e=>setTableOpts(o=>({...o,lines:Math.max(1,Math.min(50,Number(e.target.value)||1))}))}/></label>}
-        <label>文字のあふれ方<select value={tableOpts.flow} onChange={e=>setTableOpts(o=>({...o,flow:e.target.value as TableOptions['flow']}))}><option value="expand">セルを拡張</option><option value="next">次のセルへ（手動移動・自動連結は開発中）</option></select></label>
+        {(tableOpts.height==='fixed'||tableOpts.kind==='columns'&&tableOpts.flow==='next')&&<label>高さ（文字の行数）<input type="number" min={1} max={50} value={tableOpts.lines} onChange={e=>setTableOpts(o=>({...o,lines:Math.max(1,Math.min(50,Number(e.target.value)||1))}))}/></label>}
+        <label>文字のあふれ方<select value={tableOpts.flow} onChange={e=>setTableOpts(o=>({...o,flow:e.target.value as TableOptions['flow']}))}><option value="expand">セルを拡張</option><option value="next">次のセルへ自動で流し込む（段組み）</option></select></label>
         <div className="notes-dialog-actions"><button onClick={()=>setTableOpen(false)}>キャンセル</button><button className="notes-primary" onClick={applyTable}>適用</button></div>
       </section>
     </div>}

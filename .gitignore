@@ -16,3 +16,5 @@ public/canvas/manifest.webmanifest
 
 # Private note attachments and incomplete uploads
 var/
+
+/public/canvas/build-version.json

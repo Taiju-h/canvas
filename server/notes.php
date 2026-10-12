@@ -14,7 +14,7 @@ function canvas_notes_index(PDO $db, string $actor): array
         $content = json_decode($row['content_json'], true) ?: [];
         $meta = $content['note'] ?? [];
         unset($meta['sourceMarkdown'], $meta['organizationLog']);
-        $texts = [];
+        $texts = [html_entity_decode(strip_tags((string)($content['fixedNote']['html'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8')];
         foreach ($content['blocks'] ?? [] as $block) $texts[] = html_entity_decode(strip_tags((string)($block['html'] ?? $block['text'] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
         foreach ($content['items'] ?? [] as $item) if (($item['kind'] ?? '') === 'text') $texts[] = (string)($item['text'] ?? '');
         foreach ($content['attachments'] ?? [] as $attachment) $texts[] = (string)($attachment['name'] ?? '');

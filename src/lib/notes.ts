@@ -49,7 +49,14 @@ export function cleanHTML(value: string): string {
   return el.innerHTML;
 }
 export const markdownHTML = (text: string) => cleanHTML(marked.parse(text, { async: false }) as string);
-export function plainText(html: string) { const el = document.createElement('div'); el.innerHTML = cleanHTML(html); return el.textContent || ''; }
+export function plainText(html: string) {
+  const el=document.createElement('div');el.innerHTML=cleanHTML(html);
+  el.querySelectorAll('input[type=checkbox]').forEach(n=>n.replaceWith(document.createTextNode((n as HTMLInputElement).checked?'[x] ':'[ ] ')));
+  el.querySelectorAll('br').forEach(n=>n.replaceWith(document.createTextNode('\n')));
+  el.querySelectorAll('td,th').forEach(n=>n.append('\t'));
+  el.querySelectorAll('p,div,h1,h2,h3,h4,li,tr,blockquote,pre').forEach(n=>n.append('\n'));
+  return (el.textContent||'').replace(/\t\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+}
 export function block(x = 80, y = 80, html = ''): NoteBlock { return { id: id32(), x, y, w: 660, h: 240, html }; }
 export function blankNote(): NoteDoc { return { version: 1, items: [], layers: [{ id: id32(), name: '描画 1', visible: true, locked: false }], grid: 'none', snap: false,
   blocks: [], fixedNote: { html: '', visible: true, locked: false }, sheet: { visible: false, locked: false, rows: 20, cols: 10, cells: {} }, charts: [],
@@ -61,17 +68,35 @@ export function normalizeNote(input: NoteDoc): NoteDoc {
   const points = [...boxes.map(b => ({x:Math.min(b.x,b.x+b.w),y:Math.min(b.y,b.y+b.h)})), ...(input.paintStrokes || []).flatMap(s => s.points), ...input.items.flatMap(i=>i.points||[])];
   const minX = Math.min(0,...points.map(p=>p.x)), minY = Math.min(0,...points.map(p=>p.y));
   const dx = !input.blocks && minX < 0 ? 80-minX : 0, dy = !input.blocks && minY < 0 ? 80-minY : 0;
+  type NamedLayer=NoteDoc['layers'][number]&{studioKind?:'canvas'|'layout'};
+  const layers:NamedLayer[]=input.layers.map(l=>({...l,rasterBounds:l.rasterBounds?{...l.rasterBounds,x:l.rasterBounds.x+dx,y:l.rasterBounds.y+dy}:undefined}));
+  const blocks=[...(input.blocks||[]),...legacy.map(item=>({...block(item.x+dx,item.y+dy),w:Math.max(220,Math.min(item.w,1200)),html:escapeHTML(item.text||'').replaceAll('\n','<br>')}))];
+  const migratedLayers=new Map<string,string>();
+  const layoutFor=(id?:string)=>{
+    if(layers.some(l=>l.id===id&&l.studioKind==='layout'))return id!;
+    const original=layers.find(l=>l.id===id);
+    if(original){
+      if(migratedLayers.has(original.id))return migratedLayers.get(original.id)!;
+      const next={id:id32(),name:original.name+'（レイアウト）',studioKind:'layout' as const,visible:original.visible,locked:original.locked};
+      layers.push(next);migratedLayers.set(original.id,next.id);return next.id;
+    }
+    let layer=layers.find(l=>l.studioKind==='layout');
+    if(!layer){layer={id:id32(),name:'レイアウト 1',studioKind:'layout',visible:true,locked:false};layers.push(layer);}
+    return layer.id;
+  };
+  const items=input.items.filter(item=>item.kind!=='text').map(item=>({...item,layerId:layoutFor(item.layerId)}));
+  const migratedBlocks=blocks.map(b=>({...b,layerId:layoutFor(b.layerId)}));
   return { ...input,
-    items: input.items.filter(item => item.kind !== 'text').map(i=>({...i,x:i.x+dx,y:i.y+dy,points:i.points?.map(p=>({...p,x:p.x+dx,y:p.y+dy}))})),
-    layers: input.layers.map(l=>({...l,rasterBounds:l.rasterBounds?{...l.rasterBounds,x:l.rasterBounds.x+dx,y:l.rasterBounds.y+dy}:undefined})),
+    items: items.map(i=>({...i,x:i.x+dx,y:i.y+dy,points:i.points?.map(p=>({...p,x:p.x+dx,y:p.y+dy}))})),
+    layers,
     paintStrokes: input.paintStrokes?.map(s=>({...s,points:s.points.map(p=>({...p,x:p.x+dx,y:p.y+dy}))})),
-    blocks: [...(input.blocks || []), ...legacy.map(item => ({ ...block(item.x+dx, item.y+dy), w: Math.max(220, Math.min(item.w, 1200)), html: escapeHTML(item.text || '').replaceAll('\n','<br>') }))],
+    blocks: migratedBlocks,
     note: { category: '', tags: [], ...input.note }, attachments: input.attachments || [] };
 
 }
 export function escapeHTML(value: string) { return value.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]!)); }
 export function indexOf(record: NoteRecord): NoteIndex {
-  const text = (record.content.blocks || []).map(b => plainText(b.html)).join('\n') + '\n' + (record.content.attachments || []).map(a=>a.name).join(' ');
+  const text = plainText((record.content as NoteDoc&{fixedNote?:{html:string}}).fixedNote?.html||'')+'\n'+(record.content.blocks || []).map(b => plainText(b.html)).join('\n') + '\n' + (record.content.attachments || []).map(a=>a.name).join(' ');
   const { sourceMarkdown: _, organizationLog: __, ...note } = record.content.note || { category: '', tags: [] };
   return { id: record.id, title: record.title, revision: record.revision, updated_at: record.updated_at, note, excerpt: text.slice(0,160), searchText: text };
 }
@@ -104,7 +129,7 @@ export function exportMarkdown(record: NoteRecord) {
   const meta = record.content.note || { category: '', tags: [] };
   const header = { canvas_id: record.id, title: record.title, category: meta.category, tags: meta.tags,
     source_id: meta.sourceId || null, source_notebook: meta.sourceNotebook || null, updated_at: new Date(record.updated_at).toISOString() };
-  const body = (record.content.blocks || []).map(b => markdown.turndown(cleanHTML(b.html))).join('\n\n');
+  const body = [(record.content as NoteDoc&{fixedNote?:{html:string}}).fixedNote?.html||'',...(record.content.blocks||[]).map(b=>b.html)].map(html=>markdown.turndown(cleanHTML(html))).filter(Boolean).join('\n\n');
   return '---\n' + Object.entries(header).map(([k,v]) => `${k}: ${JSON.stringify(v)}`).join('\n') + '\n---\n\n# ' + record.title + '\n\n' + body + '\n\n' +
     (record.content.attachments || []).map(a => `- [${a.name}](${new URL(fileURL(record.id, a.id), location.origin).href})`).join('\n');
 }

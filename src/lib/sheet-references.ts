@@ -2,8 +2,8 @@ import {cleanHTML,type NoteDoc} from './notes';
 import {displayCell,type SheetData} from '../components/note-studio-layers';
 
 export type ReferenceSource={id:string;alias?:string;sheet?:SheetData};
-const EXPR=/\{\{([A-Za-z][A-Za-z0-9_-]{0,39}:)?([A-Z]{1,3}[1-9][0-9]{0,4})\}\}/g;
-const VALID=/^(?:([A-Za-z][A-Za-z0-9_-]{0,39}):)?([A-Z]{1,3}[1-9][0-9]{0,4})$/;
+const EXPR=/\{\{([A-Za-z0-9][A-Za-z0-9_-]{0,63}:)?([A-Z]{1,3}[1-9][0-9]{0,4})\}\}/g;
+const VALID=/^(?:([A-Za-z0-9][A-Za-z0-9_-]{0,63}):)?([A-Z]{1,3}[1-9][0-9]{0,4})$/;
 function findValue(reference:string,self:ReferenceSource,sources:ReferenceSource[]):string{
   const m=VALID.exec(reference);if(!m)return '#INVALID!';
   const source=m[1]?(sources.find(x=>x.id===m[1]||x.alias===m[1])):self;

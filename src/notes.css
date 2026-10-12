@@ -367,3 +367,16 @@
 .kn-sheet-dependents{position:absolute;right:265px;bottom:14px;z-index:9;display:grid;gap:4px;width:165px;max-height:180px;overflow:auto;background:#fffef6;border:1px solid #d8c8a8;border-radius:7px;padding:8px}
 .kn-sheet-dependents strong{font-size:10px;color:#775b35}
 .kn-sheet-dependents button{font-size:11px;text-align:left;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+/* Explicit list markers survive the CSS reset in the fixed note layer. */
+.notes-fixed-editor ul{list-style:disc}.notes-fixed-editor ol{list-style:decimal}
+.notes-fixed-editor ul.kn-checklist{list-style:none}
+.notes-fixed-editor font[size="1"],.note-content font[size="1"]{font-size:10px}
+.notes-fixed-editor font[size="2"],.note-content font[size="2"]{font-size:12px}
+.notes-fixed-editor font[size="3"],.note-content font[size="3"]{font-size:16px}
+.notes-fixed-editor font[size="4"],.note-content font[size="4"]{font-size:20px}
+.notes-fixed-editor font[size="5"],.note-content font[size="5"]{font-size:28px}
+.notes-fixed-editor font[size="6"],.note-content font[size="6"]{font-size:36px}
+.notes-fixed-editor font[size="7"],.note-content font[size="7"]{font-size:48px}
+.kn-fixed-cell{line-height:24px;min-width:0}.kn-fixed-cell p{margin:0}
+.notes-toolbar-word .notes-tool-group{flex-wrap:wrap;max-width:100%}

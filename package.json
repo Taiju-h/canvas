@@ -5,7 +5,8 @@
   "scripts": {
     "build": "tsc --noEmit && vite build && node scripts/build-offline-manifest.mjs",
     "test": "node --test tests/jex.test.mjs",
-    "test:browser": "node tests/notes-browser.cjs"
+    "test:browser": "node tests/notes-browser.cjs",
+    "test:offline": "node tests/note-offline.cjs"
   },
   "dependencies": {
     "class-variance-authority": "0.7.1",
