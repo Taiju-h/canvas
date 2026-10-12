@@ -1,8 +1,12 @@
 name: KaeruNote debug APK
 
 on:
-  # KaeruNote is web-first. Rebuild the Android wrapper only by explicit request,
-  # never on ordinary src/ or web UI updates.
+  # Rebuild only for Android shell changes, never ordinary Web-only updates.
+  push:
+    branches: [main]
+    paths: ["clients/android/**", ".github/workflows/android-debug.yml"]
+  pull_request:
+    paths: ["clients/android/**", ".github/workflows/android-debug.yml"]
   workflow_dispatch:
 
 jobs:
@@ -21,7 +25,7 @@ jobs:
       - name: Build bundled web UI
         run: |
           npm install --package-lock=false
-          npm run build
+          VITE_APP_COMMIT="$GITHUB_SHA" npm run build
           rm -rf clients/android/app/src/main/assets/canvas
           mkdir -p clients/android/app/src/main/assets
           cp -a public/canvas clients/android/app/src/main/assets/canvas
@@ -37,13 +41,20 @@ jobs:
         with:
           gradle-version: "9.1.0"
 
+      - name: Shell regression tests
+        run: |
+          node --test clients/android/tests/native-downloads.test.mjs
+          mkdir -p /tmp/kaeru-shell-tests
+          javac -d /tmp/kaeru-shell-tests clients/android/app/src/main/java/work/heartful/canvas/WebAssetPaths.java clients/android/tests/WebAssetPathsTest.java
+          java -cp /tmp/kaeru-shell-tests work.heartful.canvas.WebAssetPathsTest
+
       - name: Build debug APK
         working-directory: clients/android
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon assembleDebug lintDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: KaeruNote-0.4.0-debug
+          name: KaeruNote-0.4.1-debug
           path: clients/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

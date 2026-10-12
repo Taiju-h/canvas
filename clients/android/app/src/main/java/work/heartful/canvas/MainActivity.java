@@ -1,6 +1,5 @@
 package work.heartful.canvas;
 
-import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -17,6 +16,16 @@ import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
+import android.webkit.ServiceWorkerController;
+import android.webkit.ServiceWorkerClient;
+import android.view.WindowInsets;
+import android.widget.Toast;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import androidx.activity.ComponentActivity;
+import androidx.activity.OnBackPressedCallback;
+import org.json.JSONObject;
+import java.util.Collections;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -42,9 +51,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends ComponentActivity {
     private static final String CANVAS_ROOT = "https://canvas.uzero.style/canvas/";
-    private static final String CANVAS_URL = CANVAS_ROOT + "?app=0.4.0";
+    private static final String CANVAS_URL = CANVAS_ROOT + "?app=0.4.1";
     private static final String CANVAS_HOST = "canvas.uzero.style";
     private static final int FILE_CHOOSER_REQUEST = 701;
 
@@ -52,6 +61,9 @@ public final class MainActivity extends Activity {
     private LinearLayout errorPanel;
     private TextView errorText;
     private ValueCallback<Uri[]> filePathCallback;
+    private NativeDownloads nativeDownloads;
+    private String downloadScript;
+    private volatile boolean updateBusy;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +75,23 @@ public final class MainActivity extends Activity {
             View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         );
 
+        // An older downloaded UI must not override the Web bundle in a newer APK.
+        android.content.SharedPreferences shell = getSharedPreferences("canvas-shell", MODE_PRIVATE);
+        if (shell.getInt("installedVersion", 0) != BuildConfig.VERSION_CODE) {
+            deleteTree(new File(getFilesDir(), "canvas-web"));
+            deleteTree(new File(getFilesDir(), "canvas-web-next"));
+            deleteTree(new File(getFilesDir(), "canvas-web-old"));
+            shell.edit().putInt("installedVersion", BuildConfig.VERSION_CODE).apply();
+        }
+        nativeDownloads = new NativeDownloads(this);
+        File[] abandonedExports = getCacheDir().listFiles((dir, name) -> name.startsWith("kaeru-export-") && name.endsWith(".tmp"));
+        if (abandonedExports != null) for (File export : abandonedExports) export.delete();
+        try (InputStream input = getAssets().open("native-downloads.js")) {
+            java.io.ByteArrayOutputStream script = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[4096]; int count;
+            while ((count = input.read(buffer)) != -1) script.write(buffer, 0, count);
+            downloadScript = new String(script.toByteArray(), StandardCharsets.UTF_8);
+        } catch (IOException error) { downloadScript = ""; }
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(250, 250, 248));
 
@@ -81,10 +110,27 @@ public final class MainActivity extends Activity {
         ));
 
         setContentView(root);
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
+                android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+            }
+            return insets;
+        });
+        root.requestApplyInsets();
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                if (webView != null && webView.canGoBack()) webView.goBack();
+                else finish();
+            }
+        });
 
         // Start immediately from the bundled/downloaded local UI. Static requests for
         // this HTTPS origin are intercepted below, while API requests still use network.
-        webView.loadUrl(canvasUrlFromIntent(getIntent()));
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+            webView.loadUrl(canvasUrlFromIntent(getIntent()));
+        }
     }
 
     private String canvasUrlFromIntent(Intent intent) {
@@ -96,8 +142,8 @@ public final class MainActivity extends Activity {
         String path = uri.getPath();
         if ("https".equalsIgnoreCase(scheme)
             && CANVAS_HOST.equalsIgnoreCase(host)
-            && path != null
-            && path.startsWith("/canvas")) {
+            && (uri.getPort() == -1 || uri.getPort() == 443)
+            && WebAssetPaths.isEditorPath(path)) {
             return uri.toString();
         }
         return CANVAS_URL;
@@ -115,7 +161,7 @@ public final class MainActivity extends Activity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(true);
+        settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setSupportZoom(false);
@@ -125,11 +171,29 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
         settings.setGeolocationEnabled(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " KaeruNoteAndroid/0.4.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " KaeruNoteAndroid/0.4.1");
 
         view.setBackgroundColor(Color.rgb(250, 250, 248));
         view.setOverScrollMode(View.OVER_SCROLL_NEVER);
         view.addJavascriptInterface(new CanvasBridge(), "CanvasApp");
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(view, "CanvasDownloads",
+                Collections.singleton("https://" + CANVAS_HOST),
+                (source, message, origin, mainFrame, reply) -> {
+                    if (mainFrame && "https".equals(origin.getScheme()) && CANVAS_HOST.equals(origin.getHost())) {
+                        nativeDownloads.receive(message.getData(), reply);
+                    }
+                });
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(view, downloadScript,
+                    Collections.singleton("https://" + CANVAS_HOST));
+            }
+        }
+        ServiceWorkerController.getInstance().setServiceWorkerClient(new ServiceWorkerClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
+                return interceptLocal(request);
+            }
+        });
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
@@ -152,8 +216,9 @@ public final class MainActivity extends Activity {
                     return true;
                 } catch (ActivityNotFoundException error) {
                     filePathCallback = null;
-                    showError("この端末ではファイル選択を開けません。");
-                    return false;
+                    callback.onReceiveValue(null);
+                    Toast.makeText(MainActivity.this, "この端末ではファイル選択を開けません。", Toast.LENGTH_LONG).show();
+                    return true;
                 }
             }
         });
@@ -161,14 +226,7 @@ public final class MainActivity extends Activity {
         view.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView webView, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                if (!"GET".equalsIgnoreCase(request.getMethod())) return null;
-                if (!"https".equalsIgnoreCase(uri.getScheme()) || !CANVAS_HOST.equalsIgnoreCase(uri.getHost())) return null;
-                String path = uri.getPath();
-                if (path == null || !path.startsWith("/canvas/") || path.endsWith("api.php")) return null;
-                String query = uri.getQuery();
-                if (query != null && (query.contains("remote=1") || query.contains("remoteui=1"))) return null;
-                return localResponse(path);
+                return interceptLocal(request);
             }
 
             @Override
@@ -176,8 +234,7 @@ public final class MainActivity extends Activity {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
                 String host = uri.getHost();
-                if (("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
-                    && CANVAS_HOST.equalsIgnoreCase(host)) {
+                if ("https".equalsIgnoreCase(scheme) && CANVAS_HOST.equalsIgnoreCase(host)) {
                     return false;
                 }
                 openExternal(uri);
@@ -187,6 +244,14 @@ public final class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView webView, String url, android.graphics.Bitmap favicon) {
                 hideError();
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                Uri uri = Uri.parse(url);
+                if ("https".equals(uri.getScheme()) && CANVAS_HOST.equals(uri.getHost())) {
+                    view.evaluateJavascript(downloadScript, null);
+                }
             }
 
             @Override
@@ -214,6 +279,15 @@ public final class MainActivity extends Activity {
                 if (url == null) return;
                 Uri uri = Uri.parse(url);
                 String scheme = uri.getScheme();
+                if ("blob".equalsIgnoreCase(scheme) || "data".equalsIgnoreCase(scheme)) {
+                    String name = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                    webView.evaluateJavascript("window.__kaeruSaveBlob ? window.__kaeruSaveBlob(" +
+                        JSONObject.quote(url) + "," + JSONObject.quote(name) + ") : null", null);
+                    if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                        Toast.makeText(MainActivity.this, "保存にはAndroid System WebViewの更新が必要です。", Toast.LENGTH_LONG).show();
+                    }
+                    return;
+                }
                 if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
                     openExternal(uri);
                     return;
@@ -240,9 +314,18 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private WebResourceResponse interceptLocal(WebResourceRequest request) {
+        Uri uri = request.getUrl();
+        if (!"GET".equalsIgnoreCase(request.getMethod()) || !"https".equalsIgnoreCase(uri.getScheme()) ||
+            !CANVAS_HOST.equalsIgnoreCase(uri.getHost()) || (uri.getPort() != -1 && uri.getPort() != 443)) return null;
+        if ("1".equals(uri.getQueryParameter("remote")) || "1".equals(uri.getQueryParameter("remoteui")) ||
+            uri.getQueryParameter("check") != null) return null;
+        return localResponse(uri.getPath());
+    }
+
     private WebResourceResponse localResponse(String path) {
-        String relative = path.substring("/canvas/".length());
-        if (relative.isEmpty()) relative = "index.html";
+        String relative = WebAssetPaths.relative(path);
+        if (relative == null) return null;
         File downloaded = new File(new File(getFilesDir(), "canvas-web"), relative);
         try {
             if (downloaded.isFile()) {
@@ -257,7 +340,7 @@ public final class MainActivity extends Activity {
     }
 
     private String mimeType(String name) {
-        String lower = name.toLowerCase();
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
         if (lower.endsWith(".html")) return "text/html";
         if (lower.endsWith(".js")) return "text/javascript";
         if (lower.endsWith(".css")) return "text/css";
@@ -272,17 +355,23 @@ public final class MainActivity extends Activity {
     private final class CanvasBridge {
         @JavascriptInterface
         public void applyWebUpdate() {
+            synchronized (MainActivity.this) {
+                if (updateBusy) return;
+                updateBusy = true;
+            }
             new Thread(() -> {
                 try {
                     downloadWebUpdate();
                     runOnUiThread(() -> webView.loadUrl(CANVAS_ROOT + "?updated=" + System.currentTimeMillis()));
                 } catch (Exception error) {
                     String message = error.getMessage() == null ? "更新できませんでした" : error.getMessage();
-                    String escaped = message.replace("\\", "\\\\").replace("'", "\\'");
+                    String escaped = JSONObject.quote(message);
                     runOnUiThread(() -> webView.evaluateJavascript(
-                        "window.dispatchEvent(new CustomEvent('canvas-update-failed',{detail:'" + escaped + "'}))",
+                        "window.dispatchEvent(new CustomEvent('canvas-update-failed',{detail:" + escaped + "}))",
                         null
                     ));
+                } finally {
+                    updateBusy = false;
                 }
             }).start();
         }
@@ -296,6 +385,7 @@ public final class MainActivity extends Activity {
         byte[] manifestBytes = fetchBytes(CANVAS_ROOT + "offline-assets.json?native=" + System.currentTimeMillis());
         String manifestText = new String(manifestBytes, StandardCharsets.UTF_8);
         JSONArray files = new JSONArray(manifestText);
+        if (files.length() == 0 || files.length() > 1024) throw new IOException("更新一覧が不正です");
 
         writeFile(staging, "offline-assets.json", manifestBytes);
         String[] fixed = {"index.html", "build-version.json", "manifest.webmanifest", "favicon.svg", "sw.js"};
@@ -303,8 +393,8 @@ public final class MainActivity extends Activity {
 
         for (int i = 0; i < files.length(); i++) {
             String remotePath = files.getString(i);
-            if (!remotePath.startsWith("/canvas/")) continue;
-            String relative = remotePath.substring("/canvas/".length());
+            String relative = WebAssetPaths.relative(remotePath);
+            if (relative == null || !relative.startsWith("assets/")) throw new IOException("更新パスが不正です");
             writeFile(staging, relative, fetchBytes("https://" + CANVAS_HOST + remotePath + "?native=" + System.currentTimeMillis()));
         }
 
@@ -321,6 +411,7 @@ public final class MainActivity extends Activity {
 
     private byte[] fetchBytes(String value) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(value).openConnection();
+        connection.setInstanceFollowRedirects(false);
         connection.setConnectTimeout(5000);
         connection.setReadTimeout(10000);
         connection.setUseCaches(false);
@@ -328,12 +419,18 @@ public final class MainActivity extends Activity {
         String cookie = CookieManager.getInstance().getCookie(CANVAS_ROOT);
         if (cookie != null && !cookie.isEmpty()) connection.setRequestProperty("Cookie", cookie);
         int code = connection.getResponseCode();
-        if (code < 200 || code >= 300) throw new IOException("更新サーバー応答: " + code);
+        if (code < 200 || code >= 300) {
+            connection.disconnect();
+            throw new IOException("更新サーバー応答: " + code);
+        }
         try (InputStream input = new BufferedInputStream(connection.getInputStream());
              java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
             byte[] buffer = new byte[16384];
             int count;
-            while ((count = input.read(buffer)) >= 0) output.write(buffer, 0, count);
+            while ((count = input.read(buffer)) >= 0) {
+                if (output.size() + count > 64 * 1024 * 1024) throw new IOException("更新ファイルが大きすぎます");
+                output.write(buffer, 0, count);
+            }
             return output.toByteArray();
         } finally {
             connection.disconnect();
@@ -342,6 +439,9 @@ public final class MainActivity extends Activity {
 
     private void writeFile(File root, String relative, byte[] data) throws IOException {
         File target = new File(root, relative);
+        if (!target.getCanonicalPath().startsWith(root.getCanonicalPath() + File.separator)) {
+            throw new IOException("更新保存先が不正です");
+        }
         File parent = target.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) throw new IOException("更新フォルダを作成できません");
         try (FileOutputStream output = new FileOutputStream(target)) {
@@ -366,7 +466,7 @@ public final class MainActivity extends Activity {
         panel.setBackgroundColor(Color.rgb(250, 250, 248));
 
         TextView title = new TextView(this);
-        title.setText("KaeruNote");
+        title.setText(R.string.app_name);
         title.setTextSize(24);
         title.setTextColor(Color.rgb(32, 42, 52));
         title.setGravity(Gravity.CENTER);
@@ -415,6 +515,10 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode == NativeDownloads.SAVE_REQUEST) {
+            nativeDownloads.result(resultCode, data);
+            return;
+        }
         if (requestCode == FILE_CHOOSER_REQUEST) {
             ValueCallback<Uri[]> callback = filePathCallback;
             filePathCallback = null;
@@ -431,20 +535,13 @@ public final class MainActivity extends Activity {
     }
 
     @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-            return;
-        }
-        super.onBackPressed();
-    }
-
-    @Override
     protected void onDestroy() {
         if (filePathCallback != null) {
             filePathCallback.onReceiveValue(null);
             filePathCallback = null;
         }
+        if (nativeDownloads != null) nativeDownloads.close();
+        ServiceWorkerController.getInstance().setServiceWorkerClient(null);
         if (webView != null) {
             webView.stopLoading();
             webView.setWebChromeClient(null);

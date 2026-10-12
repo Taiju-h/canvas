@@ -25,7 +25,7 @@ jobs:
       - name: Build bundled web UI
         run: |
           npm install --package-lock=false
-          npm run build
+          VITE_APP_COMMIT="$GITHUB_SHA" npm run build
           rm -rf clients/android/app/src/main/assets/canvas
           mkdir -p clients/android/app/src/main/assets
           cp -a public/canvas clients/android/app/src/main/assets/canvas
@@ -57,16 +57,16 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           gradle --no-daemon assembleRelease bundleRelease
-          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/KaeruNote-0.4.0.apk"
-          cp app/build/outputs/bundle/release/app-release.aab "app/build/outputs/bundle/release/KaeruNote-0.4.0.aab"
+          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/KaeruNote-0.4.1.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "app/build/outputs/bundle/release/KaeruNote-0.4.1.aab"
 
       - name: Upload signed installer
         uses: actions/upload-artifact@v4
         with:
-          name: KaeruNote-0.4.0-release
+          name: KaeruNote-0.4.1-release
           path: |
-            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.0.apk
-            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.0.aab
+            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.1.apk
+            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.1.aab
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -74,6 +74,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.0.apk
-            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.0.aab
+            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.1.apk
+            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.1.aab
           generate_release_notes: true

@@ -16,13 +16,16 @@ val hasReleaseSigning = listOf(
 android {
     namespace = "work.heartful.canvas"
     compileSdk = 36
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "work.heartful.canvas"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
-        versionName = "0.4.0-local-first"
+        versionCode = 8
+        versionName = "0.4.1-web-shell"
     }
 
     signingConfigs {
@@ -49,4 +52,9 @@ android {
             }
         }
     }
+}
+
+dependencies {
+    implementation("androidx.activity:activity:1.10.1")
+    implementation("androidx.webkit:webkit:1.14.0")
 }

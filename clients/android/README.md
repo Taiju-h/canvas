@@ -32,3 +32,22 @@ gradle wrapper --gradle-version 9.1.0
 生成物: `app/build/outputs/apk/debug/app-debug.apk`
 
 Web 側だけを更新した場合、この APK を再作成する必要はありません。
+
+## 0.4.1 Androidシェル対応（2026-10-13）
+
+- Word・PNG・TXT・MD・分類JSON・端末内添付のblob/data URLをAndroidの「保存先を選択」へ接続。256KiBずつ転送し、一括書き出しは保存ダイアログを順番に表示する。保存失敗・取消を成功扱いにしない。保存の上限は1ファイル512MiB。
+- ファイル選択を取り消した場合と、対応アプリがない場合にWebへ結果を返す。
+- WebViewとService Workerの両方で、同梱／更新済みWeb画面をオフライン取得。ルートと `/canvas/` に対応する。未取得のノート・添付、初回認証、ChatGPT API通信には接続が必要。
+- APKアップグレード時に古いダウンロード済みWeb画面を除去し、新APKの同梱Web版を利用する。IndexedDBのノート・添付やCookieは消さない。その後は画面の「更新あり」からWeb版だけを更新できる。
+- 戻る操作をAndroid 16のジェスチャーにも対応させる。画面回転ではWebViewを保持。Activity再作成時は履歴を復元する。Android 11以降のシステムバー・キーボード領域を除けて編集画面を表示する。
+- 保存メッセージはCanvasのHTTPSオリジン・メインフレーム限定。追加のストレージ権限は不要。Android System WebViewが保存用のメッセージ機能を備えている必要がある。
+
+`node --test clients/android/tests/native-downloads.test.mjs` で保存キュー・分割・日本語・エラー回復を検証する。Javaのパス検証は `clients/android/tests/WebAssetPathsTest.java`。GitHub ActionsはAndroid側の変更時にdebug APKをビルドし、署名済みrelease APKは既存のreleaseワークフローで作る。
+
+実機では次を確認する（自動テストだけでは確認済みとしない）。
+
+1. 既存APKへ同じ署名の新版を上書きし、既存ノート・添付が保持される。
+2. 日本語入力中の回転、画像／音声／JEX選択、選択取消。
+3. Word・PNG・TXT・MDと添付の保存、保存取消、一括分類の連続保存。
+4. 全ノート・添付を端末へ保存し、機内モードでアプリを閉じて再起動、編集、添付、書き出し。
+5. 接続復帰後の同期・Web更新、ChatGPTの実通信。
