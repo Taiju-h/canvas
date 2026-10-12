@@ -509,7 +509,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const target=layerImportTarget.current;if(!target)return;setAttaching(true);let done=0;
     try{
       const {readPdfPages}=await import('@/lib/pdf-import');
-      const originalId='local-'+id32();let originalSaved=false;
+      const originalId='local-'+id32();let originalSaved=false,nextPageY=80;
       await readPdfPages(file,async(blob,page,total)=>{
         const latest=current.current;if(!latest||latest.id!==notes.resolveId(target.docId))throw new Error('読み込み先ノートが切り替わりました');
         let d=latest.content as StudioNoteDoc;const layer=d.layers.find(l=>l.id===target.id);if(!layer||layer.locked)throw new Error('読み込み先レイヤーのロックを解除してください');
@@ -518,7 +518,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         const url=URL.createObjectURL(blob);let w=800,h=1100;try{const image=new Image();image.src=url;await image.decode();w=image.naturalWidth;h=image.naturalHeight;}finally{URL.revokeObjectURL(url);}
         // Re-read after image decoding so simultaneous text edits are preserved.
         d=current.current!.content as StudioNoteDoc;
-        const item:Item={id:id32(),kind:'image',layerId:layer.id,keepLayer:true,x:80,y:80+(page-1)*1200,w:w*Math.min(1,900/w),h:h*Math.min(1,900/w),imageId,color:'#000000',width:1,opacity:1};
+        const item:Item={id:id32(),kind:'image',layerId:layer.id,keepLayer:true,x:80,y:nextPageY,w:w*Math.min(1,900/w),h:h*Math.min(1,900/w),imageId,color:'#000000',width:1,opacity:1};
+        nextPageY+=item.h+32;
         const attachments=d.attachments?.some(a=>a.id===originalId)?d.attachments:[...(d.attachments||[]),{id:originalId,name:file.name,mime:'application/pdf',size:file.size,pending:true}];
         commit({...d,items:[...d.items,item],attachments});await notes.persistPending();done=page;setLayerImportProgress('PDF '+page+' / '+total+'ページを端末に保存しました');
       });

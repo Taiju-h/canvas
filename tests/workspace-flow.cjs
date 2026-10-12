@@ -95,10 +95,11 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor').textContent.includes('読み込んだ日本語テキスト'));
   const txtDownload=page.waitForEvent('download');await page.getByRole('button',{name:'TXT',exact:true}).click();const textFile=await(await txtDownload).path();assert.ok(fs.readFileSync(textFile,'utf8').includes('読み込んだ日本語テキスト'));
   await page.getByLabel('レイヤープロパティを閉じる',{exact:true}).click();await page.getByTitle('キャンバスレイヤー',{exact:true}).click();await page.getByRole('button',{name:'プロパティ',exact:true}).click();
-  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>','<< /Length 40 >>\nstream\nBT /F1 12 Tf 10 50 Td (PDF fixture) Tj ET\nendstream','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
-  let pdf='%PDF-1.4\n';const offsets=[0];objects.forEach((o,i)=>{offsets.push(Buffer.byteLength(pdf));pdf+=(i+1)+' 0 obj\n'+o+'\nendobj\n';});const xref=Buffer.byteLength(pdf);pdf+='xref\n0 6\n0000000000 65535 f \n'+offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
+  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>','<< /Length 40 >>\nstream\nBT /F1 12 Tf 10 50 Td (PDF fixture) Tj ET\nendstream','<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>'];
+  let pdf='%PDF-1.4\n';const offsets=[0];objects.forEach((o,i)=>{offsets.push(Buffer.byteLength(pdf));pdf+=(i+1)+' 0 obj\n'+o+'\nendobj\n';});const xref=Buffer.byteLength(pdf);pdf+='xref\n0 7\n0000000000 65535 f \n'+offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
   const pdfChooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'PDF読み込み',exact:true}).click();await(await pdfChooser).setFiles({name:'fixture.pdf',mimeType:'application/pdf',buffer:Buffer.from(pdf)});
-  await page.getByText('PDF 1ページと原本を読み込みました',{exact:true}).waitFor({timeout:20000});
+  await page.getByText('PDF 2ページと原本を読み込みました',{exact:true}).waitFor({timeout:20000});
+  const pdfBoxes=await page.locator('.notes-ink image').evaluateAll(images=>images.map(image=>({y:Number(image.getAttribute('y')),h:Number(image.getAttribute('height'))})).sort((a,b)=>a.y-b.y));assert.equal(pdfBoxes.length,2);assert.ok(pdfBoxes[1].y>=pdfBoxes[0].y+pdfBoxes[0].h,'portrait PDF pages must not overlap');
   await page.getByRole('button',{name:'配置JSON',exact:true}).click();
   await page.getByLabel('レイヤープロパティを閉じる',{exact:true}).click();
 
@@ -112,7 +113,8 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const pending=await page.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')));assert.equal(pending.pending.length,1);assert.ok(pending.baseNotes.length);
   // Competing remote metadata becomes a persistent choice, never a reload instruction.
   const remoteNote=documents.get(ids[0]);remoteNote.content.note.category='他端末';remoteNote.revision++;categories.push('他端末');workspaceRevision++;await context.setOffline(false);await page.reload();
-  await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).waitFor();assert.ok(await page.locator('.kn-conflict-diffs').innerText().then(t=>t.includes('他端末')));
+  // Reconnect/reload may land on the 12s synchronization timer; allow one full interval.
+  await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).waitFor({timeout:25000});assert.ok(await page.locator('.kn-conflict-diffs').innerText().then(t=>t.includes('他端末')));
   await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).click();await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')).pending.length===0);
   await page.waitForTimeout(900);const result=await page.evaluate(()=>fetch('/__fixture/control',{method:'POST',body:'{}'}).then(r=>r.json()));
   assert.ok(result.documents.some(n=>n.content.fixedNote.html.includes('書式選択を維持')&&n.content.note.category.includes('復旧テスト')));
