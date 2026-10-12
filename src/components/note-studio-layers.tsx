@@ -56,7 +56,7 @@ export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPast
     <div ref={ref} className="notes-fixed-editor" style={{minHeight:viewportHeight||400}} role="textbox" aria-label="固定ノート本文" aria-multiline="true" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
       onPaste={e=>{e.preventDefault();if(e.clipboardData.files.length){onPaste(Array.from(e.clipboardData.files));return;}
         const html=e.clipboardData.getData('text/html');document.execCommand(html?'insertHTML':'insertText',false,html?cleanHTML(html):e.clipboardData.getData('text/plain'));emit();}}
-      data-placeholder="ここは固定ノートです。キャンバスを拡大・縮小しても、この文字は動きません。"
+      data-placeholder="ここに本文を入力します。文字サイズはズームから独立し、上下スクロールはCanvasと連動します。"
       onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;emit();}} onKeyDown={e=>noteEditorKeyDown(e,emit)} onClick={e=>{
         noteCheckboxClick(e,emit);
         const link=(e.target as Element).closest<HTMLAnchorElement>('a[data-kn-local-file]');

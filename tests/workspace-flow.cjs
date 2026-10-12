@@ -99,6 +99,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   let pdf='%PDF-1.4\n';const offsets=[0];objects.forEach((o,i)=>{offsets.push(Buffer.byteLength(pdf));pdf+=(i+1)+' 0 obj\n'+o+'\nendobj\n';});const xref=Buffer.byteLength(pdf);pdf+='xref\n0 7\n0000000000 65535 f \n'+offsets.slice(1).map(o=>String(o).padStart(10,'0')+' 00000 n \n').join('')+'trailer\n<< /Size 7 /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF';
   const pdfChooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'PDF読み込み',exact:true}).click();await(await pdfChooser).setFiles({name:'fixture.pdf',mimeType:'application/pdf',buffer:Buffer.from(pdf)});
   await page.getByText('PDF 2ページと原本を読み込みました',{exact:true}).waitFor({timeout:20000});
+  await page.waitForFunction(()=>document.querySelectorAll('.notes-ink image').length===2);
   const pdfBoxes=await page.locator('.notes-ink image').evaluateAll(images=>images.map(image=>({y:Number(image.getAttribute('y')),h:Number(image.getAttribute('height'))})).sort((a,b)=>a.y-b.y));assert.equal(pdfBoxes.length,2);assert.ok(pdfBoxes[1].y>=pdfBoxes[0].y+pdfBoxes[0].h,'portrait PDF pages must not overlap');
   await page.getByRole('button',{name:'配置JSON',exact:true}).click();
   await page.getByLabel('レイヤープロパティを閉じる',{exact:true}).click();
