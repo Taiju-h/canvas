@@ -52,8 +52,25 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  try{
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
   const context=await browser.newContext({viewport:{width:1280,height:950}});const page=await context.newPage();lastPage=page;page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+  await page.addInitScript(()=>localStorage.setItem('kn-category-browsing:workspace-fixture','open')); // Retired preference must not restore the overlay.
   await page.goto('http://127.0.0.1:5187/canvas/');await page.getByLabel('メモのタイトル',{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
-  const pick=async category=>{const row=page.locator('[data-category-path='+JSON.stringify(category)+']');await row.scrollIntoViewIfNeeded();const b=await row.boundingBox();await page.mouse.move(b.x+8,b.y+b.height/2);await page.waitForTimeout(240);await row.click();await page.mouse.move(900,40);};
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'startup keeps the chooser within the sidebar');
+  const inlineList=await page.locator('.notes-list').boundingBox(),inlineSidebar=await page.locator('.notes-sidebar').boundingBox();
+  assert.ok(inlineList.x>=inlineSidebar.x&&inlineList.x+inlineList.width<=inlineSidebar.x+inlineSidebar.width+1,'normal Note list fits within the left menu');
+  const initialNoteId=new URL(page.url()).searchParams.get('d'),initialBody=await page.locator('.notes-fixed-editor').innerHTML();
+  await page.screenshot({path:'/tmp/kaeru-workspace-compact-sidebar.png'});
+  await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await page.locator('.notes-category-browser').waitFor();
+  await page.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).click();
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'manual close releases the borrowed workspace without selecting a Note');
+  assert.equal(await page.locator('.notes-sidebar').count(),1);
+  await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'Escape folds the chooser');
+  await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-category-open'));
+  assert.ok(await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).evaluate(n=>n===document.activeElement),'Escape restores focus to the chooser trigger');
+  await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await page.getByLabel('メモのタイトル',{exact:true}).click();
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'working outside the chooser folds it automatically');
+  assert.equal(new URL(page.url()).searchParams.get('d'),initialNoteId);assert.equal(await page.locator('.notes-fixed-editor').innerHTML(),initialBody);
+  const pick=async category=>{if(!await page.locator('.notes-category-browser').count())await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();const row=page.locator('[data-category-path='+JSON.stringify(category)+']');await row.scrollIntoViewIfNeeded();const b=await row.boundingBox();await page.mouse.move(b.x+8,b.y+b.height/2);await page.waitForTimeout(240);await row.click();await page.mouse.move(900,40);};
   for(const category of ['仕事','仕事 / 開発','仕事 / 開発 / KaeruNote']){await pick(category);assert.equal(await page.locator('.notes-sidebar').count(),1,'category must not close sidebar');}
   const chooser=page.locator('.notes-category-browser'),filePane=page.getByRole('region',{name:'選択フォルダのNote一覧'});
   const folders=await page.locator('.notes-category-cascade-stage').boundingBox(),files=await filePane.boundingBox();
@@ -79,6 +96,8 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await filePane.locator('.notes-list-item').filter({hasText:'子カテゴリのノート'}).click();
   await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='子カテゴリのノート'&&!document.querySelector('.notes-sidebar'));
   await page.getByLabel('メモ一覧を開く',{exact:true}).click();
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'opening the left menu again does not expand the chooser');
+  await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();
   const reopenedParent=await page.locator('.notes-category-multi-pane').nth(1).boundingBox();await page.mouse.move(reopenedParent.x+5,reopenedParent.y+65);await page.waitForTimeout(240);
   await pick('仕事 / 開発 / KaeruNote');
   await filePane.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA'&&!document.querySelector('.notes-sidebar'));
@@ -109,7 +128,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.getByLabel('ズーム倍率',{exact:true}).selectOption('200');assert.equal(await page.locator('.notes-fixed-editor').evaluate(el=>getComputedStyle(el).fontSize),fontBefore);
   await page.getByLabel('ズーム倍率',{exact:true}).selectOption('100');
 
-  await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByTitle('最上位のカテゴリを表示',{exact:true}).click();await pick('空カテゴリ');assert.equal(await page.locator('.notes-list-item').count(),0);
+  await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await page.getByTitle('最上位のカテゴリを表示',{exact:true}).click();await pick('空カテゴリ');assert.equal(await page.locator('.notes-list-item').count(),0);
   await page.getByRole('region',{name:'選択フォルダのNote一覧'}).getByText('このフォルダにはNoteがありません。',{exact:true}).waitFor();
   await page.screenshot({path:'/tmp/kaeru-workspace-empty-folder.png'});
   await page.waitForFunction(()=>navigator.serviceWorker.controller);await context.setOffline(true);await page.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).click();await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-fixed-editor'));
@@ -151,6 +170,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).click();await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')).pending.length===0);
   await page.waitForTimeout(900);const result=await page.evaluate(()=>fetch('/__fixture/control',{method:'POST',body:'{}'}).then(r=>r.json()));
   assert.ok(result.documents.some(n=>n.content.fixedNote.html.includes('書式選択を維持')&&n.content.note.category.includes('復旧テスト')));
+  if(!await page.locator('.notes-category-browser').count())await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();
   await page.getByTitle('最上位のカテゴリを表示',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを追加',exact:true}).click();await page.getByLabel('新しいカテゴリ名',{exact:true}).fill('削除検証');await page.getByRole('button',{name:'カテゴリを保存',exact:true}).click();
   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')).pending.length===0);
   await page.getByRole('button',{name:'選択カテゴリを削除',exact:true}).click();await page.getByRole('button',{name:'カテゴリを削除（ノートは保持）',exact:true}).click();
@@ -164,6 +184,9 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'opening a note returns the borrowed workspace even with sidebar auto-close off');
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await mp.locator('.notes-category-cascade-stage').waitFor();
   await mp.getByRole('region',{name:'選択フォルダのNote一覧'}).waitFor();
+  await mp.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).tap();
+  assert.equal(await mp.locator('.notes-category-browser').count(),0);assert.equal(await mp.locator('.notes-sidebar').count(),1,'manual close preserves the pinned sidebar');
+  await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
   const mobileCreate=await mp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).boundingBox(),mobileChooser=await mp.locator('.notes-category-browser').boundingBox();
   assert.ok(mobileCreate.x>=0&&mobileCreate.x+mobileCreate.width<=390&&mobileCreate.y+mobileCreate.height<=mobileChooser.y+mobileChooser.height,'touch users can reach new Note within the chooser');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile-picker.png'});
@@ -181,6 +204,8 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await tp.waitForFunction(()=>!!document.querySelector('[aria-label="メモのタイトル"]').value); // The initial Note is created asynchronously.
   await tp.waitForFunction(()=>/^[0-9a-f]{32}$/.test(new URL(location.href).searchParams.get('d')||''));
   const tabletDocumentCount=documents.size,tabletNoteId=new URL(tp.url()).searchParams.get('d');
+  assert.equal(await tp.locator('.notes-category-browser').count(),0);
+  await tp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
   const tabletFolders=await tp.locator('.notes-category-cascade-stage').boundingBox();
   const tabletTitle=await tp.getByLabel('メモのタイトル',{exact:true}).inputValue();
   await tp.touchscreen.tap(tabletFolders.x+10,tabletFolders.y+65);

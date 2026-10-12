@@ -8,7 +8,7 @@ function directCount(notes:NoteIndex[],path:string){
   return notes.filter(n=>!n.note?.trashedAt&&inCategory(n.note?.category||'',path)).length;
 }
 
-export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,onDelete,disabled,expanded=true,onExpand,notePicker}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;onCreate?:()=>void;onDelete?:()=>void;disabled:boolean;expanded?:boolean;onExpand?:()=>void;notePicker?:ReactNode}){
+export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,onDelete,disabled,expanded=true,onExpand,onCollapse,notePicker}:{paths:string[];notes:NoteIndex[];selected:string;onSelect:(path:string)=>void;onManage:()=>void;onCreate?:()=>void;onDelete?:()=>void;disabled:boolean;expanded?:boolean;onExpand?:()=>void;onCollapse?:()=>void;notePicker?:ReactNode}){
   // The parent recalculates the paths array on each render; memoize by content so
   // a hover preview is not reset whenever React renders an unrelated control.
   const pathSignature=paths.join('\u001f');
@@ -114,12 +114,13 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
       <div className={'notes-category-browser '+(notePicker?'has-note-picker ':'')+(compact?'is-compact':'')} ref={stageRef}
         onKeyDownCapture={()=>{pointerType.current='keyboard';}}
         style={room?{width:Math.min(notePicker?960:820,room),...(notePicker?{height:Math.min(440,verticalRoom)}:{})}:undefined}>
-      <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
+      <div className="notes-category-browser-bar"><nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
         <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>
         {trail.map((path,index)=><button key={path} disabled={disabled} title={path} className={selected===path?'active':''}
           aria-current={selected===path?'page':undefined}
           onClick={()=>{reveal(path);if(index<trail.length-1)setPeekDepth(Math.min(1,categoryParts(path).length-1));}}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
       </nav>
+      {onCollapse&&<button className="notes-category-browser-close" onClick={onCollapse} aria-label="カテゴリ選択を閉じる" title="畳んで作業に戻る"><X size={15}/><span>閉じる</span></button>}</div>
       <div className="notes-category-browser-columns">
       <div className={'notes-category-cascade-stage multilevel '+(peekDepth!==null?'parent-peek':'')} role="group" aria-label="カテゴリの選択"
         onKeyDownCapture={()=>{pointerType.current='keyboard';}}
