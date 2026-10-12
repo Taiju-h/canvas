@@ -16,11 +16,31 @@ export type NoteRecord = NoteIndex & { content: NoteDoc; accountId?: string; dir
 export const id32 = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
 export const API = '/canvas/api.php?path=';
 export const fileURL = (docId: string, id: string) => API + encodeURIComponent(`/api/documents/${docId}/files/${id}`);
+/** Keep only the typography and table layout CSS the note editor uses. */
+const richCSS=/^(?:color|background-color|background|font-size|font-weight|font-style|font-family|text-align|text-decoration|text-decoration-line|text-decoration-style|line-height|width|max-width|min-width|height|max-height|min-height|overflow|white-space|vertical-align|border|border-color|border-width|border-style|padding|margin|margin-left|margin-right|border-collapse|table-layout)$/;
+const safeCSSValue=(value:string)=>value.length<140&&!/[;{}<>]|url\s*\(|expression\s*\(|@import/i.test(value)&&
+ /^[#\w\d\s.,()%+\-/]+$/.test(value);
 export function cleanHTML(value: string): string {
-  const sanitized = DOMPurify.sanitize(value, { ALLOWED_TAGS: ['p','div','br','strong','b','em','i','u','s','strike','h1','h2','h3','h4','ul','ol','li','blockquote','pre','code','a','img','table','thead','tbody','tr','th','td','span','font','input'],
-    ALLOWED_ATTR: ['href','src','alt','title','color','size','type','checked','disabled'], ALLOW_DATA_ATTR: false });
-  const el = document.createElement('div'); el.innerHTML = sanitized;
-  el.querySelectorAll('input').forEach(input => { if (input.type !== 'checkbox') input.remove(); else input.removeAttribute('disabled'); });
+  const sanitized = DOMPurify.sanitize(value, {
+    ALLOWED_TAGS: ['p','div','br','strong','b','em','i','u','s','strike','h1','h2','h3','h4','ul','ol','li','blockquote','pre','code','a','img','table','thead','tbody','tr','th','td','span','font','input','mark','ruby','rt','rp','sup','sub','section'],
+    ALLOWED_ATTR: ['href','src','alt','title','color','size','type','checked','disabled','style','class','colspan','rowspan','data-kn-layout','data-kn-flow','data-kn-height','data-kn-align','data-kn-width','data-kn-list'],
+    ALLOW_DATA_ATTR:false
+  });
+  const el=document.createElement('div');el.innerHTML=sanitized;
+  el.querySelectorAll<HTMLElement>('[style]').forEach(node=>{
+    const filtered=Array.from(node.style).filter(prop=>richCSS.test(prop)&&safeCSSValue(node.style.getPropertyValue(prop)))
+      .map(prop=>prop+':'+node.style.getPropertyValue(prop)).join(';');
+    if(filtered)node.setAttribute('style',filtered);else node.removeAttribute('style');
+  });
+  el.querySelectorAll<HTMLElement>('[class]').forEach(node=>{
+    const allowed=node.className.split(/\s+/).filter(name=>/^kn-[a-z0-9-]{1,45}$/.test(name)).join(' ');
+    if(allowed)node.className=allowed;else node.removeAttribute('class');
+  });
+  el.querySelectorAll('input').forEach(input=>{
+    if(input.type!=='checkbox'){input.remove();return;}
+    input.removeAttribute('disabled');
+    if(input.checked)input.setAttribute('checked','checked');else input.removeAttribute('checked');
+  });
   return el.innerHTML;
 }
 export const markdownHTML = (text: string) => cleanHTML(marked.parse(text, { async: false }) as string);
