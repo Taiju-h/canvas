@@ -63,7 +63,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       if(!navigator.onLine&&!shared){
         await localJobs.current;
         const local=records.current.get(id);
-        if(local)await saveLocalRevision({...local,base:local.content,owner:true,accountId});
+        if(local)await saveLocalRevision({...local,base:local.content,dirty:!!local.dirty,owner:true,accountId});
         report('端末に保存・履歴作成済み（同期待ち）',id);
         return;
       }
@@ -98,7 +98,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
             show(next); await persist(next); await deleteLocalDoc(key); key=result.id;
           }
           show(next); await persist(next);
-          if(!next.dirty&&!shared)await saveLocalRevision({...next,base:next.content,owner:true,accountId});
+          if(!next.dirty&&!shared)await saveLocalRevision({...next,base:next.content,dirty:!!next.dirty,owner:true,accountId});
           report(next.dirty?'同期待ち':'保存済み',key);
         } catch (err) {
           if ((err as {status?:number}).status===409&&attempts<2){
