@@ -170,6 +170,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       let attempts=0;
       let key=id;
       while (navigator.onLine) {
+        if(!shared&&loadOfflineWorkspace(accountId).pending.length)break;
         let sent=records.current.get(key); if (!sent?.dirty||sent.content.note?.importState==='pending') break;
         report('同期中…',key);
         try {
@@ -262,6 +263,8 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     if(!synced.current.has(cached.id)&&cached.baseRevision!==undefined) synced.current.set(cached.id,{content:normalizeNote(cached.base as NoteDoc),title:cached.baseTitle??cached.title,revision:cached.baseRevision});
   }
   async function persistPending(){await localJobs.current;}
+  async function settleSaves(){await Promise.all([...jobs.current.values()]);await persistPending();}
+  function hasUnsynced(){return [...records.current.values()].some(n=>n.dirty);}
   async function open(id:string) {
     await persistPending();
     if (id === active.current && records.current.get(id)?.dirty) return true;
@@ -427,6 +430,6 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     }
   }
   async function resumeSync(){await refresh();for(const row of records.current.values())if(row.dirty)void save(row.id);}
-  return {persistPending,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
+  return {persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }

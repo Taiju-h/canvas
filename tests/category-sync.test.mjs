@@ -1,7 +1,7 @@
 import {test,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'vite';
-const server=await createServer({server:{middlewareMode:true}});
+const server=await createServer({server:{middlewareMode:true},optimizeDeps:{noDiscovery:true,include:[]}});
 const {planCategorySync,applyClassification}=await server.ssrLoadModule('/src/lib/category-sync.ts');
 const {loadOfflineWorkspace,persistOfflineWorkspace}=await server.ssrLoadModule('/src/lib/offline-workspace.ts');
 const {mergeSharedNotes}=await server.ssrLoadModule('/src/lib/shared-merge.ts');

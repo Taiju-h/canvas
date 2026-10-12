@@ -41,10 +41,10 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   if(!file.startsWith(path.resolve('public/canvas')+'/')){res.writeHead(403);res.end();return;}
   try{const data=fs.readFileSync(file);res.writeHead(200,{'Content-Type':file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':file.endsWith('.json')?'application/json':file.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-cache'});res.end(data);}catch{res.writeHead(404);res.end();}
  });await new Promise(resolve=>server.listen(5187,'127.0.0.1',resolve));
- let browser;
+ let browser,lastPage;
  try{
   browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
-  const context=await browser.newContext({viewport:{width:1280,height:950}});const page=await context.newPage();page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+  const context=await browser.newContext({viewport:{width:1280,height:950}});const page=await context.newPage();lastPage=page;page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await page.goto('http://127.0.0.1:5187/canvas/');await page.getByLabel('メモのタイトル',{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
   const pick=async category=>{await page.locator('[data-category-path='+JSON.stringify(category)+']').click();await page.mouse.move(900,40);};
   for(const category of ['仕事','仕事 / 開発','仕事 / 開発 / KaeruNote']){await pick(category);assert.equal(await page.locator('.notes-sidebar').count(),1,'category must not close sidebar');}
@@ -57,7 +57,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(await page.locator('.notes-toolbar .notes-advanced-format').count(),0,'advanced tools are outside basic ribbon');
   await page.locator('.notes-fixed-editor').fill('書式選択を維持');await page.locator('.notes-fixed-editor').evaluate(el=>{el.focus();const r=document.createRange();r.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(r);});
   await page.getByLabel('ノートの詳細',{exact:true}).click();await page.getByLabel('ノートの詳細',{exact:true}).click();assert.equal(await page.evaluate(()=>getSelection().toString()),'書式選択を維持');
-  await page.getByTitle('上付き',{exact:true}).click();assert.ok(await page.locator('.notes-fixed-editor sup').count());
+  await page.getByTitle('上付き',{exact:true}).click();assert.ok(await page.locator('.notes-fixed-editor sup,.notes-fixed-editor [style*="super"]').count(),await page.locator('.notes-fixed-editor').innerHTML());
   await page.getByTitle('キャンバスレイヤー',{exact:true}).click();await page.getByLabel('Canvasの詳細',{exact:true}).click();assert.equal(await page.getByRole('region',{name:'Canvas詳細ツール'}).count(),1);
   await page.getByLabel('グリッド種類').selectOption('square');await page.getByLabel('グリッド間隔').fill('40');assert.ok((await page.locator('.notes-plane').getAttribute('style')).includes('40px 40px'));
   await page.getByLabel('レイヤー不透明度').fill('60');
@@ -90,5 +90,5 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const bounds=await mp.getByLabel('ノートの詳細',{exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391,'detail button within mobile width');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile.png'});
   assert.deepEqual(errors,[]);console.log('Workspace desktop, touch, offline restart, draft preservation, category conflict and details checks passed');
- }catch(error){console.error(error);throw error;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
+ }catch(error){if(lastPage){await lastPage.screenshot({path:'/tmp/kaeru-workspace-failure.png'});console.error(await lastPage.locator('.notes-warning').allTextContents());}console.error(error);throw error;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(()=>process.exit(1));

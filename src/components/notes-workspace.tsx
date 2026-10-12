@@ -194,7 +194,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const before=(event:Event)=>{(event as CustomEvent<{waitUntil:(job:Promise<unknown>)=>void}>).detail.waitUntil((async()=>{
       if(composing)throw new Error('日本語入力を確定してから更新してください');
       (document.activeElement as HTMLElement)?.blur();await notes.persistPending();
-      if(sharedAccess){await notes.save();if(notes.record?.dirty)throw new Error('共有ノートの保存を完了してから更新してください');}
+      if(sharedAccess){await notes.save();if(notes.hasUnsynced())throw new Error('共有ノートの保存を完了してから更新してください');}
     })());};
     document.addEventListener('compositionstart',start);document.addEventListener('compositionend',end);window.addEventListener('kaerunote-before-web-update',before);
     return()=>{document.removeEventListener('compositionstart',start);document.removeEventListener('compositionend',end);window.removeEventListener('kaerunote-before-web-update',before);};
@@ -252,7 +252,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [categoryManager,setCategoryManager]=useState(false);const [organizing,setOrganizing]=useState(false);
   const [workspace,setWorkspace]=useState<OfflineWorkspace>(()=>loadOfflineWorkspace(accountId));
   const workspaceRef=useRef(workspace);workspaceRef.current=workspace;
-  const syncingWorkspace=useRef(false);
+  const syncingWorkspace=useRef(false);const organizingRef=useRef(false);
   function updateWorkspace(next:OfflineWorkspace){
     persistOfflineWorkspace(accountId,next);
     workspaceRef.current=next;setWorkspace(next);
@@ -614,7 +614,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(a.pointerId!==e.pointerId)return;e.preventDefault();
     if(a.pen)lastPen.current=Date.now();
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
-    const p=position(e);if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
+    const p=a.kind==='ink'||a.kind==='shapeRotate'?position(e):snapCanvas(position(e));if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
     if(a.kind==='shape'){const point=snapCanvas(p);setDraftShape(old=>old?{...old,w:point.x-a.start.x,h:point.y-a.start.y}:old);return;}
     const distance=Math.hypot(p.x-a.start.x,p.y-a.start.y);
     if(hoverTimer.current&&distance>7)clearOverlapTimer();
@@ -667,7 +667,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(a.kind==='move'||a.kind==='resize'||a.kind==='shapeResize'||a.kind==='shapeRotate'||a.kind==='vertexMove'||a.kind==='segmentMove'){if(cancel&&a.moved)notes.change(a.original);else if(a.moved){undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];redraw(v=>v+1);}}
   }
   function restoreFormatSelection(){
-    const range=formatCaret.current;if(!range?.startContainer.isConnected)return;
+    const live=window.getSelection();const range=selectedNoteRoot()&&live?.rangeCount?live.getRangeAt(0).cloneRange():formatCaret.current;if(!range?.startContainer.isConnected)return;
     const node=range.startContainer,element=node instanceof Element?node:node.parentElement;
     const root=element?.closest<HTMLElement>('.notes-fixed-editor,.note-content');
     if(!root||root.getAttribute('contenteditable')!=='true')return;
@@ -731,7 +731,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const onSelect=()=>{
       const selected=currentTable(),cell=currentCell();
       if(selected){lastTable.current=selected;lastCell.current=cell;}
-      const isInNote=!!window.getSelection()?.anchorNode?.parentElement?.closest('.notes-fixed-editor,.note-content');
+      const anchor=window.getSelection()?.anchorNode;const anchorElement=anchor instanceof Element?anchor:anchor?.parentElement;
+      const isInNote=!!anchorElement?.closest('.notes-fixed-editor,.note-content');
       const selection=window.getSelection();if(isInNote&&selection?.rangeCount)formatCaret.current=selection.getRangeAt(0).cloneRange();
       setTableSelected(!!selected&&isInNote);
     };
@@ -907,7 +908,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     setDeleteOpen(false);setFocus('');undoStack.current=[];redoStack.current=[];
   }
   async function syncOfflineCategories(){
-    if(!navigator.onLine||syncingWorkspace.current||sharedAccess)return;
+    if(!navigator.onLine||syncingWorkspace.current||organizingRef.current||sharedAccess)return;
     const first=workspaceRef.current;
     if(!first.pending.length)return;
     syncingWorkspace.current=true;setClassificationStatus('syncing');
@@ -958,7 +959,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   },[accountId,!!sharedAccess]);
   async function organize(op:CategoryOperation){
     if(organizing||syncingWorkspace.current||sharedAccess)return;
-    setOrganizing(true);
+    setOrganizing(true);organizingRef.current=true;
     try{
       const previous=workspaceRef.current;
       const existing=categoryPaths([...previous.categories,...notes.list.map(n=>n.note?.category||'')]);
@@ -971,11 +972,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       await notes.persistPending();
       const updated:OfflineWorkspace={...previous,categories:next,pending:[...previous.pending,op],updatedAt:Date.now(),conflicts:undefined,resolution:undefined,conflictFingerprint:undefined,baseCategories:previous.pending.length?previous.baseCategories:existing,baseNotes:previous.pending.length?previous.baseNotes:notes.list.map(row=>({id:row.id,title:row.title,revision:row.revision,category:row.note?.category||'',tags:row.note?.tags||[]}))};
       updateWorkspace(updated);setClassificationStatus('pending');
+      await notes.settleSaves();
       if(op.kind!=='create')await notes.applyOfflineCategory(op);
       navigateCategory(op.kind==='tag'?'':op.target);
       if(op.kind==='tag')setTag(op.target);
-      if(navigator.onLine)void syncOfflineCategories();
-    }finally{setOrganizing(false);}
+    }finally{setOrganizing(false);organizingRef.current=false;if(navigator.onLine)void syncOfflineCategories();}
   }
   function reorderGraphic(direction:'front'|'back'){
     if(!doc||!selectedShape)return;
