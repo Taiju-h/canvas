@@ -32,7 +32,11 @@ export function planCategorySync(state:OfflineWorkspace,remote:{categories:strin
   const updates:Classification[]=[];
   const reconciled:Classification[]=[];
   for(const row of rows){
-    const old=known.get(row.id),local=localRows.find(n=>n.id===row.id)||applyClassification(old||row,state.pending);
+    const old=known.get(row.id),cached=localRows.find(n=>n.id===row.id);
+    // A reload can interrupt local application after the durable queue was saved.
+    // An unchanged cache is not evidence that the queued classification was cancelled.
+    const cacheChanged=cached&&old&&!same({category:old.category,tags:old.tags},{category:cached.category,tags:cached.tags});
+    const local=cacheChanged?cached:applyClassification(old||cached||row,state.pending);
     const changed=old&&!same({category:old.category,tags:old.tags},{category:local.category,tags:local.tags});
     const remoteChanged=old&&old.category!==row.category;
     if(changed&&remoteChanged&&old.category!==local.category&&local.category!==row.category){

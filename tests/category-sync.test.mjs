@@ -23,6 +23,13 @@ test('same note classification on two devices requires a visible choice',()=>{
 test('remote deletion of the affected namespace is a conflict',()=>{
  assert.ok(planCategorySync(state,{categories:[],revision:2},[]).conflicts.length);
 });
+test('reload before local category application still detects the queued remote conflict',()=>{
+ const plan=planCategorySync(state,{categories:[...state.baseCategories,'他端末'],revision:2},[{...row,category:'他端末',revision:5}],[row]);
+ assert.ok(plan.conflicts.some(c=>c.local.includes('設計')&&c.remote.includes('他端末')));
+ assert.equal(plan.updates[0].category,'仕事 / 設計');
+ const unchanged=planCategorySync(state,{categories:state.baseCategories,revision:1},[row],[row]);
+ assert.equal(unchanged.conflicts.length,0);assert.equal(unchanged.updates[0].category,'仕事 / 設計');
+});
 test('an already applied move can be acknowledged without duplicate changes',()=>{
  const plan=planCategorySync(state,{categories:['仕事','仕事 / 設計'],revision:2},[{...row,category:'仕事 / 設計',revision:4}]);
  assert.equal(plan.conflicts.length,0);assert.equal(plan.updates.length,0);
