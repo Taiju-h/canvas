@@ -14,12 +14,12 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  const server=await createServer({server:{host:'127.0.0.1',port:5185},plugins:[{name:'category-fixture',configureServer(s){s.middlewares.use(async(req,res,next)=>{
  if(req.url?.startsWith('/canvas/__category-test.html')){res.setHeader('Content-Type','text/html');res.end(await s.transformIndexHtml(req.url,'<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/canvas/__category-fixture.tsx"></script></body></html>'));return;}next();});},resolveId(id){if(id.includes('__category-fixture.tsx')||id.includes('__baseline-category.tsx'))return id;},load(id){if(id.includes('__category-fixture.tsx'))return fixture;if(id.includes('__baseline-category.tsx'))return execFileSync('git',['show','dc21b1bf374291c360e76ca88e095d7715c9b166:src/components/note-categories.tsx'],{encoding:'utf8'});}}]});
  await server.listen();
- let browser;
+ let browser,page;
  try{
  browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
- const page=await browser.newPage({viewport:{width:1200,height:900}});page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+ page=await browser.newPage({viewport:{width:1200,height:900}});page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
  await page.goto('http://127.0.0.1:5185/canvas/__category-test.html');await page.locator('.notes-category-choice').first().waitFor();
- const pick=async p=>{await page.evaluate(p=>window.pickCategory(p),p);await page.waitForTimeout(80);};
+ const pick=async p=>{await page.evaluate(p=>window.pickCategory(p),p);await page.waitForFunction(p=>!p||Array.from(document.querySelectorAll('[data-category-path]')).some(n=>n.dataset.categoryPath===p&&n.getAttribute('aria-current')==='true'),p);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));};
  const panes=page.locator('.notes-category-multi-pane');
  await page.locator('[data-category-path="単純"]').click();await page.mouse.move(700,650);await page.waitForTimeout(220);
  assert.equal(await panes.count(),2,'leaf-only children must use their own overlay pane');
@@ -47,7 +47,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  await page.locator('.notes-category-breadcrumb button[title="仕事"]').click();assert.equal(await page.locator('#chosen').innerText(),'仕事');assert.ok((await panes.first().getAttribute('class')).includes('is-focused'));
  await pick('一覧399 / 子199');
  const scroll=await page.locator('.notes-category-scroll').evaluateAll(nodes=>nodes.map(n=>({scroll:n.scrollTop,height:n.clientHeight,content:n.scrollHeight})));
- assert.ok(scroll.every(s=>s.scroll>0),'both selected child and its root ancestor auto-scroll into view');
+ assert.ok(scroll.every(s=>s.scroll>0),'both selected child and its root ancestor auto-scroll into view: '+JSON.stringify(scroll));
  const selected=page.locator('[data-category-path="一覧399 / 子199"]');const row=await selected.boundingBox(),area=await page.locator('.notes-category-scroll').last().boundingBox();assert.ok(row.y>=area.y&&row.y+row.height<=area.y+area.height);
  await page.locator('.notes-category-scroll').last().evaluate(n=>n.scrollTop=0);await page.mouse.move(700,650);await page.waitForTimeout(200);assert.ok(await page.locator('.notes-category-scroll').last().evaluate(n=>n.scrollTop===0),'manual scrolling remains possible');
  await pick('単純');await page.mouse.move(700,650);await page.waitForTimeout(240);await page.screenshot({path:'/tmp/kaeru-category-overlay-desktop.png'});
@@ -71,5 +71,5 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  await mobile.screenshot({path:'/tmp/kaeru-category-overlay-mobile.png'});
  console.log('PASS leaf overlays, 80% overlap, mouse parent/child switching, 5 levels, breadcrumbs, 400 roots/200 children scroll, touch switching, create/rename/move/tag commands');
  await touch.close();
- }finally{await browser?.close();await server.close();}
+ }catch(error){if(page)await page.screenshot({path:'/tmp/kaeru-category-overlay-failure.png'});throw error;}finally{await browser?.close();await server.close();}
 })().catch(error=>{console.error(error);process.exit(1)});
