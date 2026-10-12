@@ -109,6 +109,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.ok(cached.some(n=>n.content.note.category==='空カテゴリ'&&n.content.fixedNote.html.includes('オフライン新規本文')));
   // An offline restart uses the service worker's cached shell and IndexedDB draft.
   await page.waitForFunction(()=>navigator.serviceWorker.controller);await page.reload();await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor')?.textContent.includes('オフライン新規本文'));
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'restarting a selected Note does not reopen a chooser over the editor');
   assert.equal(await page.getByLabel('ノートの詳細').getAttribute('aria-expanded'),'true');
   await page.getByRole('button',{name:'プロパティ',exact:true}).click();
   const textChooser=page.waitForEvent('filechooser');await page.getByRole('button',{name:'テキスト読み込み（TXT／MD）',exact:true}).click();await(await textChooser).setFiles({name:'日本語.txt',mimeType:'text/plain',buffer:Buffer.from('読み込んだ日本語テキスト\n次の行')});

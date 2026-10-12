@@ -207,7 +207,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [shareCopied,setShareCopied]=useState(false);
   const lastShareDoc=useRef('');
   const [sidebar,setSidebar]=useState(()=>sharedAccess?false:storedSidebar());
-  const [categoryBrowserOpen,setCategoryBrowserOpen]=useState(true);
+  const [categoryBrowserOpen,setCategoryBrowserOpen]=useState(()=>preference('kn-category-browsing:'+accountId,'open')!=='closed');
+  useEffect(()=>{savePreference('kn-category-browsing:'+accountId,categoryBrowserOpen?'open':'closed');},[accountId,categoryBrowserOpen]);
   const [sidebarAutoClose,setSidebarAutoClose]=useState(()=>{try{return localStorage.getItem('kn-sidebar-autoclose')!=='off';}catch{return true;}});
   const [relatedPanel,setRelatedPanel]=useState(false);
   const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);
