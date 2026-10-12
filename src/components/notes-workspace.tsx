@@ -1147,6 +1147,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           {!filtered.length&&<p className="notes-empty">該当するメモはありません</p>}</div>
       </aside></>}
       <section className="notes-editor">
+        <div className="notes-basic-ribbon" inert={!!meta.trashedAt||organizing||meta.importState==='pending'}>
         <div inert={!!meta.trashedAt||organizing||meta.importState==='pending'} className={`notes-toolbar ${workspaceMode==='note'?'notes-toolbar-word':''} ${meta.importState==='pending'||meta.trashedAt||organizing?'notes-disabled':''}`} role="toolbar" aria-label="編集オプション">
           {workspaceMode==='note'?<>
             <div className="notes-tool-group"><button title="元に戻す" onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button title="やり直す" onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
@@ -1190,6 +1191,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <button className={!relatedPanel&&layersOpen?'active':''} onClick={()=>{setRelatedPanel(false);setLayersOpen(v=>relatedPanel?true:!v);}} title="レイヤーパネルを開閉" aria-expanded={!relatedPanel&&layersOpen}>{!relatedPanel&&layersOpen?<ChevronDown size={15}/>:<ChevronRight size={15}/>} レイヤー</button>
             <button className={relatedPanel?'active':''} onClick={()=>{setRelatedPanel(v=>!v);setLayersOpen(true);}} title="ChatGPTが関連付けたノートを表示">関連ノート</button>
           </div>
+
+        </div>
           <button className={'kn-details-toggle '+((workspaceMode==='note'?advancedOpen:canvasDetailsOpen)?'active':'')} onPointerDown={e=>e.preventDefault()} onClick={()=>workspaceMode==='note'?setAdvancedOpen(v=>!v):setCanvasDetailsOpen(v=>!v)} aria-label={workspaceMode==='note'?'ノートの詳細':'Canvasの詳細'} aria-expanded={workspaceMode==='note'?advancedOpen:canvasDetailsOpen} aria-controls="kn-editor-details">{(workspaceMode==='note'?advancedOpen:canvasDetailsOpen)?<ChevronDown size={16}/>:<ChevronRight size={16}/>}詳細</button>
         </div>
         {workspaceMode==='note'&&advancedOpen&&<div id="kn-editor-details" className="notes-details notes-toolbar-word" role="region" aria-label="ノート詳細ツール" inert={!!meta.trashedAt||organizing}>

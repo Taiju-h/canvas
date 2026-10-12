@@ -390,3 +390,6 @@
 .kn-layer-properties input[type=range]{width:70%;margin:0 9px;vertical-align:middle}.kn-layer-property-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:14px 0}.kn-layer-property-actions strong{width:100%}.kn-layer-property-actions button{border:1px solid #d8c9a8;background:#faf6ec}
 .notes-layer-panel .kn-layer-properties-link{display:flex;flex-direction:column;align-items:flex-start;overflow:hidden;min-width:0;white-space:normal;text-align:left;padding:4px 2px;font-size:12px}.kn-layer-properties-link small{font-size:9px;color:#8b7450}
 .notes-layer-row{grid-template-columns:27px minmax(65px,1fr) repeat(5,24px)}.notes-layer-child-row{flex-wrap:wrap}
+.notes-basic-ribbon{position:relative;flex-shrink:0;min-height:50px;background:#fff}.notes-basic-ribbon .notes-toolbar{padding-right:90px}.notes-basic-ribbon>.kn-details-toggle{position:absolute;top:8px;right:8px;margin:0;z-index:9}
+@media(max-width:760px){.notes-basic-ribbon .notes-toolbar{padding-right:78px}.notes-basic-ribbon>.kn-details-toggle{top:5px;right:5px;padding:6px;min-height:32px}}
+.notes-basic-ribbon .notes-toolbar{flex-wrap:wrap;overflow-x:hidden}.notes-basic-ribbon .notes-tool-group{flex-shrink:1;overflow:visible}

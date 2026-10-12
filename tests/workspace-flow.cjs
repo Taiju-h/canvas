@@ -123,7 +123,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await mp.goto('http://127.0.0.1:5187/canvas/');await mp.getByLabel('メモ一覧を開く',{exact:true}).click();await mp.locator('.notes-list-item').first().click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
   await mp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
   await mp.getByLabel('サイドバーを閉じる',{exact:true}).click();await mp.getByLabel('ノートの詳細',{exact:true}).waitFor();
-  const bounds=await mp.getByLabel('ノートの詳細',{exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391,'detail button within mobile width');
+  const bounds=await mp.getByLabel('ノートの詳細',{exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391,'detail button within mobile width');const ribbon=await mp.locator('.notes-basic-ribbon').boundingBox();assert.ok(bounds.y>=ribbon.y&&bounds.y+bounds.height<=ribbon.y+ribbon.height,'detail stays visible outside the scrolling basic controls');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile.png'});
   const bridgeContext=await browser.newContext({viewport:{width:1100,height:850}});const bp=await bridgeContext.newPage();lastPage=bp;
   await bp.addInitScript(()=>{window.updateCalls={download:0,activate:0};window.CanvasApp={applyWebUpdate:()=>{window.updateCalls.download++;dispatchEvent(new CustomEvent('canvas-update-ready'));},activateWebUpdate:()=>window.updateCalls.activate++,confirmWebUpdate:()=>{}};});
