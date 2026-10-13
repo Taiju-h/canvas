@@ -93,3 +93,24 @@ test('an older production UI is never offered as an update to a newer APK',()=>{
  assert.equal(hasNewerWebVersion('aaaaaaa',200,{commit:'bbbbbbb',commitTime:201}),true);
  assert.equal(hasNewerWebVersion('aaaaaaa',200,{commit:'aaaaaaa1234',commitTime:300}),false);
 });
+
+test('selected-page assignments move only the selected IDs and keep unrelated new notes',()=>{
+ const assign={kind:'assign',notes:[{id:'a',category:'整理先',tags:['元','選択']}]};
+ const pending={...state,categories:[...state.baseCategories,'整理先'],pending:[assign]};
+ const plan=planCategorySync(pending,{categories:state.baseCategories,revision:1},[{...row,revision:9},{...row,id:'b',title:'対象外'}]);
+ assert.equal(plan.conflicts.length,0);assert.deepEqual(plan.updates.map(n=>n.id),['a']);assert.equal(plan.updates[0].revision,9);assert.equal(plan.updates[0].category,'整理先');
+});
+test('a concurrent move of a selected page needs a visible choice; independent tags merge',()=>{
+ const assign={kind:'assign',notes:[{id:'a',category:'整理先',tags:['端末']}]};
+ const pending={...state,categories:[...state.baseCategories,'整理先'],pending:[assign]};
+ const conflict=planCategorySync(pending,{categories:state.baseCategories,revision:1},[{...row,category:'他端末',revision:7}]);
+ assert.ok(conflict.conflicts.some(n=>n.name===row.title));
+ const merged=planCategorySync(pending,{categories:state.baseCategories,revision:1},[{...row,tags:['元','他端末'],revision:7}]);
+ assert.equal(merged.conflicts.length,0);assert.deepEqual(merged.updates[0].tags,['端末','他端末']);
+});
+test('selected-page queues survive restart and detect a remotely deleted destination',()=>{
+ const storage=new Map();globalThis.localStorage={setItem:(k,v)=>storage.set(k,v),getItem:k=>storage.get(k)};
+ const saved={...state,baseCategories:[...state.baseCategories,'移動先'],categories:[...state.baseCategories,'移動先'],pending:[{kind:'assign',notes:[{id:'a',category:'移動先',tags:['元']}]}]};
+ persistOfflineWorkspace('selected-fixture',saved);const loaded=loadOfflineWorkspace('selected-fixture');assert.deepEqual(loaded.pending,saved.pending);
+ assert.ok(planCategorySync(loaded,{categories:state.baseCategories,revision:2},[row]).conflicts.some(n=>n.name==='移動先のフォルダ'));
+});

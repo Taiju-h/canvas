@@ -27,7 +27,7 @@ export function displayCell(sheet:SheetData,key:string,seen=new Set<string>()):s
   try{const value=Function('"use strict";return ('+expr+')')();return Number.isFinite(value)?String(Math.round(value*1e8)/1e8):'#ERR!';}catch{return '#ERR!';}
 }
 
-export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,opacity=1,width,viewportHeight,onHeight}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void}){
+export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,onDownloadFile,opacity=1,width,viewportHeight,onHeight}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;onDownloadFile:(id:string,name:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void}){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);
   useEffect(()=>{
     const el=ref.current;if(!el)return;
@@ -63,10 +63,7 @@ export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPast
         const fileId=link?.dataset.knLocalFile;
         if(!link||!fileId)return;
         e.preventDefault();
-        void getLocalImage(fileId).then(blob=>{
-          if(blob){const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=link.textContent||'attachment';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),20000);}
-          else if(docId&&!docId.startsWith('local-'))window.open(fileURL(docId,fileId),'_blank','noopener,noreferrer');
-        });
+        onDownloadFile(fileId,link.textContent||'attachment');
       }} onBlur={emit}/>
   </div>;
 }
