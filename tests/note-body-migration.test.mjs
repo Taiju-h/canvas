@@ -25,6 +25,7 @@ test('empty Note placeholders allow recovery of the edited old body and preserve
 test('old primary Notes migrate but modern layout boxes and annotated geometry remain intact',()=>{
   const old={...legacy(),note:{category:'仕事',tags:[]}};assert.equal(migrateLegacyNoteBody(old).fixedNote.html,body.html);
   const modern={...old,fixedNote:{html:'',visible:true,locked:false},blocks:[{...body,layerId:'layout'}]};assert.equal(migrateLegacyNoteBody(modern),modern);
+  const importedLayout={...legacy(),fixedNote:{html:'',visible:true,locked:false},blocks:[{...body,layerId:'layout'}]};assert.equal(migrateLegacyNoteBody(importedLayout),importedLayout,'clearing a modern JEX Note must not turn a separate layout box into its body');
   const annotated={...legacy(),paintStrokes:[{id:'ink',blockId:body.id,layerId:'ink',points:[{x:2,y:2}],color:'#000',width:3,opacity:1}]};assert.equal(migrateLegacyNoteBody(annotated),annotated);
 });
 test('source layer visibility and locking are retained',()=>{

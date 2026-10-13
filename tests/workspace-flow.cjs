@@ -95,6 +95,14 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.ok(parentEdge.x<inlineFiles.x&&parentEdge.width<=28,'one parent folder remains as a narrow edge beside the inline Notes');
   assert.equal(await page.locator('.notes-category-breadcrumb [aria-current=page]').getAttribute('title'),'仕事 / 開発 / KaeruNote','the directory breadcrumb remains accessible after choosing a Note');
   await page.screenshot({path:'/tmp/kaeru-workspace-legacy-note-inline.png'});
+  await page.getByRole('button',{name:'親フォルダを開く',exact:true}).click();
+  await page.getByRole('region',{name:'選択フォルダのNote一覧'}).getByRole('heading',{name:'開発',exact:true}).waitFor();
+  assert.equal(await page.getByLabel('メモのタイトル',{exact:true}).inputValue(),'既存ノートB','parent-folder navigation does not change the editing Note');
+  await page.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).click();
+  const inlineNotes=page.getByRole('region',{name:'左メニューのNote一覧'});
+  await inlineNotes.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');
+  await inlineNotes.locator('.notes-list-item').filter({hasText:'既存ノートB'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートB');
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'the inline list switches Notes without expanding over the workspace');
   await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-fixed-editor'));
   await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();
   await page.getByRole('region',{name:'選択フォルダのNote一覧'}).locator('.notes-list-item').filter({hasText:'既存ノートB'}).click();
@@ -139,7 +147,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.getByLabel('環境設定と書き出し',{exact:true}).click();
   await page.getByLabel('Noteを開く・新規作成したら左のメニューを自動で閉じる',{exact:true}).check();
   await page.getByLabel('環境設定と書き出し',{exact:true}).click();
-  const pick=async category=>{if(!await page.locator('.notes-category-browser').count())await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();const row=page.locator('[data-category-path='+JSON.stringify(category)+']');await row.scrollIntoViewIfNeeded();const b=await row.boundingBox();await page.mouse.move(b.x+8,b.y+b.height/2);await page.waitForTimeout(240);await row.click();await page.mouse.move(900,40);};
+  const pick=async category=>{if(!await page.locator('.notes-category-browser').count())await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();const row=page.locator('[data-category-path='+JSON.stringify(category)+']');if(!await row.count())await page.locator('.notes-category-breadcrumb button[title='+JSON.stringify(category)+']').click();else {await row.scrollIntoViewIfNeeded();const b=await row.boundingBox();await page.mouse.move(b.x+8,b.y+b.height/2);await page.waitForTimeout(240);await row.click();}await page.mouse.move(900,40);};
   for(const category of ['仕事','仕事 / 開発','仕事 / 開発 / KaeruNote']){await pick(category);assert.equal(await page.locator('.notes-sidebar').count(),1,'category must not close sidebar');}
   const chooser=page.locator('.notes-category-browser'),filePane=page.getByRole('region',{name:'選択フォルダのNote一覧'});
   const folders=await page.locator('.notes-category-cascade-stage').boundingBox(),files=await filePane.boundingBox();
@@ -238,6 +246,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).waitFor({timeout:25000});assert.ok(await page.locator('.kn-conflict-diffs').innerText().then(t=>t.includes('他端末')));
   await page.getByRole('button',{name:'端末の分類操作を採用',exact:true}).click();await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')).pending.length===0);
   await page.waitForTimeout(900);const result=await page.evaluate(()=>fetch('/__fixture/control',{method:'POST',body:'{}'}).then(r=>r.json()));
+  const recovered=result.documents.find(n=>n.id===ids[1]);assert.ok(recovered.content.fixedNote,'edited old Note is saved in the Note layer');assert.ok(recovered.content.legacyNoteBody.block.html.includes('取り込み後に編集した本文'),'original block survives editing and metadata synchronization');assert.equal(recovered.content.attachments[0].id,'old-original');assert.ok(recovered.content.note.tags.includes('元のタグ'));
   assert.ok(result.documents.some(n=>n.content.fixedNote.html.includes('書式選択を維持')&&n.content.note.category.includes('復旧テスト')));
   if(!await page.locator('.notes-category-browser').count())await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();
   await page.getByTitle('最上位のカテゴリを表示',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを追加',exact:true}).click();await page.getByLabel('新しいカテゴリ名',{exact:true}).fill('削除検証');await page.getByRole('button',{name:'カテゴリを保存',exact:true}).click();

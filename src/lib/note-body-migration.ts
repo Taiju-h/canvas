@@ -11,7 +11,8 @@ function hasBody(html:string){
 export function migrateLegacyNoteBody(input:NoteDoc):NoteDoc {
   const body=input.blocks?.[0];
   if(!body||input.legacyNoteBody||hasBody(input.fixedNote?.html||''))return input;
-  const imported=!!input.note?.sourceId&&input.note.sourceMarkdown!==undefined;
+  const imported=!!input.note?.sourceId&&input.note.sourceMarkdown!==undefined&&
+    (!input.fixedNote||(!body.layerId&&body.x===80&&body.y===80));
   const oldNote=!!input.note&&!body.layerId&&!input.fixedNote&&!input.studioOrder&&
     (body.x===80||body.x===28)&&(body.y===60||body.y===80);
   if(!imported&&!oldNote)return input;
