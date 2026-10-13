@@ -407,7 +407,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     commit({...d,blocks:[...(d.blocks||[]),b]});setActiveLayer(layer.id);setWorkspaceMode('layout');setSelected(b.id);setFocus(b.id);setTool('text');
   }
   function writableLayer(d:NoteDoc,kind?:'canvas'|'layout'){const layers=(d as StudioNoteDoc).layers;const matches=(l:(typeof layers)[number])=>(!kind||(l.studioKind||'canvas')===kind)&&l.visible&&!l.locked;return layers.find(l=>l.id===activeLayer&&matches(l))||layers.find(matches);}
-  function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
+  function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};if(cleanHTML(state.html)===html)return;commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
   async function updateSpreadsheetReferences(changedSheet?:SheetData){
     const currentRecord=current.current;if(!currentRecord)return;
     const snapshot=currentRecord.content as StudioNoteDoc;
@@ -1035,7 +1035,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
   function navigateCategory(path:string){setCategoryBrowserOpen(true);setCategory(path);setTrash(false);setQuery('');setTag('');}
   function collapseCategoryBrowser(){setCategoryBrowserOpen(false);requestAnimationFrame(()=>document.querySelector<HTMLButtonElement>('.notes-category-open')?.focus({preventScroll:true}));}
-  function finishNoteSelection(){setCategoryBrowserOpen(false);if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus()));}
+  function finishNoteSelection(){setCategoryBrowserOpen(false);useNoteLayer();if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>{const active=document.activeElement;if(active&&active!==document.body&&!active.classList.contains('notes-fixed-editor'))return;document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus();}));}
   async function openNote(id:string){(document.activeElement as HTMLElement)?.blur();if(await notes.open(id))finishNoteSelection();}
   async function createNote(){try{(document.activeElement as HTMLElement)?.blur();await notes.persistPending();setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);finishNoteSelection();}catch(error){notes.setError(String(error));}}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
@@ -1226,15 +1226,16 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         <CategoryTree paths={categories} notes={notes.list} selected={category} expanded={browsingNotes} notePicker={folderNotePicker} onExpand={()=>{setTrash(false);setCategoryBrowserOpen(true);}} onCollapse={collapseCategoryBrowser} onSelect={navigateCategory} disabled={organizing||importing||attaching} onManage={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onCreate={()=>{setCategoryManagerKind('create');setCategoryManager(true);}} onDelete={()=>{setCategoryManagerKind('delete');setCategoryManager(true);}}/>
         <div className="notes-filters"><label><Tag size={15}/><select aria-label="タグで絞り込み" value={tag} onChange={e=>{setTag(e.target.value);setQuery('');}}><option value="">すべてのタグ</option>{tags.map(t=><option key={t}>{t}</option>)}</select></label></div>
         <div className="notes-count" role="status">{searching?(searchScope==='all'?'横断検索':'絞り込み検索'):trash?'ゴミ箱':category||'すべてのメモ'} · {filtered.length} 件</div>
-        {!browsingNotes&&<><div className="kn-category-list-heading">
+        {!browsingNotes&&<div className="notes-inline-folder" role="region" aria-label="左メニューのNote一覧">
+          {category&&<button className="notes-inline-parent" title={category.split(' / ').slice(0,-1).join(' / ')||'全体'} aria-label="親フォルダを開く" onClick={()=>navigateCategory(category.split(' / ').slice(0,-1).join(' / '))}><ChevronLeft size={14}/><Folder size={14}/><span>{category.split(' / ').slice(-2,-1)[0]||'全体'}</span></button>}
+          <div className="notes-inline-files"><div className="kn-category-list-heading">
           <strong>カテゴリ：{category||'すべて'}</strong>
-          {category&&<button onClick={()=>navigateCategory(category.split(' / ').slice(0,-1).join(' / '))}>← 親カテゴリへ</button>}
           {categoryScope()}
           {searching&&searchScope==='all'&&<small>横断検索中：カテゴリ・タグの絞り込みは適用されません</small>}
           <small role="status">分類：{{saved:'保存済み',syncing:'同期中',pending:'端末に保存済み・同期待ち',conflict:'競合あり',complete:'同期完了'}[classificationStatus]}</small>
         </div>
         <button className="kn-category-create" disabled={importing||attaching||notes.busy||organizing} onClick={()=>void createNote()}>＋ このカテゴリに新規ノート</button>
-        {noteList()}</>}
+        {noteList()}</div></div>}
       </aside></>}
       <section className="notes-editor">
         <div className="notes-basic-ribbon" inert={!!meta.trashedAt||organizing||meta.importState==='pending'}>
