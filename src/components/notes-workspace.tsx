@@ -1035,7 +1035,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
   function navigateCategory(path:string){setCategoryBrowserOpen(true);setCategory(path);setTrash(false);setQuery('');setTag('');}
   function collapseCategoryBrowser(){setCategoryBrowserOpen(false);requestAnimationFrame(()=>document.querySelector<HTMLButtonElement>('.notes-category-open')?.focus({preventScroll:true}));}
-  function finishNoteSelection(){if(sidebarAutoClose){setCategoryBrowserOpen(false);setSidebar(false);}requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus()));}
+  function finishNoteSelection(){setCategoryBrowserOpen(false);if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus()));}
   async function openNote(id:string){(document.activeElement as HTMLElement)?.blur();if(await notes.open(id))finishNoteSelection();}
   async function createNote(){try{(document.activeElement as HTMLElement)?.blur();await notes.persistPending();setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);finishNoteSelection();}catch(error){notes.setError(String(error));}}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
