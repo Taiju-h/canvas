@@ -222,8 +222,11 @@ button:disabled { opacity: .4; cursor: default; }
 }
 
 
-.canvas-update-status{position:fixed;left:10px;bottom:8px;z-index:140;display:flex;gap:6px;align-items:center;pointer-events:none}
-.canvas-update-status button{pointer-events:auto;display:flex;align-items:center;gap:6px;min-height:30px;padding:4px 9px;border:1px solid #d9a400;border-radius:9px;background:#fff7c2;color:#6b5200;box-shadow:0 4px 16px #0002;font-size:11px;font-weight:700}
+/* Update controls live in the header, away from Android navigation bars. */
+.canvas-update-status{position:relative;z-index:140;display:flex;gap:6px;align-items:center;flex-shrink:0}
+.canvas-update-status.is-floating{position:fixed;right:calc(12px + env(safe-area-inset-right,0px));top:calc(80px + env(safe-area-inset-top,0px))}
+.canvas-update-status button,.notes-app .canvas-update-status>button{display:flex;align-items:center;gap:6px;min-height:40px;min-width:40px;padding:5px 9px;border:1px solid #d9a400;border-radius:7px;background:#fff7c2;color:#6b5200;font-size:11px;font-weight:700}
 .canvas-update-status button b{display:grid;place-items:center;width:19px;height:19px;border-radius:50%;background:#f2b700;color:#111;font-size:14px;line-height:1}
-.canvas-update-status button.error{border-color:#d99a9a;background:#fff0f0;color:#8d3434}
-@media(max-width:760px){.canvas-update-status{left:6px;bottom:5px}.canvas-update-status button span{display:none}.canvas-update-status button{width:31px;height:31px;padding:4px;justify-content:center}}
+.canvas-update-message{position:absolute;right:0;top:calc(100% + 6px);width:min(290px,80vw);padding:10px;display:flex;gap:6px;align-items:flex-start;background:#fff0f0;border:1px solid #d99a9a;border-radius:7px;color:#8d3434;font-size:12px;line-height:1.5;box-shadow:0 4px 16px #0002}
+.canvas-update-message button{flex-shrink:0;min-width:26px;min-height:26px;padding:0;border:0;background:transparent;color:inherit}
+@media(max-width:760px){.notes-header-compact{min-width:0}.canvas-update-status>button span{display:none}.notes-app .canvas-update-status>button{width:38px;min-width:38px;padding:4px;justify-content:center}.canvas-update-status>button{width:40px;padding:4px;justify-content:center}}

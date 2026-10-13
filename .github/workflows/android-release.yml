@@ -82,27 +82,27 @@ jobs:
         run: |
           gradle --no-daemon assembleDebug assembleRelease bundleRelease lintRelease
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/KaeruNote-0.4.3.apk"
-          cp app/build/outputs/bundle/release/app-release.aab "app/build/outputs/bundle/release/KaeruNote-0.4.3.aab"
+          cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/KaeruNote-0.4.4.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "app/build/outputs/bundle/release/KaeruNote-0.4.4.aab"
 
       - name: Upload signed installer
         uses: actions/upload-artifact@v4
         with:
-          name: KaeruNote-0.4.3-release
+          name: KaeruNote-0.4.4-release
           path: |
-            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.3.apk
-            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.3.aab
+            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.4.apk
+            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.4.aab
           if-no-files-found: error
 
       - name: Publish GitHub Release
         if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.4.3-web-shell' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.4.4-web-shell' }}
           target_commitish: ${{ github.sha }}
-          name: KaeruNote 0.4.3-web-shell
+          name: KaeruNote 0.4.4-web-shell
           make_latest: true
           files: |
-            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.3.apk
-            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.3.aab
+            clients/android/app/build/outputs/apk/release/KaeruNote-0.4.4.apk
+            clients/android/app/build/outputs/bundle/release/KaeruNote-0.4.4.aab
           generate_release_notes: true

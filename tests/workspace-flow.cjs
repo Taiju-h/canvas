@@ -67,6 +67,11 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const rootBrowser=await page.locator('.notes-category-browser').boundingBox();
   assert.ok(rootBrowser.width<=inlineSidebar.width,'the first folder view stays inside the sidebar');
   assert.equal(await page.getByRole('region',{name:'選択フォルダのNote一覧'}).count(),0,'files appear only after choosing a folder');
+  await page.getByTitle('ノートレイヤー',{exact:true}).click();
+  assert.equal(await page.locator('.notes-category-browser').count(),0,'the Note tool itself folds the category chooser');
+  assert.equal(await page.locator('.notes-sidebar').count(),1,'the Note tool keeps the manual Note list');
+  assert.equal(new URL(page.url()).searchParams.get('d'),initialNoteId,'returning to the Note tool keeps the selected document');
+  await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();
   await page.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).click();
   assert.equal(await page.locator('.notes-category-browser').count(),0,'manual close releases the borrowed workspace without selecting a Note');
   assert.equal(await page.locator('.notes-sidebar').count(),1);
@@ -261,6 +266,15 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});const mp=await mobile.newPage();lastPage=mp;mp.setDefaultTimeout(12000);
   await mp.addInitScript(()=>{localStorage.setItem('kn-sidebar-autoclose','off');localStorage.setItem('kn-note-details','open');});
   await mp.goto('http://127.0.0.1:5187/canvas/');await mp.getByLabel('メモ一覧を開く',{exact:true}).click();await mp.locator('.notes-list-item').first().click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
+  const mobileUpdate=mp.getByRole('button',{name:'更新あり',exact:true});await mobileUpdate.waitFor();
+  for(const width of [390,360]){
+   await mp.setViewportSize({width,height:844});
+   for(const target of [mobileUpdate,mp.getByRole('button',{name:'全画面にする',exact:true})]){
+    const b=await target.boundingBox();assert.ok(b.x>=0&&b.x+b.width<=width&&b.y+b.height<=46,'update and fullscreen stay within the header on narrow screens');
+    assert.ok(await target.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),'system-safe header targets are not covered by another element');
+   }
+  }
+  await mp.setViewportSize({width:390,height:844});
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).waitFor();
   assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'opening an inline Note does not expand the chooser');
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await mp.locator('.notes-category-cascade-stage').waitFor();
@@ -284,8 +298,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await mp.getByLabel('サイドバーを閉じる',{exact:true}).click();await mp.getByLabel('ノートの詳細',{exact:true}).waitFor();
   const bounds=await mp.getByLabel('ノートの詳細',{exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391,'detail button within mobile width');const ribbon=await mp.locator('.notes-basic-ribbon').boundingBox();assert.ok(bounds.y>=ribbon.y&&bounds.y+bounds.height<=ribbon.y+ribbon.height,'detail stays visible outside the scrolling basic controls');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile.png'});
-  // Wide touch screens use the same overlapping sheets without opening a Note
-  // accidentally on the first tap that only brings its files back to the front.
+  // A blank sheet edge raises the Note list; an exposed Note row opens directly.
   const tablet=await browser.newContext({viewport:{width:1100,height:900},hasTouch:true});const tp=await tablet.newPage();lastPage=tp;
   await tp.goto('http://127.0.0.1:5187/canvas/');await tp.getByLabel('メモのタイトル',{exact:true}).waitFor();
   await tp.waitForFunction(()=>!!document.querySelector('[aria-label="メモのタイトル"]').value); // The initial Note is created asynchronously.
@@ -309,11 +322,29 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await tp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).tap();
   await tp.waitForFunction(id=>new URL(location.href).searchParams.get('d')!==id,tabletNoteId);
   await tp.locator('.notes-category-browser').waitFor({state:'detached'});
+  await tp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
+  const reopenedFolders=await tp.locator('.notes-category-cascade-stage').boundingBox();
+  await tp.touchscreen.tap(reopenedFolders.x+10,reopenedFolders.y+65);
+  assert.equal(await tp.locator('.notes-category-files-layer.is-front').count(),0);
+  const exposedNote=tp.getByRole('region',{name:'選択フォルダのNote一覧'}).locator('.notes-list-item').first();
+  const exposedBounds=await exposedNote.boundingBox(),exposedTitle=await exposedNote.locator('strong').innerText();
+  const exposedPoint={x:exposedBounds.x+exposedBounds.width-12,y:exposedBounds.y+exposedBounds.height/2};
+  assert.ok(await exposedNote.evaluate((n,p)=>n.contains(document.elementFromPoint(p.x,p.y)),exposedPoint),'a Note row remains reachable at the exposed sheet edge');
+  await tp.touchscreen.tap(exposedPoint.x,exposedPoint.y);
+  await tp.locator('.notes-category-browser').waitFor({state:'detached'});
+  assert.equal(await tp.getByLabel('メモのタイトル',{exact:true}).inputValue(),exposedTitle.trim(),'one touch opens the exposed Note and folds the categories');
+  assert.equal(await tp.locator('.notes-sidebar').count(),1,'Note selection retains the manual left list');
+  await tp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
+  await tp.getByTitle('ノートレイヤー',{exact:true}).tap();
+  assert.equal(await tp.locator('.notes-category-browser').count(),0,'tapping the Note tool also closes the category chooser on touch devices');
   await tp.getByRole('button',{name:'作業メニューを開閉',exact:true}).tap();assert.equal(await tp.locator('.notes-sidebar').count(),0);
   await tablet.close();
   const bridgeContext=await browser.newContext({viewport:{width:1100,height:850}});const bp=await bridgeContext.newPage();lastPage=bp;
-  await bp.addInitScript(()=>{window.updateCalls={download:0,activate:0};window.CanvasApp={applyWebUpdate:()=>{window.updateCalls.download++;dispatchEvent(new CustomEvent('canvas-update-ready'));},activateWebUpdate:()=>window.updateCalls.activate++,confirmWebUpdate:()=>{}};});
+  await bp.addInitScript(()=>{window.updateCalls={download:0,activate:0};window.fullscreenCalls=[];window.nativeFullscreen=true;window.CanvasApp={applyWebUpdate:()=>{window.updateCalls.download++;dispatchEvent(new CustomEvent('canvas-update-ready'));},activateWebUpdate:()=>window.updateCalls.activate++,confirmWebUpdate:()=>{},isFullscreen:()=>window.nativeFullscreen,setFullscreen:enabled=>{window.fullscreenCalls.push(enabled);window.nativeFullscreen=enabled;dispatchEvent(new CustomEvent('canvas-fullscreen-change'));}};});
   await bp.goto('http://127.0.0.1:5187/canvas/');await bp.locator('.notes-fixed-editor').waitFor();await bp.getByTitle('新しいKaeruNoteがあります',{exact:true}).waitFor();
+  await bp.getByRole('button',{name:'全画面を解除',exact:true}).click();await bp.getByRole('button',{name:'全画面にする',exact:true}).click();
+  assert.deepEqual(await bp.evaluate(()=>window.fullscreenCalls),[false,true],'fullscreen controls invoke the Android shell and reflect its state');
+  assert.equal(await bp.locator('.notes-header .canvas-update-status').count(),1,'the update action is in the header');
   await bp.locator('.notes-fixed-editor').fill('更新前に端末へ保存する本文');
   await bp.locator('.notes-fixed-editor').dispatchEvent('compositionstart');await bp.getByTitle('新しいKaeruNoteがあります',{exact:true}).click();
   assert.equal(await bp.evaluate(()=>window.updateCalls.download),0,'update must wait for Japanese composition');
@@ -321,6 +352,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await bp.waitForFunction(()=>window.updateCalls.activate===1);
   const savedBeforeUpdate=await bp.evaluate(()=>new Promise(resolve=>{const q=indexedDB.open('canvas-offline-v1',2);q.onsuccess=()=>{const r=q.result.transaction('documents').objectStore('documents').getAll();r.onsuccess=()=>resolve(r.result.some(n=>n.content.fixedNote.html.includes('更新前に端末へ保存する本文')));};}));assert.ok(savedBeforeUpdate);
   assert.ok(await bp.locator('.notes-app').getAttribute('inert')!==null);await bp.evaluate(()=>dispatchEvent(new CustomEvent('canvas-update-failed',{detail:'取得失敗テスト'})));assert.equal(await bp.locator('.notes-app').getAttribute('inert'),null);
+  await bp.getByRole('alert').filter({hasText:'取得失敗テスト'}).waitFor();assert.ok(await bp.getByRole('button',{name:'更新あり',exact:true}).isEnabled(),'failed update leaves the button available for retry');
   assert.deepEqual(errors,[]);console.log('Workspace desktop, touch, offline restart, draft preservation, category conflict and details checks passed');
  }catch(error){if(lastPage){await lastPage.screenshot({path:'/tmp/kaeru-workspace-failure.png'});console.error(await lastPage.locator('.notes-warning').allTextContents());console.error('Workspace snapshot',await lastPage.evaluate(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')||'null')));console.error('Request trace',JSON.stringify(trace.slice(-20)));}console.error(error);throw error;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(()=>process.exit(1));

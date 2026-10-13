@@ -18,7 +18,10 @@ import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
 import android.webkit.ServiceWorkerController;
 import android.webkit.ServiceWorkerClient;
-import android.view.WindowInsets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import android.widget.Toast;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -53,7 +56,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class MainActivity extends ComponentActivity {
     private static final String CANVAS_ROOT = "https://canvas.uzero.style/canvas/";
-    private static final String CANVAS_URL = CANVAS_ROOT + "?app=0.4.2";
+    private static final String CANVAS_URL = CANVAS_ROOT + "?app=" + BuildConfig.VERSION_NAME;
     private static final String CANVAS_HOST = "canvas.uzero.style";
     private static final int FILE_CHOOSER_REQUEST = 701;
 
@@ -64,6 +67,8 @@ public final class MainActivity extends ComponentActivity {
     private NativeDownloads nativeDownloads;
     private String downloadScript;
     private volatile boolean updateBusy;
+    private volatile boolean fullscreenEnabled;
+    private FrameLayout root;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,12 +76,11 @@ public final class MainActivity extends ComponentActivity {
 
         getWindow().setStatusBarColor(Color.rgb(250, 250, 248));
         getWindow().setNavigationBarColor(Color.rgb(250, 250, 248));
-        getWindow().getDecorView().setSystemUiVisibility(
-            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        );
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
 
         // An older downloaded UI must not override the Web bundle in a newer APK.
         android.content.SharedPreferences shell = getSharedPreferences("canvas-shell", MODE_PRIVATE);
+        fullscreenEnabled = shell.getBoolean("fullscreen", true);
         String bundledCommit = readWebVersion(null).optString("commit", "");
         if (shell.getInt("installedVersion", 0) != BuildConfig.VERSION_CODE ||
             !shell.getString("bundledCommit", "").equals(bundledCommit)) {
@@ -96,7 +100,7 @@ public final class MainActivity extends ComponentActivity {
             while ((count = input.read(buffer)) != -1) script.write(buffer, 0, count);
             downloadScript = new String(script.toByteArray(), StandardCharsets.UTF_8);
         } catch (IOException error) { downloadScript = ""; }
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(250, 250, 248));
 
         webView = new WebView(this);
@@ -114,15 +118,16 @@ public final class MainActivity extends ComponentActivity {
         ));
 
         setContentView(root);
-        root.setOnApplyWindowInsetsListener((v, insets) -> {
-            if (android.os.Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-                android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
-                v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
-            }
-            return insets;
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+            applyViewportInsets(v, insets);
+            return WindowInsetsCompat.CONSUMED;
         });
-        root.requestApplyInsets();
+        if (android.os.Build.VERSION.SDK_INT < 30) root.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+            if (insets != null) applyViewportInsets(root, insets);
+        });
+        setFullscreenEnabled(fullscreenEnabled);
+        ViewCompat.requestApplyInsets(root);
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
                 if (webView != null && webView.canGoBack()) webView.goBack();
@@ -135,6 +140,43 @@ public final class MainActivity extends ComponentActivity {
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(canvasUrlFromIntent(getIntent()));
         }
+    }
+
+    private void applyViewportInsets(View view, WindowInsetsCompat insets) {
+        androidx.core.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+        androidx.core.graphics.Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+        int left = bars.left, top = bars.top, right = bars.right, bottom = Math.max(bars.bottom, ime.bottom);
+        if (android.os.Build.VERSION.SDK_INT < 30 && fullscreenEnabled) {
+            // Legacy immersive insets can still describe stable, hidden bars.
+            // The visible frame also follows the keyboard without adding those bars twice.
+            android.graphics.Rect visible = new android.graphics.Rect();view.getWindowVisibleDisplayFrame(visible);
+            int[] position = new int[2];view.getLocationOnScreen(position);
+            androidx.core.graphics.Insets cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout());
+            left = Math.max(cutout.left, Math.max(0, visible.left - position[0]));
+            top = Math.max(cutout.top, Math.max(0, visible.top - position[1]));
+            right = Math.max(cutout.right, Math.max(0, position[0] + view.getWidth() - visible.right));
+            bottom = Math.max(cutout.bottom, Math.max(0, position[1] + view.getHeight() - visible.bottom));
+        }
+        if (view.getPaddingLeft() != left || view.getPaddingTop() != top || view.getPaddingRight() != right || view.getPaddingBottom() != bottom)
+            view.setPadding(left, top, right, bottom);
+    }
+
+    void setFullscreenEnabled(boolean enabled) {
+        fullscreenEnabled = enabled;
+        getSharedPreferences("canvas-shell", MODE_PRIVATE).edit().putBoolean("fullscreen", enabled).apply();
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(true);
+        controller.setAppearanceLightNavigationBars(true);
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        if (enabled) controller.hide(WindowInsetsCompat.Type.systemBars());
+        else controller.show(WindowInsetsCompat.Type.systemBars());
+        if (root != null) ViewCompat.requestApplyInsets(root);
+        if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('canvas-fullscreen-change'))", null);
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus && root != null) setFullscreenEnabled(fullscreenEnabled);
     }
 
     private String canvasUrlFromIntent(Intent intent) {
@@ -175,7 +217,7 @@ public final class MainActivity extends ComponentActivity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
         settings.setGeolocationEnabled(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " KaeruNoteAndroid/0.4.1");
+        settings.setUserAgentString(settings.getUserAgentString() + " KaeruNoteAndroid/" + BuildConfig.VERSION_NAME);
 
         view.setBackgroundColor(Color.rgb(250, 250, 248));
         view.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -358,10 +400,14 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private final class CanvasBridge {
+        @JavascriptInterface public boolean isFullscreen() { return fullscreenEnabled; }
+        @JavascriptInterface public String getAppVersion() { return BuildConfig.VERSION_NAME; }
+        @JavascriptInterface public void setFullscreen(boolean enabled) { runOnUiThread(() -> setFullscreenEnabled(enabled)); }
+
         @JavascriptInterface
         public void applyWebUpdate() {
             synchronized (MainActivity.this) {
-                if (updateBusy) return;
+                if (updateBusy) { runOnUiThread(() -> reportUpdateFailure("更新を取得中です。完了まで少しお待ちください。")); return; }
                 updateBusy = true;
             }
             new Thread(() -> {
@@ -462,7 +508,7 @@ public final class MainActivity extends ComponentActivity {
 
         writeFile(staging, "offline-assets.json", manifestBytes);
         String[] fixed = {"index.html", "build-version.json", "manifest.webmanifest", "favicon.svg", "sw.js"};
-        for (String name : fixed) writeFile(staging, name, fetchBytes(CANVAS_ROOT + name + "?native=" + System.currentTimeMillis()));
+        for (String name : fixed) { writeFile(staging, name, fetchBytes(CANVAS_ROOT + name + "?native=" + System.currentTimeMillis())); reportUpdateProgress(); }
 
         JSONObject candidate = readWebVersion(staging), bundled = readWebVersion(null);
         File installedDir = new File(getFilesDir(), "canvas-web");
@@ -476,6 +522,7 @@ public final class MainActivity extends ComponentActivity {
             String relative = WebAssetPaths.relative(remotePath);
             if (relative == null || !relative.startsWith("assets/")) throw new IOException("更新パスが不正です");
             writeFile(staging, relative, fetchBytes("https://" + CANVAS_HOST + remotePath + "?native=" + System.currentTimeMillis()));
+            reportUpdateProgress();
         }
 
         JSONObject version = new JSONObject(new String(java.nio.file.Files.readAllBytes(new File(staging, "build-version.json").toPath()), StandardCharsets.UTF_8));
@@ -488,6 +535,10 @@ public final class MainActivity extends ComponentActivity {
         if (!index.contains("assets/") || !index.contains("<html")) throw new IOException("更新画面が不正です");
         // Keep staging separate until JavaScript acknowledges durable local storage.
 
+    }
+
+    private void reportUpdateProgress() {
+        runOnUiThread(() -> webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('canvas-update-progress'))", null));
     }
 
     private byte[] fetchBytes(String value) throws Exception {
