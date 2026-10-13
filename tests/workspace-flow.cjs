@@ -73,7 +73,14 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   // Manual is the default even when this device saved the old automatic ON setting.
   await page.getByRole('region',{name:'選択フォルダのNote一覧'}).locator('.notes-list-item').filter({hasText:'既存ノートB'}).click();
   await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートB');
-  assert.equal(await page.locator('.notes-category-browser').count(),1,'opening a Note keeps the manual chooser open');
+  await page.locator('.notes-category-browser').waitFor({state:'detached'});
+  assert.equal(await page.locator('.notes-sidebar').count(),1,'opening a Note folds only the chooser when sidebar auto-close is off');
+  await page.waitForFunction(()=>document.activeElement?.classList.contains('notes-fixed-editor'));
+  await page.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();
+  await page.getByRole('region',{name:'選択フォルダのNote一覧'}).locator('.notes-list-item').filter({hasText:'既存ノートB'}).click();
+  await page.locator('.notes-category-browser').waitFor({state:'detached'});
+  assert.equal(await page.locator('.notes-sidebar').count(),1,'reselecting the active Note also folds only the chooser');
+  assert.equal(await page.getByLabel('メモのタイトル',{exact:true}).inputValue(),'既存ノートB');
   await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),0);
   await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),1);assert.equal(await page.locator('.notes-category-browser').count(),0);
   const popup=page.getByRole('menu',{name:'作業メニュー',exact:true}),editor=page.locator('.notes-fixed-editor');
@@ -218,7 +225,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.getByRole('button',{name:'選択カテゴリを削除',exact:true}).click();await page.getByRole('button',{name:'カテゴリを削除（ノートは保持）',exact:true}).click();
   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')).pending.length===0);assert.equal(documents.size,result.documents.length);
   await page.screenshot({path:'/tmp/kaeru-workspace-desktop.png'});
-  // Mobile auto-close OFF is honored even when opening/creating a note.
+  // Mobile Note selection always folds the chooser; sidebar auto-close OFF keeps the left menu.
   const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});const mp=await mobile.newPage();lastPage=mp;mp.setDefaultTimeout(12000);
   await mp.addInitScript(()=>{localStorage.setItem('kn-sidebar-autoclose','off');localStorage.setItem('kn-note-details','open');});
   await mp.goto('http://127.0.0.1:5187/canvas/');await mp.getByLabel('メモ一覧を開く',{exact:true}).click();await mp.locator('.notes-list-item').first().click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
@@ -226,6 +233,10 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'opening an inline Note does not expand the chooser');
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await mp.locator('.notes-category-cascade-stage').waitFor();
   await mp.getByRole('region',{name:'選択フォルダのNote一覧'}).waitFor();
+  await mp.getByRole('region',{name:'選択フォルダのNote一覧'}).locator('.notes-list-item').first().tap();
+  await mp.locator('.notes-category-browser').waitFor({state:'detached'});
+  assert.equal(await mp.locator('.notes-sidebar').count(),1,'touch selection folds the chooser without hiding the manual sidebar');
+  await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
   await mp.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).tap();
   assert.equal(await mp.locator('.notes-category-browser').count(),0);assert.equal(await mp.locator('.notes-sidebar').count(),1,'manual close preserves the pinned sidebar');
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
@@ -234,8 +245,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile-picker.png'});
   const categoryBounds=await mp.locator('.notes-category-cascade-stage').boundingBox();assert.ok(categoryBounds.x+categoryBounds.width<=390-15,'category browser fits the mobile viewport');
   const mobilePreviousId=new URL(mp.url()).searchParams.get('d');await mp.getByRole('button',{name:'＋ このカテゴリに新規ノート',exact:true}).click();await mp.waitForFunction(id=>new URL(location.href).searchParams.get('d')!==id,mobilePreviousId);assert.equal(await mp.locator('.notes-sidebar').count(),1);
-  assert.equal(await mp.locator('.notes-category-browser').count(),1,'manual creation leaves the chooser open');
-  await mp.getByRole('button',{name:'カテゴリ選択を閉じる',exact:true}).tap();
+  await mp.locator('.notes-category-browser').waitFor({state:'detached'});
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).waitFor();
   assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'manual close returns the borrowed workspace');
   await mp.getByLabel('サイドバーを閉じる',{exact:true}).click();await mp.getByLabel('ノートの詳細',{exact:true}).waitFor();
