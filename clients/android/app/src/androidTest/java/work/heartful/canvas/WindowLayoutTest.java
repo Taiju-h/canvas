@@ -1,6 +1,7 @@
 package work.heartful.canvas;
 
 import android.graphics.Rect;
+import android.graphics.Bitmap;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
@@ -8,12 +9,15 @@ import android.webkit.WebView;
 import android.widget.FrameLayout;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowCompat;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.io.File;
+import java.io.FileOutputStream;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -33,16 +37,36 @@ public final class WindowLayoutTest {
             if (ready.get()) return;
             SystemClock.sleep(100);
         }
-        fail(message);
+        AtomicReference<String> state = new AtomicReference<>();
+        AtomicReference<File> screenshot = new AtomicReference<>();
+        scenario.onActivity(activity -> {
+            FrameLayout root = root(activity);
+            WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+            Rect visible = new Rect(); root.getWindowVisibleDisplayFrame(visible);
+            state.set(" insets=" + (insets == null ? "null" : "status=" + insets.isVisible(WindowInsetsCompat.Type.statusBars()) + " nav=" + insets.isVisible(WindowInsetsCompat.Type.navigationBars()) + " ime=" + insets.isVisible(WindowInsetsCompat.Type.ime()) + " bars=" + insets.getInsets(WindowInsetsCompat.Type.systemBars())) + " flags=" + activity.getWindow().getDecorView().getSystemUiVisibility() + " webHeight=" + root.getChildAt(0).getHeight() + " visible=" + visible);
+            File dir = new File(activity.getExternalFilesDir(null), "window-check");dir.mkdirs();screenshot.set(new File(dir,"failure.png"));
+        });
+        Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
+        if (bitmap != null) try (FileOutputStream file = new FileOutputStream(screenshot.get())) { bitmap.compress(Bitmap.CompressFormat.PNG,100,file); } catch (Exception ignored) {}
+        fail(message + state.get());
     }
     private FrameLayout root(MainActivity activity) {
         return (FrameLayout) ((FrameLayout) activity.findViewById(android.R.id.content)).getChildAt(0);
     }
     @Test public void fullscreenHidesBarsAndNormalModeReservesTheirSpace() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            // Keep this window test independent of the remote sign-in page's autofocus/IME.
+            scenario.onActivity(activity -> {
+                WebView view = (WebView) root(activity).getChildAt(0);
+                view.stopLoading();
+                view.loadDataWithBaseURL("https://canvas.uzero.style/canvas/", "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>window-fixture</title></head><body>Window layout check</body></html>", "text/html", "UTF-8", null);
+                view.clearFocus();root(activity).setFocusableInTouchMode(true);root(activity).requestFocus();
+                WindowCompat.getInsetsController(activity.getWindow(),activity.getWindow().getDecorView()).hide(WindowInsetsCompat.Type.ime());
+            });
+            await(scenario, activity -> "window-fixture".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "Window fixture must load");
             await(scenario, activity -> {
                 WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root(activity));
-                return insets != null && root(activity).getChildAt(0).getHeight() > 0 && !insets.isVisible(WindowInsetsCompat.Type.statusBars()) && !insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+                return insets != null && root(activity).getChildAt(0).getHeight() > 0 && !insets.isVisible(WindowInsetsCompat.Type.ime()) && !insets.isVisible(WindowInsetsCompat.Type.statusBars()) && !insets.isVisible(WindowInsetsCompat.Type.navigationBars());
             }, "Full screen must hide Android status and navigation bars");
             AtomicReference<Integer> fullHeight = new AtomicReference<>();
             scenario.onActivity(activity -> { fullHeight.set(root(activity).getChildAt(0).getHeight()); activity.setFullscreenEnabled(false); });
