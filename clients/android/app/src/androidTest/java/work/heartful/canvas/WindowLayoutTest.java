@@ -44,7 +44,7 @@ public final class WindowLayoutTest {
             WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
             Rect visible = new Rect(); root.getWindowVisibleDisplayFrame(visible);
             state.set(" insets=" + (insets == null ? "null" : "status=" + insets.isVisible(WindowInsetsCompat.Type.statusBars()) + " nav=" + insets.isVisible(WindowInsetsCompat.Type.navigationBars()) + " ime=" + insets.isVisible(WindowInsetsCompat.Type.ime()) + " bars=" + insets.getInsets(WindowInsetsCompat.Type.systemBars())) + " flags=" + activity.getWindow().getDecorView().getSystemUiVisibility() + " webHeight=" + root.getChildAt(0).getHeight() + " visible=" + visible);
-            File dir = new File(activity.getExternalFilesDir(null), "window-check");dir.mkdirs();screenshot.set(new File(dir,"failure.png"));
+            File dir = new File(activity.getCacheDir(), "window-check");dir.mkdirs();screenshot.set(new File(dir,"failure.png"));
         });
         Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
         if (bitmap != null) try (FileOutputStream file = new FileOutputStream(screenshot.get())) { bitmap.compress(Bitmap.CompressFormat.PNG,100,file); } catch (Exception ignored) {}
@@ -52,6 +52,20 @@ public final class WindowLayoutTest {
     }
     private FrameLayout root(MainActivity activity) {
         return (FrameLayout) ((FrameLayout) activity.findViewById(android.R.id.content)).getChildAt(0);
+    }
+    private boolean barsHidden(MainActivity activity) {
+        FrameLayout root = root(activity);
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+        if (insets == null || root.getChildAt(0).getHeight() <= 0) return false;
+        if (android.os.Build.VERSION.SDK_INT >= 30)
+            return !insets.isVisible(WindowInsetsCompat.Type.statusBars()) && !insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+        // Android 10 reports stable bar insets even when immersive bars are hidden.
+        // Verify the actual window frame and full-height content instead of that approximation.
+        Rect visible = new Rect();root.getWindowVisibleDisplayFrame(visible);
+        int[] position = new int[2];root.getLocationOnScreen(position);
+        int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
+        return (flags & View.SYSTEM_UI_FLAG_FULLSCREEN) != 0 && (flags & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0 &&
+            visible.top <= position[1] && visible.bottom >= position[1] + root.getHeight() && root.getChildAt(0).getHeight() == root.getHeight();
     }
     @Test public void fullscreenHidesBarsAndNormalModeReservesTheirSpace() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
@@ -66,7 +80,7 @@ public final class WindowLayoutTest {
             await(scenario, activity -> "window-fixture".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "Window fixture must load");
             await(scenario, activity -> {
                 WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root(activity));
-                return insets != null && root(activity).getChildAt(0).getHeight() > 0 && !insets.isVisible(WindowInsetsCompat.Type.ime()) && !insets.isVisible(WindowInsetsCompat.Type.statusBars()) && !insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+                return insets != null && !insets.isVisible(WindowInsetsCompat.Type.ime()) && barsHidden(activity);
             }, "Full screen must hide Android status and navigation bars");
             AtomicReference<Integer> fullHeight = new AtomicReference<>();
             scenario.onActivity(activity -> { fullHeight.set(root(activity).getChildAt(0).getHeight()); activity.setFullscreenEnabled(false); });
@@ -80,8 +94,7 @@ public final class WindowLayoutTest {
             }, "Web content must stay clear of both bars in normal mode");
             scenario.onActivity(activity -> activity.setFullscreenEnabled(true));
             await(scenario, activity -> {
-                WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root(activity));
-                return insets != null && !insets.isVisible(WindowInsetsCompat.Type.statusBars()) && !insets.isVisible(WindowInsetsCompat.Type.navigationBars());
+                return barsHidden(activity);
             }, "Returning to fullscreen must hide both bars again");
         }
     }
@@ -90,9 +103,13 @@ public final class WindowLayoutTest {
             scenario.onActivity(activity -> {
                 activity.setFullscreenEnabled(false);
                 WebView view = (WebView) root(activity).getChildAt(0);
-                view.loadDataWithBaseURL("https://canvas.uzero.style/canvas/", "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>update-fixture</title></head><body><button style='position:fixed;right:8px;top:8px;width:128px;height:48px' onclick=\"document.title='update-tapped'\">更新あり</button></body></html>", "text/html", "UTF-8", null);
+                view.loadDataWithBaseURL("https://canvas.uzero.style/canvas/", "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>update-fixture</title></head><body><button style='position:fixed;right:8px;top:8px;width:128px;height:48px' onclick=\"document.title='update-tapped'\">更新あり</button><script>requestAnimationFrame(()=>requestAnimationFrame(()=>document.title='update-fixture-ready'));</script></body></html>", "text/html", "UTF-8", null);
             });
-            await(scenario, activity -> "update-fixture".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "Update fixture must load");
+            await(scenario, activity -> {
+                WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root(activity));
+                return insets != null && insets.isVisible(WindowInsetsCompat.Type.statusBars()) && insets.isVisible(WindowInsetsCompat.Type.navigationBars()) &&
+                    "update-fixture-ready".equals(((WebView) root(activity).getChildAt(0)).getTitle());
+            }, "Update fixture and normal-mode bars must finish layout before the tap");
             AtomicReference<float[]> point = new AtomicReference<>();
             scenario.onActivity(activity -> {
                 WebView view = (WebView) root(activity).getChildAt(0);

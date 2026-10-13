@@ -119,10 +119,12 @@ public final class MainActivity extends ComponentActivity {
 
         setContentView(root);
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
-            androidx.core.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-            androidx.core.graphics.Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, ime.bottom));
+            applyViewportInsets(v, insets);
             return WindowInsetsCompat.CONSUMED;
+        });
+        if (android.os.Build.VERSION.SDK_INT < 30) root.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
+            if (insets != null) applyViewportInsets(root, insets);
         });
         setFullscreenEnabled(fullscreenEnabled);
         ViewCompat.requestApplyInsets(root);
@@ -138,6 +140,25 @@ public final class MainActivity extends ComponentActivity {
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(canvasUrlFromIntent(getIntent()));
         }
+    }
+
+    private void applyViewportInsets(View view, WindowInsetsCompat insets) {
+        androidx.core.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+        androidx.core.graphics.Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
+        int left = bars.left, top = bars.top, right = bars.right, bottom = Math.max(bars.bottom, ime.bottom);
+        if (android.os.Build.VERSION.SDK_INT < 30 && fullscreenEnabled) {
+            // Legacy immersive insets can still describe stable, hidden bars.
+            // The visible frame also follows the keyboard without adding those bars twice.
+            android.graphics.Rect visible = new android.graphics.Rect();view.getWindowVisibleDisplayFrame(visible);
+            int[] position = new int[2];view.getLocationOnScreen(position);
+            androidx.core.graphics.Insets cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout());
+            left = Math.max(cutout.left, Math.max(0, visible.left - position[0]));
+            top = Math.max(cutout.top, Math.max(0, visible.top - position[1]));
+            right = Math.max(cutout.right, Math.max(0, position[0] + view.getWidth() - visible.right));
+            bottom = Math.max(cutout.bottom, Math.max(0, position[1] + view.getHeight() - visible.bottom));
+        }
+        if (view.getPaddingLeft() != left || view.getPaddingTop() != top || view.getPaddingRight() != right || view.getPaddingBottom() != bottom)
+            view.setPadding(left, top, right, bottom);
     }
 
     void setFullscreenEnabled(boolean enabled) {
