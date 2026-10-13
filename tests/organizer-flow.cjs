@@ -93,7 +93,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const localCategories=await page.evaluate(async ids=>{const db=await new Promise((r,j)=>{const q=indexedDB.open('canvas-offline-v1',2);q.onsuccess=()=>r(q.result);q.onerror=j;});return Promise.all(ids.map(id=>new Promise(r=>{const q=db.transaction('documents').objectStore('documents').get(id);q.onsuccess=()=>r(q.result.content.note.category);})));},ids.slice(0,2));assert.deepEqual(localCategories,['整理先','整理先']);
   await page.evaluate(()=>window.restoreOrganizerPut());await page.getByRole('button',{name:'選択ページを移動',exact:true}).click();await settled();assert.equal(documents.get(ids[0]).content.note.category,'空フォルダ');
   // Keep a real unsynced text draft while online so export must prefer it over the server.
-  await table.getByRole('button',{name:'資料A',exact:true}).click();pauseWrites=true;
+  await table.getByRole('button',{name:'資料A',exact:true}).click();await organizer.waitFor({state:'detached'});await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor')?.getAttribute('contenteditable')==='true');assert.equal(new URL(page.url()).searchParams.get('d'),ids[0]);pauseWrites=true;
   await page.getByRole('textbox',{name:'固定ノート本文'}).fill('サーバー未送信の本文');await page.waitForTimeout(1000);await openOrganizer();
   await page.getByRole('button',{name:'データを取り出す',exact:true}).click();await page.getByRole('heading',{name:'自分のデータを取り出す'}).waitFor();await page.screenshot({path:'/tmp/kaeru-organizer-data.png'});
   const zipEvent=page.waitForEvent('download');await page.getByRole('button',{name:/全4ページ・画像・添付をZIPで保存/}).click();const zipDownload=await zipEvent;assert.match(zipDownload.suggestedFilename(),/\.zip$/);
