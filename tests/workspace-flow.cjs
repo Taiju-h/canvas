@@ -323,7 +323,6 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await tp.waitForFunction(id=>new URL(location.href).searchParams.get('d')!==id,tabletNoteId);
   await tp.locator('.notes-category-browser').waitFor({state:'detached'});
   await tp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
-  await tp.locator('[data-category-path='+JSON.stringify(touchFolder)+']').tap();
   const reopenedFolders=await tp.locator('.notes-category-cascade-stage').boundingBox();
   await tp.touchscreen.tap(reopenedFolders.x+10,reopenedFolders.y+65);
   assert.equal(await tp.locator('.notes-category-files-layer.is-front').count(),0);
