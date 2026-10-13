@@ -6,6 +6,7 @@ import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {WorkspaceContextMenu,type WorkspaceMenuItem} from './workspace-context-menu';
 import UpdateBadge from './web-update-badge';
+import NoteOrganizer from './note-organizer';
 import {isScreenFullscreen,setScreenFullscreen} from '@/lib/screen-fullscreen';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
 import { useNotes, type SharedAccess } from '@/lib/use-notes';
@@ -21,6 +22,8 @@ import {tableMarkup,editTable,currentTable,currentCell,setTableOptions,selectedN
 import {exportDocx,exportPng,exportPlain} from '@/lib/note-export';
 import {materializeSheetReferences,referenceSourceFromNote,referencedAliases} from '@/lib/sheet-references';
 import {listLocalRevisions,saveLocalRevision,type LocalRevision} from '@/lib/local-docs';
+import {readNoteAsset} from '@/lib/note-files';
+import {saveBlob,formatFileSize} from '@/lib/file-download';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
   const [url,setURL]=useState('');
@@ -214,6 +217,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   useEffect(()=>{const changed=()=>setScreenFullscreenState(isScreenFullscreen());document.addEventListener('fullscreenchange',changed);window.addEventListener('canvas-fullscreen-change',changed);return()=>{document.removeEventListener('fullscreenchange',changed);window.removeEventListener('canvas-fullscreen-change',changed);};},[]);
   // The wide chooser is temporary navigation, never a restored editing layout.
   const [categoryBrowserOpen,setCategoryBrowserOpen]=useState(false);
+  const [organizerOpen,setOrganizerOpen]=useState(()=>!sharedAccess&&new URL(location.href).searchParams.get('view')==='organize');
+  function showOrganizer(open:boolean){
+    (document.activeElement as HTMLElement)?.blur();setOrganizerOpen(open);setCategoryBrowserOpen(false);setSidebarMenuOpen(false);setSettings(false);setWorkspaceMenu(null);
+    const url=new URL(location.href);if(open)url.searchParams.set('view','organize');else url.searchParams.delete('view');history.replaceState(null,'',url);
+  }
   useEffect(()=>{setCategoryBrowserOpen(false);},[accountId]);
   useEffect(()=>{
     if(!categoryBrowserOpen)return;
@@ -1008,6 +1016,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     }catch(err){notes.setError(err instanceof Error?err.message:'添付できません');}
     finally{setAttaching(false);}
   }
+  function saveAttachment(id:string,fallbackName:string){
+    if(!record)return;
+    const asset=doc?.attachments?.find(a=>a.id===id)||{id,name:fallbackName};
+    void readNoteAsset(record.id,{...asset,kind:'file'},sharedAccess?.token).then(blob=>saveBlob(asset.name,blob)).catch(err=>notes.setError('添付を保存できません：'+String(err)));
+  }
   function changeMeta(patch:Partial<NoteMeta>){if(!doc||meta.trashedAt||organizing)return;const next={...meta,...patch};
     next.organizationLog=[...(meta.organizationLog||[]).slice(-99),{at:new Date().toISOString(),category:next.category,tags:next.tags}];commit({...doc,note:next});}
   async function loadJex(file:File){setImportMessage('JEXを確認しています…');try{const value=await readJex(file);setArchive(value);setImportMessage('');}catch(err){setImportMessage(String(err));}}
@@ -1018,18 +1031,16 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   async function applyOrganization(file:File){try{
     if(file.size>2_000_000)throw new Error('整理ファイルが大きすぎます');
     const payload=JSON.parse(await file.text()) as {version:number;notes:{id:string;category:string;tags:string[];revision:number}[]};
-    if(payload.version!==1||!Array.isArray(payload.notes))throw new Error('整理ファイルの形式が不正です');
+    if(!payload||payload.version!==1||!Array.isArray(payload.notes))throw new Error('整理ファイルの形式が不正です');
     const seen=new Set<string>();for(const entry of payload.notes){if(!/^(?:local-)?[a-f0-9]{32}$/.test(entry.id)||seen.has(entry.id)||typeof entry.category!=='string'||entry.category.length>200||!Array.isArray(entry.tags)||entry.tags.length>50||entry.tags.some(t=>typeof t!=='string'||t.length>80)||!Number.isInteger(entry.revision))throw new Error('分類・タグ・IDの形式が不正です');seen.add(entry.id);}
-    const changed=await notes.applyLocalMetadata(payload.notes);
+    const changed=await assignPages(payload.notes,true);
     notes.setError(`分類を${changed}件、端末に反映しました`);
   }catch(err){notes.setError(String(err));}}
-  async function exportAll(){try{await notes.save();const rows=await notes.refresh();const texts:string[]=[];const entries:{id:string;category:string;tags:string[];revision:number}[]=[];
-    for(const n of rows.filter(n=>!n.note?.trashedAt)){const cached=await getLocalDoc(n.id);let r:NoteRecord;
-      if(cached?.accountId===accountId&&(cached.dirty||!navigator.onLine))r={...cached,content:cached.content as NoteDoc};
-      else r=await(await api('/api/documents/'+n.id)).json() as NoteRecord;
+  async function exportAll(throwErrors=false){try{await notes.persistPending();const rows=navigator.onLine?await notes.refresh(true):notes.list;const texts:string[]=[];const entries:{id:string;category:string;tags:string[];revision:number}[]=[];
+    for(const n of rows.filter(n=>!n.note?.trashedAt)){const r=await notes.readForExport(n.id);
       texts.push(exportMarkdown(r));entries.push({id:r.id,category:r.content.note?.category||'',tags:r.content.note?.tags||[],revision:r.revision});}
     download('Canvas-メモ整理.md',texts.join('\n\n<!-- 次のメモ -->\n\n'));download('Canvas-分類.json',JSON.stringify({version:1,notes:entries},null,2),'application/json');
-  }catch(err){notes.setError(String(err));}}
+  }catch(err){if(throwErrors)throw err;notes.setError(String(err));}}
   const categories=categoryPaths([...(workspace?.categories||[]),...notes.list.map(n=>n.note?.category||'')]);
   const tags=[...new Set(notes.list.filter(n=>!n.note?.trashedAt).flatMap(n=>n.note?.tags||[]))].sort();
   const searching=query.trim().length>0;
@@ -1134,6 +1145,32 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       if(op.kind==='tag')setTag(op.target);
     }finally{setOrganizing(false);organizingRef.current=false;if(navigator.onLine)void syncOfflineCategories();}
   }
+  async function assignPages(entries:Classification[],strictRevision=false){
+    if(organizingRef.current||syncingWorkspace.current||sharedAccess)throw new Error('分類の同期・整理が終わるまでお待ちください');
+    if(!entries.length||entries.length>5000)throw new Error('整理するページ数が不正です');
+    const seen=new Set<string>();for(const n of entries){if(!n||typeof n.id!=='string'||!/^(?:local-)?[a-f0-9]{32}$/.test(n.id)||seen.has(n.id)||typeof n.category!=='string'||n.category.length>200||!Array.isArray(n.tags)||n.tags.length>50||n.tags.some(t=>typeof t!=='string'||t.length>80)||!Number.isInteger(n.revision))throw new Error('分類・タグ・ページIDの形式が不正です');seen.add(n.id);}
+    setOrganizing(true);organizingRef.current=true;
+    let previous:OfflineWorkspace|undefined,queued=false;
+    try{
+      const viewed=notes.list;
+      await notes.persistPending();const rows=await notes.refresh();
+      for(const n of entries){const id=notes.resolveId(n.id),index=rows.find(r=>r.id===id);if(!index)throw new Error('この利用者の一覧にないページがあります');const row=await notes.readForExport(id,index.revision);if(strictRevision&&(index.revision!==n.revision||row.revision!==n.revision))throw new Error('書き出し後に更新されたページがあります。もう一度書き出してください');if(row.content.note?.importState==='pending')throw new Error('取り込み途中のページは、完了後に整理してください');}
+      previous=workspaceRef.current;
+      const existing=categoryPaths([...previous.categories,...rows.map(n=>n.note?.category||'')]);
+      const changes=entries.map(n=>({id:notes.resolveId(n.id),category:categoryPath(n.category),tags:[...new Set(n.tags)]}));
+      const paths=categoryPaths([...existing,...changes.map(n=>n.category)]);if(paths.length>2000)throw new Error('フォルダ数の上限を超えます');
+      const baseNotes=new Map((previous.pending.length?previous.baseNotes||[]:[]).map(n=>[n.id,n]));
+      for(const n of [...viewed.filter(n=>entries.some(e=>notes.resolveId(e.id)===n.id)),...rows])if(!baseNotes.has(n.id))baseNotes.set(n.id,{id:n.id,title:n.title,revision:n.revision,category:n.note?.category||'',tags:n.note?.tags||[]});
+      updateWorkspace({...previous,categories:paths,pending:[...previous.pending,{kind:'assign',notes:changes}],updatedAt:Date.now(),conflicts:undefined,resolution:undefined,conflictFingerprint:undefined,baseCategories:previous.pending.length?previous.baseCategories:existing,baseNotes:[...baseNotes.values()]});queued=true;setClassificationStatus('pending');
+      await notes.settleSaves();
+      const settled=workspaceRef.current;
+      updateWorkspace({...settled,pending:settled.pending.map(op=>op.kind==='assign'?{...op,notes:op.notes.map(n=>({...n,id:notes.resolveId(n.id)}))}:op),baseNotes:settled.baseNotes?.map(n=>({...n,id:notes.resolveId(n.id)}))});
+      const resolved=changes.map(n=>({...n,id:notes.resolveId(n.id),revision:entries.find(e=>notes.resolveId(e.id)===notes.resolveId(n.id))!.revision}));
+      await notes.applyLocalMetadata(resolved,{sync:false,strictRevision:false});
+      return entries.length;
+    }catch(error){if(queued&&previous)updateWorkspace(previous);setClassificationStatus(workspaceRef.current.pending.length?'pending':'saved');throw error;}
+    finally{setOrganizing(false);organizingRef.current=false;if(navigator.onLine)void syncOfflineCategories();}
+  }
   function reorderGraphic(direction:'front'|'back'){
     if(!doc||!selectedShape)return;
     const items=[...doc.items.filter(i=>i.id!==selectedShape.id)];direction==='front'?items.push(selectedShape):items.unshift(selectedShape);commit({...doc,items});
@@ -1190,9 +1227,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       <polyline points={stroke(value.points)} stroke="transparent" strokeWidth={Math.max(18,value.width)} pointerEvents={workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')||tool==='eraser'?'stroke':'none'}/>
     </g>;
   }
-  return <main className={`notes-app ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''}`}
+  return <main className={`notes-app ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''} ${organizerOpen?'is-organizing-pages':''}`}
     onPointerDownCapture={event=>{if(event.button===2){event.preventDefault();event.stopPropagation();}}}
-    onContextMenu={event=>{event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
+    onContextMenu={event=>{if(organizerOpen)return;event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
     {workspaceMenu&&<WorkspaceContextMenu point={workspaceMenu} items={workspaceMenuItems()} onClose={()=>setWorkspaceMenu(null)}/>}
     <header className="notes-header notes-header-compact">
       {!sharedAccess&&<button className="notes-header-icon" onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={19}/></button>}
@@ -1225,6 +1262,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           </div>
           <button className="notes-sidebar-close" onClick={()=>{setSidebarMenuOpen(false);toggleSidebar();}} aria-label="サイドバーを閉じる" title="左のメニューを閉じる"><ChevronLeft size={20}/></button>
         </div></div>
+        <button className="notes-organize-open" onClick={()=>showOrganizer(true)}><Folder size={17}/>ページ・フォルダを整理</button>
         <label className="notes-search"><Search size={17}/><input ref={searchInput} placeholder="全メモの本文・タグを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)} onBlur={()=>rememberSearch()} onKeyDown={e=>{if(e.key==='Enter')rememberSearch();}}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
         {!!recentSearches.length&&<div className="notes-search-history" aria-label="最近の検索">{recentSearches.map(value=><button key={value} title={value} onClick={()=>{setQuery(value);setSearchScope('all');}}>{value}</button>)}</div>}
         <div className="notes-search-options"><label>検索範囲<select aria-label="検索範囲" value={searchScope} onChange={e=>setSearchScope(e.target.value as 'all'|'filtered')}><option value="all">全カテゴリ横断</option><option value="filtered">選択中のカテゴリ・タグ</option></select></label><small>{trash?'ゴミ箱内を検索':'タイトル・本文・タグ・添付名'} · 空白でAND検索</small></div>
@@ -1477,11 +1515,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                     })}</div>}
                   </div>}
                   <ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/>
-                  {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} block={noteBlock} opacity={doc.layers.find(l=>l.id===noteBlock.layerId)?.opacity??1} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
+                  {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} onDownloadFile={saveAttachment} block={noteBlock} opacity={doc.layers.find(l=>l.id===noteBlock.layerId)?.opacity??1} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
                     onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
                 </div>
-                {record&&<FixedNoteLayer docId={record.id} html={fixedNote.html} opacity={fixedNote.opacity??1} width={scroll.current?.clientWidth||innerWidth} viewportHeight={scroll.current?.clientHeight||400} onHeight={setFixedHeight} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
+                {record&&<FixedNoteLayer docId={record.id} onDownloadFile={saveAttachment} html={fixedNote.html} opacity={fixedNote.opacity??1} width={scroll.current?.clientWidth||innerWidth} viewportHeight={scroll.current?.clientHeight||400} onHeight={setFixedHeight} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
               </div>}
             </div>
 
@@ -1507,13 +1545,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <div className="notes-fine-buttons"><button onClick={()=>editSelectedShape(i=>moveGraphic(i,-1,0))}>←1</button><button onClick={()=>editSelectedShape(i=>moveGraphic(i,1,0))}>1→</button><button onClick={()=>editSelectedShape(i=>moveGraphic(i,0,-1))}>↑1</button><button onClick={()=>editSelectedShape(i=>moveGraphic(i,0,1))}>↓1</button></div>
           </div>}
         </div>
-        {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><a key={a.id} href={fileURL(record!.id,a.id)} target="_blank" rel="noreferrer" onClick={e=>{e.preventDefault();void getLocalImage(a.id).then(blob=>{
-          if(blob){const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=a.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),20000);}
-          else if(navigator.onLine&&!record!.id.startsWith('local-'))window.open(fileURL(record!.id,a.id),'_blank','noopener,noreferrer');
-          else notes.setError('この添付は端末に未取得です。接続中に「すべてのノートと添付を端末に保存」を実行してください');
-        }).catch(err=>notes.setError('添付を開けません：'+String(err)));}}>{a.name} <small>{(a.size/1024/1024).toFixed(1)}MB</small></a>)}</div>}
+        {!!doc?.attachments?.length&&<div className="notes-attachments"><Paperclip size={15}/>{doc.attachments.map(a=><button key={a.id} title="添付の原本をファイルとして保存" aria-label={a.name+'の原本を保存'} onClick={()=>saveAttachment(a.id,a.name)}><FileDown size={14}/>{a.name} <small>{formatFileSize(a.size)}</small></button>)}</div>}
       </section>
       {!sharedAccess&&settings&&<aside className="notes-settings"><div className="notes-settings-title"><h2>環境設定・メモの整理</h2><button onClick={()=>setSettings(false)} aria-label="設定を閉じる"><X size={18}/></button></div>
+        <button onClick={()=>showOrganizer(true)}><Folder size={17}/>ページ・フォルダを整理／データを取り出す</button>
         <section className="kn-settings-group">
           <h3>ChatGPT接続</h3>
           <p>接続状態：{aiConfigured===null?'確認中':aiConfigured?'利用できます':'APIキー未設定'}</p>
@@ -1533,6 +1568,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           }}/>Noteを開く・新規作成したら左のメニューを自動で閉じる</label>
           <p>初期設定はOFFです。左メニューはウインドウマークで、カテゴリ選択は「閉じる」で手動開閉できます。</p>
           <button disabled={offlinePreparing} onClick={()=>void prepareOffline()}>{offlinePreparing?'オフライン準備中…':'すべてのノートと添付を端末に保存'}</button>
+          <p>ブラウザ／アプリ内部のオフライン用保存です。ファイルとして取り出すには「ページ・フォルダを整理／データを取り出す」を開いてZIPを保存してください。</p>
           {offlineProgress&&<p role="status">ノート {offlineProgress.done}/{offlineProgress.total}件、添付 {offlineProgress.files}件、未取得 {offlineProgress.errors}件</p>}
           <p>ネット接続中に一度実行すると、端末の容量が許す範囲で全ノート・画像・添付を保存します。保存済みの内容は通信なしで開けます。端末の空き容量とブラウザの保存制限に注意してください。</p>
           <button onClick={()=>void openRevisions()}>ローカル履歴を表示</button>
@@ -1646,5 +1682,6 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         <p>元の本文・分類も保持します。同じメモの再取り込みはスキップし、途中で止まった分は再開します。</p><button className="notes-primary" disabled={importing} onClick={()=>void runImport()}>取り込みを開始</button></>}
       <p role="status">{importMessage}</p>{importing&&<button onClick={()=>{cancelImport.current=true;setImportMessage('現在の添付を保存後に中断します…');}}>中断</button>}
     </section></div>}
+    {!sharedAccess&&organizerOpen&&<NoteOrganizer accountId={accountId} store={notes} categories={categories} workspace={workspace} status={{saved:'保存済み',syncing:'同期中',pending:'端末に保存済み・同期待ち',conflict:'競合あり',complete:'同期完了'}[classificationStatus]} busy={organizing||importing||attaching||notes.busy||classificationStatus==='syncing'} onClose={()=>showOrganizer(false)} onOpen={async id=>{if(!await notes.open(id))throw new Error('ページを開けません。この端末への保存状況と接続を確認してください');finishNoteSelection();showOrganizer(false);}} onFolder={(kind,path)=>{setCategory(path);setCategoryManagerKind(kind);setCategoryManager(true);}} onAssign={assignPages} onResolve={resolveClassification} onExportForAI={()=>exportAll(true)} onImport={async file=>{if(file.size>2_000_000)throw new Error('整理ファイルが大きすぎます');const payload=JSON.parse(await file.text());if(!payload||payload.version!==1||!Array.isArray(payload.notes))throw new Error('整理ファイルの形式が不正です');await assignPages(payload.notes,true);}}/>}
   </main>;
 }

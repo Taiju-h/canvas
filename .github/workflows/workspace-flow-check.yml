@@ -24,9 +24,14 @@ jobs:
       - run: npm test
       - run: VITE_APP_COMMIT=1111111 npm run build
       - run: node tests/workspace-flow.cjs
+      - run: node tests/organizer-flow.cjs
+      - run: node tests/note-offline.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: workspace-flow-views
-          path: /tmp/kaeru-workspace-*.png
+          path: |
+            /tmp/kaeru-workspace-*.png
+            /tmp/kaeru-organizer-*.png
+            /tmp/kaeru-offline*.png
           if-no-files-found: ignore

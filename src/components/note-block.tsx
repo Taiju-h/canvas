@@ -6,8 +6,8 @@ import { cleanHTML, fileURL, type NoteBlock } from '@/lib/notes';
 import {getLocalImage} from '@/lib/local-docs';
 
 type Props={docId:string;block:NoteBlock;opacity?:number;readOnly?:boolean;focused:boolean;selected:boolean;onFocus:()=>void;onChange:(html:string,height:number)=>void;
-  onDrag:(event:ReactPointerEvent,resize?:boolean)=>void;onSize:(height:number)=>void;onPaste:(files:File[])=>void;onNavigate:(id:string)=>void};
-export default function EditableBlock({docId,block,opacity=1,readOnly,focused,selected,onFocus,onChange,onDrag,onSize,onPaste,onNavigate}:Props){
+  onDrag:(event:ReactPointerEvent,resize?:boolean)=>void;onSize:(height:number)=>void;onPaste:(files:File[])=>void;onNavigate:(id:string)=>void;onDownloadFile:(id:string,name:string)=>void};
+export default function EditableBlock({docId,block,opacity=1,readOnly,focused,selected,onFocus,onChange,onDrag,onSize,onPaste,onNavigate,onDownloadFile}:Props){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);const callback=useRef(onSize);callback.current=onSize;
   useLayoutEffect(()=>{const el=ref.current;if(!el)return;const html=cleanHTML(block.html);
     if(document.activeElement!==el && el.innerHTML!==html)el.innerHTML=html;
@@ -40,10 +40,7 @@ export default function EditableBlock({docId,block,opacity=1,readOnly,focused,se
         if(localLink?.dataset.knLocalFile){
           e.preventDefault();
           const id=localLink.dataset.knLocalFile;
-          void getLocalImage(id).then(blob=>{
-            if(blob){const url=URL.createObjectURL(blob),element=document.createElement('a');element.href=url;element.download=localLink.textContent||'attachment';element.click();setTimeout(()=>URL.revokeObjectURL(url),20000);}
-            else if(!docId.startsWith('local-'))window.open(fileURL(docId,id),'_blank','noopener,noreferrer');
-          });return;
+          onDownloadFile(id,localLink.textContent||'attachment');return;
         }
         const anchor=(e.target as Element).closest('a');if(anchor && (e.ctrlKey||e.metaKey)){e.preventDefault();const url=new URL(anchor.href);const id=url.searchParams.get('d');if(url.origin===location.origin&&id)onNavigate(id);else window.open(url.href,'_blank','noopener,noreferrer');}}}
       onPaste={e=>{if(e.clipboardData.files.length){e.preventDefault();onPaste(Array.from(e.clipboardData.files));return;}

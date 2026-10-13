@@ -1,14 +1,14 @@
 import {categoryPaths,inCategory,movedCategory} from './note-organization';
-import {locallyApplyCategory,type OfflineWorkspace} from './offline-workspace';
-import type {CategoryOperation} from '../components/note-categories';
+import {locallyApplyCategory,type OfflineWorkspace,type WorkspaceOperation} from './offline-workspace';
 
 export type Classification={id:string;category:string;tags:string[];revision:number;title?:string};
 export type CategoryConflict={name:string;base:string;local:string;remote:string};
 const same=(a:unknown,b:unknown)=>JSON.stringify(a)===JSON.stringify(b);
 const describe=(n:Pick<Classification,'category'|'tags'>)=>`${n.category||'未分類'} / タグ：${n.tags.join(', ')||'なし'}`;
-export function applyClassification(note:Classification,operations:CategoryOperation[]):Classification{
+export function applyClassification(note:Classification,operations:WorkspaceOperation[]):Classification{
   let value={...note,tags:[...note.tags]};
   for(const op of operations){
+    if(op.kind==='assign'){const assigned=op.notes.find(n=>n.id===value.id);if(assigned)value={...value,category:assigned.category,tags:[...assigned.tags]};continue;}
     if(op.kind==='create'||!inCategory(value.category,op.source))continue;
     if(op.kind==='move')value.category=movedCategory(value.category,op.source,op.target);
     else if(op.kind==='delete')value.category=op.target;
@@ -23,10 +23,12 @@ export function planCategorySync(state:OfflineWorkspace,remote:{categories:strin
   if(!base||!state.baseNotes){
     conflicts.push({name:'変更前の分類がない旧端末データ',base:'不明',local:state.categories.join('\n'),remote:remote.categories.join('\n')});
   }else{
-    const scopes=state.pending.flatMap(op=>op.kind==='create'?[op.target]:op.kind==='move'?[op.source,op.target]:[op.source]);
+    const scopes=state.pending.flatMap(op=>op.kind==='assign'?[]:op.kind==='create'?[op.target]:op.kind==='move'?[op.source,op.target]:[op.source]);
     const affected=(paths:string[])=>categoryPaths(paths).filter(p=>scopes.some(scope=>inCategory(p,scope)));
     const before=affected(base),server=affected(remote.categories),local=affected(state.categories);
     if(!same(before,server)&&!same(local,server))conflicts.push({name:'カテゴリ階層',base:before.join('\n')||'なし',local:local.join('\n')||'なし',remote:server.join('\n')||'なし'});
+    for(const op of state.pending)if(op.kind==='assign')for(const target of new Set(op.notes.map(n=>n.category).filter(Boolean)))
+      if(base.includes(target)&&!categoryPaths(remote.categories).includes(target))conflicts.push({name:'移動先のフォルダ',base:target,local:target,remote:'他端末で削除・移動されました'});
   }
   const known=new Map((state.baseNotes||[]).map(n=>[n.id,n]));
   const updates:Classification[]=[];

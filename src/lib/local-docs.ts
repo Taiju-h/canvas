@@ -50,6 +50,14 @@ async function operation<T>(storeName: "documents" | "images" | "revisions", mod
 export const getLocalDoc = (id: string) => operation<LocalDoc | undefined>("documents", "readonly", store => store.get(id));
 export const listLocalDocs = () => operation<LocalDoc[]>("documents", "readonly", store => store.getAll());
 export const putLocalDoc = (doc: LocalDoc) => operation<IDBValidKey>("documents", "readwrite", store => store.put(doc));
+export async function putLocalDocs(docs:LocalDoc[]){
+  const db=await database();
+  await new Promise<void>((resolve,reject)=>{
+    const tx=db.transaction('documents','readwrite'),store=tx.objectStore('documents');
+    try{for(const doc of docs)store.put(doc);}catch(error){tx.abort();reject(error);return;}
+    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('端末への一括保存を中止しました'));
+  });
+}
 export const deleteLocalDoc = (id: string) => operation<undefined>("documents", "readwrite", store => store.delete(id));
 export const getLocalImage = (id: string) => operation<Blob | undefined>("images", "readonly", store => store.get(id));
 export const putLocalImage = (id: string, image: Blob) => operation<IDBValidKey>("images", "readwrite", store => store.put(image, id));

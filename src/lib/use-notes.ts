@@ -1,7 +1,7 @@
 import {materializeSheetReferences,referenceSourceFromNote,referencedAliases} from './sheet-references';
 import type {StudioNoteDoc} from '../components/note-studio-layers';
 import { useEffect, useRef, useState } from 'react';
-import { getLocalDoc, listLocalDocs, putLocalDoc, deleteLocalDoc, getLocalImage, putLocalImage, saveLocalRevision, moveLocalRevisions } from './local-docs';
+import { getLocalDoc, listLocalDocs, putLocalDoc, putLocalDocs, deleteLocalDoc, getLocalImage, putLocalImage, saveLocalRevision, moveLocalRevisions } from './local-docs';
 import { api, blankNote, id32, indexOf, normalizeNote, uploadAttachment, fileURL, type NoteRecord, type NoteIndex, type NoteDoc, type NoteMeta } from './notes';
 import { mergeSharedNotes, mergeSharedTitle } from './shared-merge';
 import {inCategory,movedCategory} from './note-organization';
@@ -264,6 +264,20 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     if(!synced.current.has(cached.id)&&cached.baseRevision!==undefined) synced.current.set(cached.id,{content:normalizeNote(cached.base as NoteDoc),title:cached.baseTitle??cached.title,revision:cached.baseRevision});
   }
   async function persistPending(){await localJobs.current;}
+  async function readForExport(requestedId:string,knownRevision?:number):Promise<NoteRecord>{
+    if(shared)throw new Error('共有リンクでは所有者の全データを取り出せません');
+    const id=promoted.current.get(requestedId)||requestedId;
+    await persistPending();
+    const cached=await getLocalDoc(id);let latest=records.current.get(id);
+    if(cached?.accountId===accountId){restoreBase(cached);if(!latest||!latest.dirty&&(cached.dirty||cached.revision>latest.revision))latest={...cached,content:normalizeNote(cached.content)};}
+    if(latest&&(latest.dirty||id.startsWith('local-')||!navigator.onLine||latest.revision>=(knownRevision??list.find(n=>n.id===id)?.revision??Infinity)))return latest;
+    if(!navigator.onLine||id.startsWith('local-'))throw new Error('この端末に未取得のページがあります。接続中に取り出すか、取得済みのページを選んでください');
+    const remote=await(await documentApi('/api/documents/'+id)).json() as NoteRecord;
+    const current=records.current.get(id)||latest;
+    if(current&&(current.dirty||current.revision>remote.revision))return current;
+    const next={...remote,content:normalizeNote(remote.content),accountId,dirty:false};
+    synced.current.set(id,{revision:next.revision,content:next.content,title:next.title});return next;
+  }
   async function settleSaves(){await Promise.all([...jobs.current.values()]);await persistPending();}
   function hasUnsynced(){return [...records.current.values()].some(n=>n.dirty);}
   async function open(id:string) {
@@ -330,26 +344,34 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     }
     return changed;
   }
-  async function applyLocalMetadata(entries:{id:string;revision:number;category:string;tags:string[]}[]){
+  async function applyLocalMetadata(entries:{id:string;revision:number;category:string;tags:string[]}[],options:{sync?:boolean;strictRevision?:boolean}={}){
     if(shared)throw new Error('共有リンクでは分類を一括変更できません');
     await localJobs.current;
     const prepared:NoteRecord[]=[];
     for(const entry of entries){
-      let latest=records.current.get(entry.id);
-      if(!latest){const cached=await getLocalDoc(entry.id);if(cached?.accountId===accountId)latest={...cached,content:normalizeNote(cached.content)};}
-      if(!latest&&!entry.id.startsWith('local-')&&navigator.onLine)latest={...await(await api('/api/documents/'+entry.id)).json(),accountId};
-      if(!latest)throw new Error('この端末に未取得のノートがあります。接続中に端末へ保存してください');
-      if(latest.revision!==entry.revision)throw new Error('書き出し後に更新されたノートがあります。もう一度書き出してください');
+      const latest=await readForExport(entry.id,entry.revision);
+      if(options.strictRevision!==false&&latest.revision!==entry.revision)throw new Error('書き出し後に更新されたノートがあります。もう一度書き出してください');
       prepared.push(latest);
     }
-    for(let i=0;i<entries.length;i++){
-      const entry=entries[i],latest=records.current.get(entry.id)||prepared[i];
-      const old=latest.content.note||{category:'',tags:[]};
-      const note={...old,category:entry.category,tags:[...new Set(entry.tags)],organizationLog:[...(old.organizationLog||[]).slice(-99),{at:new Date().toISOString(),category:entry.category,tags:entry.tags}]};
-      const next={...latest,content:{...latest.content,note},dirty:true,updated_at:Date.now()};
-      show(next);await persist(next);
-    }
-    for(const entry of entries)void save(entry.id);
+    const job=localJobs.current.then(async()=>{
+      const next=entries.map((entry,i)=>{
+        const current=records.current.get(entry.id),latest=current&&(current.dirty||current.revision>=prepared[i].revision)?current:prepared[i],old=latest.content.note||{category:'',tags:[]};
+        const note={...old,category:entry.category,tags:[...new Set(entry.tags)],...(options.sync===false?{}:{organizationLog:[...(old.organizationLog||[]).slice(-99),{at:new Date().toISOString(),category:entry.category,tags:entry.tags}]})};
+        const baseline=synced.current.get(entry.id);
+        return{...latest,content:{...latest.content,note},dirty:true,updated_at:Date.now(),accountId,owner:true,base:baseline?.content||latest.content,baseTitle:baseline?.title||latest.title,baseRevision:baseline?.revision??latest.revision};
+      });
+      try{
+        for(let i=0;i<entries.length;i++){
+          const current=records.current.get(entries[i].id),old=current&&(current.dirty||current.revision>=prepared[i].revision)?current:prepared[i];
+          await saveLocalRevision({...old,accountId,owner:true,base:old.content,dirty:!!old.dirty});
+        }
+        await putLocalDocs(next);
+      }catch(error){throw new Error('端末へ一括保存できません。整理を中止しました：'+String(error));}
+      for(const n of next)show(n);
+    });
+    localJobs.current=job;
+    try{await job;}catch(error){if(localJobs.current===job)localJobs.current=Promise.resolve();throw error;}
+    if(options.sync!==false)for(const entry of entries)void save(entry.id);
     return entries.length;
   }
   async function acceptMetadata(changed:{id:string;revision:number;updated_at:number;note:NoteMeta}[]) {
@@ -431,6 +453,6 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     }
   }
   async function resumeSync(){await refresh();for(const row of records.current.values())if(row.dirty)void save(row.id);}
-  return {resolveId:(id:string)=>promoted.current.get(id)||id,persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
+  return {resolveId:(id:string)=>promoted.current.get(id)||id,readForExport,persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }
