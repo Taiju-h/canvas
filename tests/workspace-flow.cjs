@@ -257,13 +257,14 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.waitForFunction(()=>JSON.parse(localStorage.getItem('kaerunote-workspace-offline-v2:workspace-fixture')).pending.length===0);assert.equal(documents.size,result.documents.length);
   await page.screenshot({path:'/tmp/kaeru-workspace-desktop.png'});
   // Mobile Note selection always folds the chooser; sidebar auto-close OFF keeps the left menu.
+  const touchFolder=result.documents.find(n=>n.id===ids[1]).content.note.category.split(' / ')[0];
   const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});const mp=await mobile.newPage();lastPage=mp;mp.setDefaultTimeout(12000);
   await mp.addInitScript(()=>{localStorage.setItem('kn-sidebar-autoclose','off');localStorage.setItem('kn-note-details','open');});
   await mp.goto('http://127.0.0.1:5187/canvas/');await mp.getByLabel('メモ一覧を開く',{exact:true}).click();await mp.locator('.notes-list-item').first().click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).waitFor();
   assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'opening an inline Note does not expand the chooser');
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).click();await mp.locator('.notes-category-cascade-stage').waitFor();
-  await mp.locator('[data-category-path="仕事"]').tap();
+  await mp.locator('[data-category-path='+JSON.stringify(touchFolder)+']').tap();
   await mp.getByRole('region',{name:'選択フォルダのNote一覧'}).waitFor();
   await mp.getByRole('region',{name:'選択フォルダのNote一覧'}).locator('.notes-list-item').first().tap();
   await mp.locator('.notes-category-browser').waitFor({state:'detached'});
@@ -292,7 +293,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const tabletDocumentCount=documents.size,tabletNoteId=new URL(tp.url()).searchParams.get('d');
   assert.equal(await tp.locator('.notes-category-browser').count(),0);
   await tp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
-  await tp.locator('[data-category-path="仕事"]').tap();
+  await tp.locator('[data-category-path='+JSON.stringify(touchFolder)+']').tap();
   const tabletFolders=await tp.locator('.notes-category-cascade-stage').boundingBox();
   const tabletTitle=await tp.getByLabel('メモのタイトル',{exact:true}).inputValue();
   await tp.touchscreen.tap(tabletFolders.x+10,tabletFolders.y+65);
