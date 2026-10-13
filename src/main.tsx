@@ -1,4 +1,4 @@
-import {hasNewerWebVersion,prepareWebUpdate} from "@/lib/web-update";
+import UpdateBadge from "@/components/web-update-badge";
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import NotesWorkspace from "@/components/notes-workspace";
@@ -87,47 +87,6 @@ function VisitorGate({ session, onReady }: { session: Session; onReady: (next: S
 }
 
 
-function UpdateBadge() {
-  const [available,setAvailable]=useState(false);
-  const [updating,setUpdating]=useState(false);
-  const [message,setMessage]=useState("");
-  useEffect(()=>{
-    let live=true;
-    const check=async()=>{
-      try{
-        // The currently running bundle's revision is injected during the server build.
-        // Fetching build-version.json twice compared the same remote value and never detected updates.
-        const runningCommit=import.meta.env.VITE_APP_COMMIT as string | undefined;
-        const remote=await fetch("/canvas/build-version.json?check="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject());
-        if(live)setAvailable(hasNewerWebVersion(runningCommit,import.meta.env.VITE_APP_COMMIT_TIME,remote));
-      }catch{}
-    };
-    const timer=window.setTimeout(()=>void check(),800);
-    const interval=window.setInterval(()=>void check(),5*60*1000);
-    const failed=(event:Event)=>{const detail=(event as CustomEvent<string>).detail||"更新できませんでした";setUpdating(false);setMessage(detail);document.querySelector<HTMLElement>('.notes-app')?.removeAttribute('inert');};
-    const ready=async()=>{
-      try{await prepareWebUpdate();document.querySelector<HTMLElement>('.notes-app')?.setAttribute('inert','');(window as Window & {CanvasApp?:{activateWebUpdate?:()=>void}}).CanvasApp?.activateWebUpdate?.();}
-      catch(error){setUpdating(false);setMessage(error instanceof Error?error.message:'端末への保存を確認できません');}
-    };
-    addEventListener("canvas-update-ready",ready);addEventListener('online',check);
-    const bridge=(window as Window & {CanvasApp?:{confirmWebUpdate?:(commit:string)=>void}}).CanvasApp;
-    bridge?.confirmWebUpdate?.(import.meta.env.VITE_APP_COMMIT||'');
-    addEventListener("canvas-update-failed",failed);
-    return()=>{live=false;clearTimeout(timer);clearInterval(interval);removeEventListener("canvas-update-failed",failed);removeEventListener("canvas-update-ready",ready);removeEventListener("online",check);};
-  },[]);
-  if(!available&&!message)return null;
-  return <div className="canvas-update-status">
-    {available&&<button title="新しいKaeruNoteがあります" disabled={updating} onClick={async()=>{
-      try{await prepareWebUpdate();}catch(error){setMessage(error instanceof Error?error.message:"端末への保存を確認できません");return;}
-      setUpdating(true);setMessage("");
-      const bridge=(window as Window & {CanvasApp?:{applyWebUpdate?:()=>void}}).CanvasApp;
-      if(bridge?.applyWebUpdate){if(!(bridge as {activateWebUpdate?:unknown}).activateWebUpdate)document.querySelector<HTMLElement>('.notes-app')?.setAttribute('inert','');bridge.applyWebUpdate();}
-      else { const url=new URL(location.href);url.searchParams.set('remoteui','1');url.searchParams.set('update',String(Date.now()));location.assign(url.toString()); }
-    }}><b>!</b><span>{updating?"更新中…":"更新あり"}</span></button>}
-    {message&&<button className="error" onClick={()=>setMessage("")}>{message}</button>}
-  </div>;
-}
-
 function sharedLink():SharedAccess|undefined{
   const token=new URLSearchParams(location.hash.replace(/^#/, '')).get('share')||'';
   const id=new URLSearchParams(location.search).get('d')||'';
@@ -147,9 +106,9 @@ function App() {
   if (fatal) return <main className="visitor-gate"><section className="visitor-card"><h1>接続できません</h1><p>{fatal}</p></section></main>;
   if (!session) return <main className="hybrid-loading"><div className="hybrid-spinner" />起動しています…</main>;
   // An invited collaborator opens exactly one shared board and never sees the owner's notes.
-  if (shared)return <><NotesWorkspace accountId={'shared:'+shared.id} sharedAccess={shared} /><UpdateBadge /></>;
-  if (!session.authenticated) return <><VisitorGate session={session} onReady={setSession} /><UpdateBadge /></>;
-  return <><NotesWorkspace accountId={session.accountId || ""} /><UpdateBadge /></>;
+  if (shared)return <NotesWorkspace accountId={'shared:'+shared.id} sharedAccess={shared} />;
+  if (!session.authenticated) return <><VisitorGate session={session} onReady={setSession} /><UpdateBadge floating /></>;
+  return <NotesWorkspace accountId={session.accountId || ""} />;
 }
 
 // Install the prebuilt offline shell. Without registration, offline-assets.json

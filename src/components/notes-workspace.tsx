@@ -5,6 +5,8 @@ import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, FileTe
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {WorkspaceContextMenu,type WorkspaceMenuItem} from './workspace-context-menu';
+import UpdateBadge from './web-update-badge';
+import {isScreenFullscreen,setScreenFullscreen} from '@/lib/screen-fullscreen';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
 import { useNotes, type SharedAccess } from '@/lib/use-notes';
 import { api, blankNote, block, cleanHTML, markdownHTML, download, escapeHTML, exportMarkdown, fileURL, id32, plainText, uploadAttachment, type NoteBlock, type NoteDoc, type NoteMeta, type NoteRecord, type Attachment } from '@/lib/notes';
@@ -208,6 +210,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const [shareCopied,setShareCopied]=useState(false);
   const lastShareDoc=useRef('');
   const [sidebar,setSidebar]=useState(()=>sharedAccess?false:storedSidebar());
+  const [screenFullscreen,setScreenFullscreenState]=useState(isScreenFullscreen);
+  useEffect(()=>{const changed=()=>setScreenFullscreenState(isScreenFullscreen());document.addEventListener('fullscreenchange',changed);window.addEventListener('canvas-fullscreen-change',changed);return()=>{document.removeEventListener('fullscreenchange',changed);window.removeEventListener('canvas-fullscreen-change',changed);};},[]);
   // The wide chooser is temporary navigation, never a restored editing layout.
   const [categoryBrowserOpen,setCategoryBrowserOpen]=useState(false);
   useEffect(()=>{setCategoryBrowserOpen(false);},[accountId]);
@@ -437,7 +441,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
 
   }
   function leaveTransientSheet(){if(workspaceMode==='excel'&&!sheetHasData){setSheetPreviewOpen(false);setSheetSelection(undefined);}}
-  function useNoteLayer(){leaveTransientSheet();setFocus('');setWorkspaceMode('note');setTool('note');(document.activeElement as HTMLElement)?.blur();}
+  function useNoteLayer(){setCategoryBrowserOpen(false);leaveTransientSheet();setFocus('');setWorkspaceMode('note');setTool('note');(document.activeElement as HTMLElement)?.blur();}
   function useSheetLayer(){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};if(sheetHasData&&!state.visible)commit({...d,sheet:{...state,visible:true}} as NoteDoc,false);if(!sheetHasData)setSheetPreviewOpen(true);setFocus('');setWorkspaceMode('excel');setTool('sheet');(document.activeElement as HTMLElement)?.blur();}
   function useGraphLayer(){leaveTransientSheet();setFocus('');setWorkspaceMode('graph');setTool('select');(document.activeElement as HTMLElement)?.blur();}
   function pasteIntoSheet(text:string){
@@ -1035,7 +1039,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
   function navigateCategory(path:string){setCategoryBrowserOpen(true);setCategory(path);setTrash(false);setQuery('');setTag('');}
   function collapseCategoryBrowser(){setCategoryBrowserOpen(false);requestAnimationFrame(()=>document.querySelector<HTMLButtonElement>('.notes-category-open')?.focus({preventScroll:true}));}
-  function finishNoteSelection(){setCategoryBrowserOpen(false);useNoteLayer();if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>{const active=document.activeElement;if(active&&active!==document.body&&!active.classList.contains('notes-fixed-editor'))return;document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus();}));}
+  function finishNoteSelection(){useNoteLayer();if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>{const active=document.activeElement;if(active&&active!==document.body&&!active.classList.contains('notes-fixed-editor'))return;document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus();}));}
   async function openNote(id:string){(document.activeElement as HTMLElement)?.blur();if(await notes.open(id))finishNoteSelection();}
   async function createNote(){try{(document.activeElement as HTMLElement)?.blur();await notes.persistPending();setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);finishNoteSelection();}catch(error){notes.setError(String(error));}}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}
@@ -1196,6 +1200,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       <span className="notes-header-divider"/>
       <input aria-label="メモのタイトル" placeholder="新しいメモ" value={record?.title||''} maxLength={80} disabled={!record||notes.busy||importing||organizing||!!meta.trashedAt||meta.importState==='pending'} onChange={e=>doc&&notes.change(doc,e.target.value)}/>
       <div className="notes-header-actions">
+        <UpdateBadge/>
+        <button className="notes-header-icon" title={screenFullscreen?'全画面を解除':'全画面にする'} aria-label={screenFullscreen?'全画面を解除':'全画面にする'} aria-pressed={screenFullscreen} onClick={()=>void setScreenFullscreen(!screenFullscreen).catch(error=>notes.setError(error instanceof Error?error.message:'全画面表示を変更できません'))}>{screenFullscreen?<Minimize2 size={18}/>:<Maximize2 size={18}/>}</button>
         {sharedAccess?<span className="notes-shared-indicator" title="このリンクの作品だけが表示されています">共有作品を編集中</span>:
           <>
             <button className="notes-header-icon" onClick={()=>{setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}} aria-label="全メモを横断検索" title="メモを検索"><Search size={18}/></button>

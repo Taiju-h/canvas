@@ -1,0 +1,53 @@
+name: Android fullscreen and update touch
+on:
+  pull_request:
+    paths: ['clients/android/**', '.github/workflows/android-window-check.yml']
+  push:
+    branches: [main]
+    paths: ['clients/android/**', '.github/workflows/android-window-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  window:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 36]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bundle current Web
+        run: |
+          npm install --package-lock=false
+          VITE_APP_COMMIT="$GITHUB_SHA" npm run build
+          mkdir -p clients/android/app/src/main/assets
+          cp -a public/canvas clients/android/app/src/main/assets/canvas
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.1.0'
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -no-snapshot -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: cd clients/android && gradle --no-daemon connectedDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-window-api-${{ matrix.api }}
+          path: clients/android/app/build/reports/androidTests/connected/
+          if-no-files-found: ignore

@@ -178,6 +178,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
         onPointerDownCapture={event=>{pointerType.current=event.pointerType;}}
         onClickCapture={event=>{
           if(!filesOverlaid||peekDepth===null||pointerType.current==='mouse')return;
+          if((event.target as Element).closest('.notes-list-item')){setPeekDepth(null);return;}
           event.preventDefault();event.stopPropagation();setPeekDepth(null);
         }}>{notePicker}</div>}
       </div></div>

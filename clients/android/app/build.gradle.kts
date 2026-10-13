@@ -24,8 +24,9 @@ android {
         applicationId = "work.heartful.canvas"
         minSdk = 29
         targetSdk = 36
-        versionCode = 10
-        versionName = "0.4.3-web-shell"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 11
+        versionName = "0.4.4-web-shell"
     }
 
     signingConfigs {
@@ -57,4 +58,7 @@ android {
 dependencies {
     implementation("androidx.activity:activity:1.10.1")
     implementation("androidx.webkit:webkit:1.14.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }
