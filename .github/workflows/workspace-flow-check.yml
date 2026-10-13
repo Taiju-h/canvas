@@ -33,5 +33,5 @@ jobs:
           path: |
             /tmp/kaeru-workspace-*.png
             /tmp/kaeru-organizer-*.png
-            /tmp/kaeru-offline.png
+            /tmp/kaeru-offline*.png
           if-no-files-found: ignore
