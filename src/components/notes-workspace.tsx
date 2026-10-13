@@ -407,7 +407,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     commit({...d,blocks:[...(d.blocks||[]),b]});setActiveLayer(layer.id);setWorkspaceMode('layout');setSelected(b.id);setFocus(b.id);setTool('text');
   }
   function writableLayer(d:NoteDoc,kind?:'canvas'|'layout'){const layers=(d as StudioNoteDoc).layers;const matches=(l:(typeof layers)[number])=>(!kind||(l.studioKind||'canvas')===kind)&&l.visible&&!l.locked;return layers.find(l=>l.id===activeLayer&&matches(l))||layers.find(matches);}
-  function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
+  function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};if(cleanHTML(state.html)===html)return;commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
   async function updateSpreadsheetReferences(changedSheet?:SheetData){
     const currentRecord=current.current;if(!currentRecord)return;
     const snapshot=currentRecord.content as StudioNoteDoc;
@@ -1035,7 +1035,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     .sort((a,b)=>Number(!!b.note?.pinned)-Number(!!a.note?.pinned)||b.updated_at-a.updated_at);
   function navigateCategory(path:string){setCategoryBrowserOpen(true);setCategory(path);setTrash(false);setQuery('');setTag('');}
   function collapseCategoryBrowser(){setCategoryBrowserOpen(false);requestAnimationFrame(()=>document.querySelector<HTMLButtonElement>('.notes-category-open')?.focus({preventScroll:true}));}
-  function finishNoteSelection(){setCategoryBrowserOpen(false);useNoteLayer();if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus()));}
+  function finishNoteSelection(){setCategoryBrowserOpen(false);useNoteLayer();if(sidebarAutoClose)setSidebar(false);requestAnimationFrame(()=>requestAnimationFrame(()=>{const active=document.activeElement;if(active&&active!==document.body&&!active.classList.contains('notes-fixed-editor'))return;document.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable=true]')?.focus();}));}
   async function openNote(id:string){(document.activeElement as HTMLElement)?.blur();if(await notes.open(id))finishNoteSelection();}
   async function createNote(){try{(document.activeElement as HTMLElement)?.blur();await notes.persistPending();setTrash(false);setQuery('');setTag('');const next=notesNew();await notes.create(next);finishNoteSelection();}catch(error){notes.setError(String(error));}}
   function notesNew(){const next=blankNote();next.note={category,tags:[]};return next;}

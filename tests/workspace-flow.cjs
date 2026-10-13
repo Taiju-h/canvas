@@ -93,6 +93,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(await page.locator('.notes-fixed-editor ruby').count(),1);assert.equal(await page.locator('.notes-fixed-editor img').count(),1);
   const parentEdge=await page.getByRole('button',{name:'親フォルダを開く',exact:true}).boundingBox(),inlineFiles=await page.locator('.notes-inline-files').boundingBox();
   assert.ok(parentEdge.x<inlineFiles.x&&parentEdge.width<=28,'one parent folder remains as a narrow edge beside the inline Notes');
+  assert.ok(await page.getByRole('button',{name:'親フォルダを開く',exact:true}).locator('span').evaluate(n=>n.getBoundingClientRect().height>=24),'the parent folder name stays visible on its edge');
   assert.equal(await page.locator('.notes-category-breadcrumb [aria-current=page]').getAttribute('title'),'仕事 / 開発 / KaeruNote','the directory breadcrumb remains accessible after choosing a Note');
   await page.screenshot({path:'/tmp/kaeru-workspace-legacy-note-inline.png'});
   await page.getByRole('button',{name:'親フォルダを開く',exact:true}).click();
@@ -109,6 +110,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.locator('.notes-category-browser').waitFor({state:'detached'});
   assert.equal(await page.locator('.notes-sidebar').count(),1,'reselecting the active Note also folds only the chooser');
   assert.equal(await page.getByLabel('メモのタイトル',{exact:true}).inputValue(),'既存ノートB');
+  assert.equal(documents.get(ids[1]).content.fixedNote,undefined,'reading and switching old Notes does not rewrite the server body before an actual edit');
   await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),0);
   await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),1);assert.equal(await page.locator('.notes-category-browser').count(),0);
   const popup=page.getByRole('menu',{name:'作業メニュー',exact:true}),editor=page.locator('.notes-fixed-editor');
