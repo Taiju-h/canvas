@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import type { CanvasDoc, Point, Layer } from './canvas';
+import {migrateLegacyNoteBody} from './note-body-migration';
 
 export type NoteBlock = { id: string; x: number; y: number; w: number; h: number; html: string; background?: string; layerId?: string };
 export type Attachment = { id: string; name: string; mime: string; size: number; sourceId?: string; pending?: boolean };
@@ -10,6 +11,8 @@ export type NoteMeta = { category: string; tags: string[]; alias?: string; relat
   trashedAt?: string; importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
   organizationLog?: { at: string; category: string; tags: string[] }[] };
 export type NoteDoc = Omit<CanvasDoc, 'layers'> & { layers: (Layer & { rasterImageId?: string; rasterBounds?: {x:number;y:number;w:number;h:number} })[]; blocks?: NoteBlock[]; note?: NoteMeta; attachments?: Attachment[];
+  fixedNote?:{html:string;visible:boolean;locked:boolean;opacity?:number}; studioOrder?:('note'|'canvas'|'layout'|'graph')[];
+  legacyNoteBody?:{version:1;block:NoteBlock};
   paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string; brush?: 'pen' | 'gpen' | 'marker'; pressure?:boolean; rotation?: number }[] };
 export type NoteIndex = { id: string; title: string; revision: number; updated_at: number; excerpt?: string; searchText?: string; note?: NoteMeta };
 export type NoteRecord = NoteIndex & { content: NoteDoc; accountId?: string; dirty?: boolean };
@@ -62,6 +65,7 @@ export function blankNote(): NoteDoc { return { version: 1, items: [], layers: [
   blocks: [], fixedNote: { html: '', visible: true, locked: false }, sheet: { visible: false, locked: false, rows: 20, cols: 10, cells: {} }, charts: [],
   note: { category: '', tags: [] }, attachments: [] } as NoteDoc; }
 export function normalizeNote(input: NoteDoc): NoteDoc {
+  input=migrateLegacyNoteBody(input);
   // Shift old negative-coordinate canvases into the scrollable workspace once.
   const legacy = input.items.filter(item => item.kind === 'text');
   const boxes = [...input.items, ...input.layers.flatMap(l => l.rasterBounds ? [l.rasterBounds] : [])];

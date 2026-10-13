@@ -28,6 +28,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
   const pointerType=useRef('mouse');
   const stageRef=useRef<HTMLDivElement|null>(null);
   const [room,setRoom]=useState(0);
+  const [anchorWidth,setAnchorWidth]=useState(280);
   const [verticalRoom,setVerticalRoom]=useState(440);
 
   // The sidebar is an anchor, not a clipping box. Use the editor's space while
@@ -35,7 +36,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
   useLayoutEffect(()=>{
     if(!expanded)return;
     const stage=stageRef.current;if(!stage)return;
-    const measure=()=>{const bounds=stage.getBoundingClientRect();setRoom(Math.max(0,document.documentElement.clientWidth-bounds.left-16));setVerticalRoom(Math.max(150,window.innerHeight-bounds.top-20));};
+    const measure=()=>{const bounds=stage.getBoundingClientRect();setAnchorWidth(stage.closest('.notes-category-tree')?.getBoundingClientRect().width||280);setRoom(Math.max(0,document.documentElement.clientWidth-bounds.left-16));setVerticalRoom(Math.max(150,window.innerHeight-bounds.top-20));};
     measure();window.addEventListener('resize',measure);
     const observer=new ResizeObserver(measure);
     observer.observe(stage.closest('.notes-layout')||stage.parentElement!);
@@ -66,9 +67,17 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
   // At most three side-by-side panes remain visible; the full ancestry is always
   // accessible from the breadcrumb row, even for four or more nesting levels.
   const visible=panes.slice(-3);
-  const compact=!!notePicker&&room>0&&room<620;
-  const filesOverlaid=!!notePicker&&!compact;
+  const showFiles=!!notePicker&&!!selected;
+  const compact=showFiles&&room>0&&room<620;
+  const filesOverlaid=showFiles&&!compact;
   const trail=categoryParts(selected||openedPath).map((_,index,all)=>all.slice(0,index+1).join(' / '));
+  const browserWidth=Math.min(room||anchorWidth,notePicker?(selected?Math.min(1200,anchorWidth+360+Math.max(0,trail.length-1)*140):anchorWidth):820);
+  function breadcrumbs(){return <nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
+    <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>
+    {trail.map((path,index)=><button key={path} disabled={disabled} title={path} className={selected===path?'active':''}
+      aria-current={selected===path?'page':undefined}
+      onClick={()=>{reveal(path);if(index<trail.length-1)setPeekDepth(Math.min(1,categoryParts(path).length-1));}}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
+  </nav>;}
 
   useEffect(()=>{
     const raf=requestAnimationFrame(()=>{
@@ -109,17 +118,16 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
       <button disabled={disabled} onClick={onManage} aria-label="カテゴリを管理"><Settings2 size={15}/></button>
     </div>
     {!expanded&&<button className="notes-category-open" disabled={disabled} onClick={onExpand} aria-label="カテゴリを選ぶ"><Folder size={17}/><span>{selected||'すべてのカテゴリ'}</span><ChevronRight size={16}/></button>}
+    {!expanded&&notePicker&&breadcrumbs()}
+    {!expanded&&notePicker&&!selected&&<div className="notes-category-root-list" role="group" aria-label="大カテゴリ">
+      {tree.map(node=><button className="notes-category-root-choice" key={node.path} disabled={disabled} data-category-path={node.path} title={node.path} onClick={()=>choose(node)}><Folder size={15}/><span>{node.label}</span><small>{directCount(notes,node.path)}</small><ChevronRight size={15}/></button>)}
+    </div>}
     {!paths.length&&<button disabled={disabled} onClick={onManage}><Plus size={14}/>カテゴリを作成</button>}
     {expanded&&(!!paths.length||notePicker)&&<>
       <div className={'notes-category-browser '+(notePicker?'has-note-picker ':'')+(compact?'is-compact':'')} ref={stageRef}
         onKeyDownCapture={()=>{pointerType.current='keyboard';}}
-        style={room?{width:Math.min(notePicker?960:820,room),...(notePicker?{height:Math.min(440,verticalRoom)}:{})}:undefined}>
-      <div className="notes-category-browser-bar"><nav className="notes-category-breadcrumb" aria-label="カテゴリの階層" ref={breadcrumbRef}>
-        <button className={!selected?'active':''} onClick={()=>{setPeekDepth(null);setOpenedPath('');onSelect('');}} disabled={disabled} title="最上位のカテゴリを表示">全体</button>
-        {trail.map((path,index)=><button key={path} disabled={disabled} title={path} className={selected===path?'active':''}
-          aria-current={selected===path?'page':undefined}
-          onClick={()=>{reveal(path);if(index<trail.length-1)setPeekDepth(Math.min(1,categoryParts(path).length-1));}}><ChevronRight size={12}/><span>{categoryParts(path).at(-1)}</span></button>)}
-      </nav>
+        style={{width:browserWidth,...(notePicker?{height:Math.min(440,verticalRoom)}:{})}}>
+      <div className="notes-category-browser-bar">{breadcrumbs()}
       {onCollapse&&<button className="notes-category-browser-close" onClick={onCollapse} aria-label="カテゴリ選択を閉じる" title="畳んで作業に戻る"><X size={15}/><span>閉じる</span></button>}</div>
       <div className="notes-category-browser-columns">
       <div className={'notes-category-cascade-stage multilevel '+(peekDepth!==null?'parent-peek':'')} role="group" aria-label="カテゴリの選択"
@@ -133,7 +141,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
           const isFocused=peekDepth===null?!filesOverlaid&&isLast:peekDepth===i;
           // Folder sheets can cover the files too. Keep a reachable edge on the
           // right so the files/next sheet can always be brought back to the front.
-          const width=filesOverlaid?100-left-(visible.length-i)*36/Math.min(960,room||960)*100:
+          const width=filesOverlaid?100-left-(visible.length-i)*36/browserWidth*100:
             (100-left)*(peekDepth===i&&!isLast ? .94 : 1);
           return <section key={pane.parent||'root'} className={'notes-category-pane notes-category-multi-pane '+(isFocused?'is-focused ':'')+(isPeeking?'is-muted':'')}
             aria-label={pane.title}
@@ -163,7 +171,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
           </section>;
         })}
       </div>
-      {notePicker&&<div className={'notes-category-files-layer '+(peekDepth===null?'is-front':'')}
+      {showFiles&&<div className={'notes-category-files-layer '+(peekDepth===null?'is-front':'')}
         style={filesOverlaid?{width:Math.max(54,Math.pow(.8,visible.length)*100)+'%'}:undefined}
         onPointerEnter={event=>{if(event.pointerType==='mouse')setPeekDepth(null);}}
         onFocusCapture={()=>{if(pointerType.current!=='touch'&&pointerType.current!=='pen')setPeekDepth(null);}}

@@ -458,3 +458,11 @@
 
 .notes-sidebar-backdrop{pointer-events:none}
 @media(max-width:760px){.notes-context .notes-menu-window{order:5;margin-left:auto;position:relative;z-index:27}}
+
+/* Start inside the sidebar, then borrow more width for each selected folder. */
+.notes-category-root-list{max-height:180px;overflow:auto;overscroll-behavior:contain;padding:3px 0;scrollbar-width:thin}
+.notes-app .notes-category-root-choice{display:flex;width:100%;align-items:flex-start;gap:7px;min-height:34px;padding:7px 8px;text-align:left;color:#69583d;font-size:12px}
+.notes-category-root-choice>span{flex:1;min-width:0;overflow-wrap:anywhere}.notes-category-root-choice>svg{flex-shrink:0;color:#a17c42;fill:#e9d5ae}.notes-category-root-choice>small{color:#94856e;font-size:10px}.notes-category-root-choice:hover{background:#ece2cf}
+.notes-category-cascade.is-collapsed .notes-category-breadcrumb{margin:0 0 5px;padding:0;min-width:0;background:transparent}.notes-category-cascade.is-collapsed .notes-category-breadcrumb button{font-size:10px;min-height:24px;padding:2px 4px}
+.notes-inline-folder{display:flex;flex:1;min-height:0;min-width:0;overflow:hidden;margin-top:3px}.notes-inline-files{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0}.notes-inline-files>.notes-list{flex:1;min-height:0;padding:0 8px 8px}.notes-inline-files .notes-list-item strong{white-space:normal;overflow-wrap:anywhere}
+.notes-app .notes-inline-parent{display:flex;flex-direction:column;justify-content:flex-start;align-items:center;gap:7px;width:24px;flex-shrink:0;padding:8px 3px;border-right:1px solid #d8cbb4;border-radius:0;background:#eae2d3;color:#796344;font-size:11px}.notes-inline-parent>span{writing-mode:vertical-rl;max-height:180px;overflow:hidden;text-overflow:ellipsis}.notes-inline-parent:hover{background:#dfd0b6}

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build && node scripts/build-offline-manifest.mjs",
-    "test": "node --test tests/jex.test.mjs tests/category-sync.test.mjs",
+    "test": "node --test tests/jex.test.mjs tests/category-sync.test.mjs tests/note-body-migration.test.mjs",
     "test:browser": "node tests/notes-browser.cjs",
     "test:offline": "node tests/note-offline.cjs"
   },
