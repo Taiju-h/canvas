@@ -30,7 +30,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  let browser,page;
  try{
   browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||undefined,args:['--no-sandbox','--disable-dev-shm-usage']});
-  const context=await browser.newContext({viewport:{width:1400,height:1000},hasTouch:true});page=await context.newPage();page.setDefaultTimeout(12000);
+  const context=await browser.newContext({viewport:{width:1400,height:1000},isMobile:true,hasTouch:true});page=await context.newPage();page.setDefaultTimeout(12000);
   const errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await page.goto('http://127.0.0.1:5191/canvas/');await page.getByLabel('固定ノート本文').waitFor();
   await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='タブレット操作検証');
