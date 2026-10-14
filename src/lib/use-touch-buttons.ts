@@ -1,9 +1,10 @@
 import {useEffect,useRef,type MouseEvent,type PointerEvent} from 'react';
 
-type Tap={id:number;button:HTMLButtonElement;x:number;y:number;started:number;moved:boolean;handled:boolean;fallback:boolean;ended?:number;timer?:ReturnType<typeof setTimeout>};
+type Tap={id:number;button:HTMLButtonElement;scope:string;x:number;y:number;started:number;moved:boolean;handled:boolean;fallback:boolean;ended?:number;timer?:ReturnType<typeof setTimeout>};
 /** Recover a missing touch compatibility click without activating a drag twice. */
-export function useTouchButtons(){
+export function useTouchButtons(scope:string){
   const tap=useRef<Tap|null>(null);
+  const currentScope=useRef(scope);currentScope.current=scope;
   const clear=()=>{if(tap.current?.timer)clearTimeout(tap.current.timer);tap.current=null;};
   useEffect(()=>clear,[]);
   const buttonAt=(target:EventTarget|null)=>target instanceof Element?target.closest<HTMLButtonElement>('button'):null;
@@ -14,7 +15,7 @@ export function useTouchButtons(){
       if(e.pointerType!=='touch'||!e.isPrimary||e.button!==0)return;
       const button=buttonAt(e.target);
       if(!button||button.disabled||button.closest('.notes-plane,.notes-focus-float')||button.closest('[inert]'))return;
-      tap.current={id:e.pointerId,button,x:e.clientX,y:e.clientY,started:Date.now(),moved:false,handled:false,fallback:false};
+      tap.current={id:e.pointerId,button,scope:currentScope.current,x:e.clientX,y:e.clientY,started:Date.now(),moved:false,handled:false,fallback:false};
     },
     onPointerMoveCapture(e:PointerEvent<HTMLElement>){const t=tap.current;if(t?.id===e.pointerId&&Math.hypot(e.clientX-t.x,e.clientY-t.y)>8)t.moved=true;},
     onPointerCancelCapture(e:PointerEvent<HTMLElement>){if(tap.current?.id===e.pointerId)clear();},
@@ -23,13 +24,13 @@ export function useTouchButtons(){
       if(t.moved||Date.now()-t.started>650||buttonAt(e.target)!==t.button){clear();return;}
       t.ended=Date.now();
       t.timer=setTimeout(()=>{
-        if(tap.current!==t||t.handled||!t.button.isConnected||t.button.disabled||t.button.closest('[inert]'))return;
+        if(tap.current!==t||t.handled||t.scope!==currentScope.current||!t.button.isConnected||t.button.disabled||t.button.closest('[inert]'))return;
         t.fallback=true;t.button.click();
       },80);
     },
     onClickCapture(e:MouseEvent<HTMLElement>){
       const t=tap.current;if(!t||buttonAt(e.target)!==t.button)return;
-      if(t.fallback&&e.nativeEvent.isTrusted&&e.detail>0&&Date.now()-(t.ended||0)<900){e.preventDefault();e.stopPropagation();return;}
+      if((t.fallback||t.scope!==currentScope.current)&&e.nativeEvent.isTrusted&&e.detail>0&&Date.now()-(t.ended||0)<900){e.preventDefault();e.stopPropagation();return;}
       t.handled=true;if(t.timer)clearTimeout(t.timer);
     },
   };

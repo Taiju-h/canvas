@@ -195,8 +195,8 @@ function preference(key:string,fallback:string){try{return localStorage.getItem(
 function savePreference(key:string,value:string){try{localStorage.setItem(key,value);}catch{/* Preferences do not gate editing. */}}
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId,sharedAccess}:{accountId:string;sharedAccess?:SharedAccess}){
-  const touchButtons=useTouchButtons();
   const notes=useNotes(accountId,sharedAccess);const {record}=notes;
+  const touchButtons=useTouchButtons(accountId+':'+(record?.id||'')+':'+notes.busy);
   useEffect(()=>{
     let composing=false;
     const start=()=>{composing=true;},end=()=>{composing=false;};
