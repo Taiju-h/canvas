@@ -24,6 +24,7 @@ import {materializeSheetReferences,referenceSourceFromNote,referencedAliases} fr
 import {listLocalRevisions,saveLocalRevision,type LocalRevision} from '@/lib/local-docs';
 import {readNoteAsset} from '@/lib/note-files';
 import {saveBlob,formatFileSize} from '@/lib/file-download';
+import {eraseInk} from '@/lib/ink-eraser';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
   const [url,setURL]=useState('');
@@ -188,7 +189,7 @@ function editableVertexIndices(g:Graphic,limit=24):number[]{
   const indices=[0];for(let i=1;i<limit-1;i++)indices.push(Math.round(i*(points.length-1)/(limit-1)));
   indices.push(points.length-1);return [...new Set(indices)];
 }
-type Action={pointerId:number;verticalOnly?:boolean;moved?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove'|'segmentMove';id?:string;start:Point;original:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
+type Action={pointerId:number;verticalOnly?:boolean;moved?:boolean;handle?:string;kind:'move'|'resize'|'ink'|'erase'|'pan'|'shape'|'shapeResize'|'shapeRotate'|'vertexMove'|'segmentMove';id?:string;start:Point;original:NoteDoc;next?:NoteDoc;points?:Point[];scroll?:{left:number;top:number};pen?:boolean;blockId?:string;shapeKind?:'line'|'rect'|'ellipse'};
 function preference(key:string,fallback:string){try{return localStorage.getItem(key)||fallback;}catch{return fallback;}}
 function savePreference(key:string,value:string){try{localStorage.setItem(key,value);}catch{/* Preferences do not gate editing. */}}
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
@@ -404,7 +405,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function fadeColorPanel(){wakeColorPanel();colorFadeTimer.current=window.setTimeout(()=>setColorFading(true),550);colorCloseTimer.current=window.setTimeout(()=>{setColorOpen(false);setColorFading(false);},1050);}
   function setDrawingColor(value:string){setInkColor(value);fadeColorPanel();}
   function position(e:ReactPointerEvent):Point{const r=plane.current!.getBoundingClientRect();const pressure=inkPressure&&e.pointerType==='pen'?(e.pressure>0?e.pressure:.5):1;return{x:Math.max(0,(e.clientX-r.left)/scale),y:Math.max(0,(e.clientY-r.top)/scale),p:pressure};}
-  function coalescedPositions(e:ReactPointerEvent):Point[]{const r=plane.current!.getBoundingClientRect();const native=e.nativeEvent;const events=typeof native.getCoalescedEvents==='function'?native.getCoalescedEvents():[native];return events.map(value=>({x:Math.max(0,(value.clientX-r.left)/scale),y:Math.max(0,(value.clientY-r.top)/scale),p:inkPressure&&e.pointerType==='pen'?(value.pressure>0?value.pressure:.5):1}));}
+  function coalescedPositions(e:ReactPointerEvent):Point[]{const r=plane.current!.getBoundingClientRect();const native=e.nativeEvent;const batch=typeof native.getCoalescedEvents==='function'?native.getCoalescedEvents():[];const events=batch.length?batch:[native];return events.map(value=>({x:Math.max(0,(value.clientX-r.left)/scale),y:Math.max(0,(value.clientY-r.top)/scale),p:inkPressure&&e.pointerType==='pen'?(value.pressure>0?value.pressure:.5):1}));}
   function addBlock(html='',background?:string){
     const doc=current.current?.content as StudioNoteDoc|undefined;if(!doc)return;
     const x=80+(scroll.current?.scrollLeft||0)/scale,y=80+(scroll.current?.scrollTop||0)/scale;
@@ -617,6 +618,12 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   }
   function drag(e:ReactPointerEvent,id:string,resize=false){e.preventDefault();e.stopPropagation();if(!doc||action.current||(!e.isPrimary&&e.pointerType==='touch'))return;setSelected(id);setFocus('');typing.current=null;
     action.current={pointerId:e.pointerId,kind:resize?'resize':'move',id,start:position(e),original:doc};plane.current?.setPointerCapture(e.pointerId);}
+  function eraseAlong(a:Action,to:Point){
+    const next=eraseInk(a.next||a.original,a.start,to,12/scale);
+    a.start=to;
+    if(next===(a.next||a.original))return;
+    a.next=next;a.moved=true;notes.change(next);
+  }
   function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
     if(e.button===2)return;
     if(action.current||(!e.isPrimary&&e.pointerType==='touch')){e.preventDefault();return;}
@@ -648,8 +655,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       action.current={pointerId:e.pointerId,kind:'ink',start:position(e),original:doc,points:[position(e)],pen,blockId:target.closest('[data-note-block]')?.getAttribute('data-note-block')||undefined};e.currentTarget.setPointerCapture(e.pointerId);setDraft([position(e)]);return;
     }
     if(effective==='eraser'){
-      e.preventDefault();e.stopPropagation();const id=target.closest('[data-stroke]')?.getAttribute('data-stroke');
-      if(id){const d=doc as StudioNoteDoc;commit({...d,items:d.items.filter(i=>i.id!==id),paintStrokes:d.paintStrokes?.filter(stroke=>stroke.id!==id),charts:(d.charts||[]).filter(c=>c.id!==id)} as NoteDoc);}return;
+      e.preventDefault();e.stopPropagation();(document.activeElement as HTMLElement)?.blur();setFocus('');typing.current=null;
+      const p=position(e);const a:Action={pointerId:e.pointerId,kind:'erase',start:p,original:doc,pen};action.current=a;
+      e.currentTarget.setPointerCapture(e.pointerId);eraseAlong(a,p);return;
     }
     if(effective==='hand'||e.button===1){e.preventDefault();e.stopPropagation();action.current={pointerId:e.pointerId,kind:'pan',start:{x:e.clientX,y:e.clientY},original:doc,scroll:{left:scroll.current!.scrollLeft,top:scroll.current!.scrollTop}};e.currentTarget.setPointerCapture(e.pointerId);return;}
     if(effective==='select'||effective==='vertex'||effective==='magic'){
@@ -703,6 +711,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     }
     if(a.pointerId!==e.pointerId)return;e.preventDefault();
     if(a.pen)lastPen.current=Date.now();
+    if(a.kind==='erase'){for(const p of coalescedPositions(e))eraseAlong(a,p);return;}
     if(a.kind==='pan'){const dx=e.clientX-a.start.x,dy=e.clientY-a.start.y;if(Math.hypot(dx,dy)<6)return;suppressClick.current=true;scroll.current!.scrollTo(a.scroll!.left-(a.verticalOnly?0:dx),a.scroll!.top-dy);return;}
     const p=a.kind==='ink'||a.kind==='shapeRotate'?position(e):snapCanvas(position(e));if(a.kind==='ink'){for(const point of coalescedPositions(e)){const last=a.points!.at(-1)!;if(Math.hypot(point.x-last.x,point.y-last.y)>.35){a.points!.push(point);}}setDraft([...a.points!]);return;}
     if(a.kind==='shape'){const point=snapCanvas(p);setDraftShape(old=>old?{...old,w:point.x-a.start.x,h:point.y-a.start.y}:old);return;}
@@ -747,6 +756,11 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   }
   function up(e:ReactPointerEvent<HTMLDivElement>,cancel=false){const a=action.current;if(!a||a.pointerId!==e.pointerId)return;action.current=null;
     if(plane.current?.hasPointerCapture(e.pointerId))plane.current.releasePointerCapture(e.pointerId);
+    if(a.kind==='erase'){
+      if(!cancel)eraseAlong(a,position(e));
+      if(a.moved){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];}redraw(v=>v+1);}
+      if(a.pen)lastPen.current=Date.now();return;
+    }
     if(a.kind==='ink'){
       if(!cancel){const points=a.points!;if(points.length===1)points.push({...points[0],x:points[0].x+.2});
         const layer=writableLayer(a.original,'canvas');if(!layer){notes.setError('キャンバスレイヤーを選んでください');setDraft([]);return;}
@@ -1313,7 +1327,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
 
             </div>
           </>:<>
-            <div className="notes-tool-group"><button onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
+            <div className="notes-tool-group"><button title="元に戻す" onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button title="やり直す" onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
             {workspaceMode==='canvas'&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><button onClick={()=>{activateFamily('layout');chooseTool('select');}}>選択</button><button onClick={()=>chooseTool('pen')}>ペン</button><button onClick={()=>chooseTool('eraser')}>消しゴム</button><button onClick={()=>{activateFamily('layout');chooseTool('text');}}>文字</button><button onClick={()=>{activateFamily('layout');chooseTool('rect');}}>図形</button><button onClick={()=>imageInput.current?.click()}>画像配置</button></div>}
             {(workspaceMode==='layout')&&<div className="notes-tool-group"><button onClick={()=>addBlock()}><Type size={18}/>テキストボックス</button><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
             {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<>
