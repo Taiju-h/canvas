@@ -37,7 +37,8 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.locator('.notes-studio-tools').getByRole('button',{name:'キャンバス',exact:true}).tap();
   await page.getByRole('button',{name:'消しゴム',exact:true}).tap();
   const cdp=await context.newCDPSession(page);
-  const tapControl=async locator=>{await locator.waitFor({state:'visible'});const box=await locator.boundingBox();await cdp.send('Input.synthesizeTapGesture',{x:box.x+box.width/2,y:box.y+box.height/2,gestureSourceType:'touch',duration:50});};
+  let tapToken=0;
+  const tapControl=async locator=>{await locator.waitFor({state:'visible'});const token=++tapToken;await locator.evaluate((el,token)=>el.addEventListener('click',()=>{window.tabletTapDone=token;},{once:true}),token);const box=await locator.boundingBox();await cdp.send('Input.synthesizeTapGesture',{x:box.x+box.width/2,y:box.y+box.height/2,gestureSourceType:'touch',duration:50});await page.waitForFunction(token=>window.tabletTapDone===token,token);};
   const screen=async(x,y)=>{const box=await page.locator('.notes-plane').boundingBox(),scale=Number(await page.getByLabel('ズーム倍率',{exact:true}).inputValue())/100;return{x:box.x+x*scale,y:box.y+y*scale};};
   const sweep=async(points,cancel=false)=>{
    for(let i=0;i<points.length;i++){const p=await screen(...points[i]);await cdp.send('Input.dispatchTouchEvent',{type:i?'touchMove':'touchStart',touchPoints:[{...p,id:0,radiusX:8,radiusY:8,force:1}]});}
@@ -65,6 +66,10 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(await page.locator('.notes-ink [data-stroke]').count(),countBeforeDrawing+1,'pen input still draws');
   await tapControl(page.getByRole('button',{name:'消しゴム',exact:true}));
   const countBefore=await page.locator('.notes-ink [data-stroke]').count();
+  await sweep([[300,150],[300,270]]);
+  assert.ok(await page.locator('.notes-ink [data-stroke]').count()<countBefore,'explicit eraser selection allows a finger immediately after pen input');
+  await tapControl(page.getByTitle('元に戻す',{exact:true}));
+  await page.waitForFunction(n=>document.querySelectorAll('.notes-ink [data-stroke]').length===n,countBefore);
   await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',...penFrom,button:'left',buttons:1,clickCount:1,pointerType:'pen'});
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...penTo,buttons:1,pointerType:'pen'});
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',...penTo,button:'left',buttons:0,clickCount:1,pointerType:'pen'});

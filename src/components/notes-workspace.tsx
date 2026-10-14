@@ -395,7 +395,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(next==='note'){setWorkspaceMode('note');setTool(next);return;}
     if(next==='text'){activateFamily('layout');setTool(next);return;}
     if(next==='sheet'){useSheetLayer();return;}
-    if(next==='pen'||next==='eraser'){activateFamily('canvas');setTool(next);setFocus('');return;}
+    if(next==='pen'||next==='eraser'){lastPen.current=0;activateFamily('canvas');setTool(next);setFocus('');return;}
     if(next==='select'||next==='vertex'||next==='magic'||next==='line'||next==='rect'||next==='ellipse'){activateFamily('layout');setTool(next);setFocus('');return;}
     setTool(next);setFocus('');
   }
