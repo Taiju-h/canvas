@@ -37,6 +37,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.locator('.notes-studio-tools').getByRole('button',{name:'キャンバス',exact:true}).tap();
   await page.getByRole('button',{name:'消しゴム',exact:true}).tap();
   const cdp=await context.newCDPSession(page);
+  const tapControl=async locator=>{await locator.waitFor({state:'visible'});const box=await locator.boundingBox();await cdp.send('Input.synthesizeTapGesture',{x:box.x+box.width/2,y:box.y+box.height/2,gestureSourceType:'touch',duration:50});};
   const screen=async(x,y)=>{const box=await page.locator('.notes-plane').boundingBox(),scale=Number(await page.getByLabel('ズーム倍率',{exact:true}).inputValue())/100;return{x:box.x+x*scale,y:box.y+y*scale};};
   const sweep=async(points,cancel=false)=>{
    for(let i=0;i<points.length;i++){const p=await screen(...points[i]);await cdp.send('Input.dispatchTouchEvent',{type:i?'touchMove':'touchStart',touchPoints:[{...p,id:0,radiusX:8,radiusY:8,force:1}]});}
@@ -48,21 +49,21 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await sweep([[300,140],[300,270]]);
   assert.equal(await present('ink-a'),0,'a finger starting off the line erases the first crossed stroke');
   assert.equal(await present('ink-b'),0,'the same captured gesture erases the second crossed stroke');
-  await page.getByTitle('元に戻す',{exact:true}).tap();await page.locator('[data-stroke="ink-a"]').waitFor({state:'attached'});assert.equal(await present('ink-a'),1);assert.equal(await present('ink-b'),1,'one undo restores the whole gesture');
+  await tapControl(page.getByTitle('元に戻す',{exact:true}));await page.locator('[data-stroke="ink-a"]').waitFor({state:'attached'});assert.equal(await present('ink-a'),1);assert.equal(await present('ink-b'),1,'one undo restores the whole gesture');
   await sweep([[300,140],[300,270]],true);await page.locator('[data-stroke="ink-a"]').waitFor({state:'attached'});assert.equal(await present('ink-a'),1);assert.equal(await present('ink-b'),1,'pointer cancellation restores the document');
   await sweep([[300,285],[300,355]]);assert.equal(await present('locked-ink'),1,'locked strokes are protected');
   await page.getByLabel('ズーム倍率',{exact:true}).selectOption('50');
   await sweep([[300,360],[300,480]]);assert.equal(await present('legacy-path'),0);assert.equal(await present('legacy-line'),0,'legacy lines erase at the displayed zoom');
   await sweep([[620,190],[730,190]]);assert.equal(await present('rotated-ink'),0,'rotated ink uses its displayed coordinates');
   const countBeforeDrawing=await page.locator('.notes-ink [data-stroke]').count();
-  await page.getByRole('button',{name:'ペン',exact:true}).first().tap();
+  await tapControl(page.getByRole('button',{name:'ペン',exact:true}).first());
   const penFrom=await screen(300,150),penTo=await screen(300,270);
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...penFrom,pointerType:'pen'});
   await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',...penFrom,button:'left',buttons:1,clickCount:1,pointerType:'pen'});
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...penTo,buttons:1,pointerType:'pen'});
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseReleased',...penTo,button:'left',buttons:0,clickCount:1,pointerType:'pen'});
   assert.equal(await page.locator('.notes-ink [data-stroke]').count(),countBeforeDrawing+1,'pen input still draws');
-  await page.getByRole('button',{name:'消しゴム',exact:true}).tap();
+  await tapControl(page.getByRole('button',{name:'消しゴム',exact:true}));
   const countBefore=await page.locator('.notes-ink [data-stroke]').count();
   await cdp.send('Input.dispatchMouseEvent',{type:'mousePressed',...penFrom,button:'left',buttons:1,clickCount:1,pointerType:'pen'});
   await cdp.send('Input.dispatchMouseEvent',{type:'mouseMoved',...penTo,buttons:1,pointerType:'pen'});
@@ -73,7 +74,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   }
   const ui=await page.getByRole('button',{name:'消しゴム',exact:true}).boundingBox();
   await page.mouse.dblclick(ui.x+ui.width/2,ui.y+ui.height/2);assert.equal(await page.evaluate(()=>getSelection().toString()),'','double-clicking menu text does not select it');
-  await page.locator('.notes-studio-tools').getByRole('button',{name:'ノート',exact:true}).tap();
+  await tapControl(page.locator('.notes-studio-tools').getByRole('button',{name:'ノート',exact:true}));
   const body=page.getByLabel('固定ノート本文');assert.equal(await body.evaluate(el=>getComputedStyle(el).userSelect),'text','Note body remains selectable');
   await body.click();await page.keyboard.press('Control+a');assert.ok((await page.evaluate(()=>getSelection().toString())).includes('大事な日本語'),'body text can be selected for editing');
   await page.getByLabel('メモのタイトル',{exact:true}).fill('名前を編集できる');await body.click();
