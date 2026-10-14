@@ -44,7 +44,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   };
   const present=async(id)=>await page.locator('.notes-ink [data-stroke="'+id+'"]').count();
   assert.equal(await present('ink-a'),1,'the first fixture stroke is present before erasing');assert.equal(await present('ink-b'),1,'the second fixture stroke is present before erasing');
-  await page.evaluate(()=>{window.tabletEvents=[];document.addEventListener('pointerup',e=>window.tabletEvents.push(['up',e.pointerId,e.pointerType,e.target?.tagName]));document.querySelector('[title="元に戻す"]').addEventListener('click',()=>window.tabletEvents.push(['undo-click']));});
+  await page.evaluate(()=>{window.tabletEvents=[];window.__knInkTestTrace=[];document.addEventListener('pointerup',e=>window.tabletEvents.push(['up',e.pointerId,e.pointerType,e.target?.tagName]));document.addEventListener('click',e=>window.tabletEvents.push(['click',e.target?.closest('button')?.title,e.target?.closest('button')?.textContent]));});
   await sweep([[300,140],[300,270]]);
   assert.equal(await present('ink-a'),0,'a finger starting off the line erases the first crossed stroke');
   assert.equal(await present('ink-b'),0,'the same captured gesture erases the second crossed stroke');
@@ -84,5 +84,5 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.deepEqual(record.content,saved,'reloading preserves erased ink and unrelated content');
   assert.deepEqual(errors,[]);await page.screenshot({path:'/tmp/kaeru-tablet-ink.png'});
   console.log('Tablet touch / pen eraser, zoom, undo, cancellation, protected layers, UI selection and body preservation passed');
- }catch(e){if(page){await page.screenshot({path:'/tmp/kaeru-tablet-ink-failure.png'});console.error('Tablet state',await page.locator('.notes-plane').getAttribute('class'),await page.locator('.notes-ink [data-stroke]').evaluateAll(nodes=>nodes.map(n=>n.dataset.stroke)),await page.locator('.notes-warning').allTextContents(),await page.evaluate(()=>window.tabletEvents),record.content.paintStrokes.map(s=>s.id));}throw e;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
+ }catch(e){if(page){await page.screenshot({path:'/tmp/kaeru-tablet-ink-failure.png'});console.error('Tablet state',await page.locator('.notes-plane').getAttribute('class'),await page.locator('.notes-ink [data-stroke]').evaluateAll(nodes=>nodes.map(n=>n.dataset.stroke)),await page.locator('.notes-warning').allTextContents(),await page.evaluate(()=>[window.tabletEvents,window.__knInkTestTrace]),record.content.paintStrokes.map(s=>s.id));}throw e;}finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(e=>{console.error(e);process.exit(1);});
