@@ -45,7 +45,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   };
   const present=async(id)=>await page.locator('.notes-ink [data-stroke="'+id+'"]').count();
   assert.equal(await present('ink-a'),1,'the first fixture stroke is present before erasing');assert.equal(await present('ink-b'),1,'the second fixture stroke is present before erasing');
-  await page.evaluate(()=>{window.tabletEvents=[];document.addEventListener('pointerup',e=>window.tabletEvents.push(['up',e.pointerId,e.pointerType,e.target?.tagName]));document.addEventListener('click',e=>window.tabletEvents.push(['click',e.target?.closest('button')?.title,e.target?.closest('button')?.textContent]));});
+  await page.evaluate(()=>{window.tabletEvents=[];document.addEventListener('pointerdown',e=>window.tabletEvents.push(['down',e.pointerId,e.pointerType,e.button,e.isPrimary,e.defaultPrevented,e.target?.closest('button')?.disabled]));document.addEventListener('pointerup',e=>window.tabletEvents.push(['up',e.pointerId,e.pointerType,e.target?.tagName]));document.addEventListener('click',e=>window.tabletEvents.push(['click',e.target?.closest('button')?.title,e.target?.closest('button')?.textContent]));});
   await sweep([[300,140],[300,270]]);
   assert.equal(await present('ink-a'),0,'a finger starting off the line erases the first crossed stroke');
   assert.equal(await present('ink-b'),0,'the same captured gesture erases the second crossed stroke');
