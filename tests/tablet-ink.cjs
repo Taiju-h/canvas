@@ -19,7 +19,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
    if(api==='/api/session')return json(res,{authenticated:true,accountId:'tablet-fixture',csrfToken:'fixture'});
    if(api==='/api/note-workspace')return json(res,{categories:['仕事'],revision:1});
    if(api==='/api/notes-index')return json(res,{documents:[{id,title:record.title,revision:record.revision,updated_at:record.updated_at,note:record.content.note,excerpt:'本文',searchText:'本文'}],hasMore:false,nextOffset:1});
-   if(api===`/api/documents/${id}`){if(req.method==='PUT'){record={...record,content:payload.content,title:payload.title,revision:record.revision+1,updated_at:Date.now()};return json(res,{revision:record.revision,updated_at:record.updated_at});}return json(res,record);}
+   if(api===`/api/documents/${id}`){if(req.method==='PUT'){record={...record,content:payload.content,title:payload.title,revision:record.revision+1,updated_at:Date.now()};return json(res,{id,revision:record.revision,updated_at:record.updated_at});}return json(res,record);}
    if(api===`/api/documents/${id}/images/${'f'.repeat(32)}`){res.writeHead(200,{'Content-Type':'image/png'});return res.end(png);}
    return json(res,{error:api},404);
   }
@@ -33,6 +33,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const context=await browser.newContext({viewport:{width:1400,height:1000},hasTouch:true});page=await context.newPage();page.setDefaultTimeout(12000);
   const errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await page.goto('http://127.0.0.1:5191/canvas/');await page.getByLabel('固定ノート本文').waitFor();
+  await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='タブレット操作検証');
   await page.locator('.notes-studio-tools').getByRole('button',{name:'キャンバス',exact:true}).tap();
   await page.getByRole('button',{name:'消しゴム',exact:true}).tap();
   const cdp=await context.newCDPSession(page);
