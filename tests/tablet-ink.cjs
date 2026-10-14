@@ -45,8 +45,8 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await sweep([[300,140],[300,270]]);
   assert.equal(await present('ink-a'),0,'a finger starting off the line erases the first crossed stroke');
   assert.equal(await present('ink-b'),0,'the same captured gesture erases the second crossed stroke');
-  await page.getByTitle('元に戻す',{exact:true}).tap();await page.locator('[data-stroke="ink-a"]').waitFor();assert.equal(await present('ink-a'),1);assert.equal(await present('ink-b'),1,'one undo restores the whole gesture');
-  await sweep([[300,140],[300,270]],true);await page.locator('[data-stroke="ink-a"]').waitFor();assert.equal(await present('ink-a'),1);assert.equal(await present('ink-b'),1,'pointer cancellation restores the document');
+  await page.getByTitle('元に戻す',{exact:true}).tap();await page.locator('[data-stroke="ink-a"]').waitFor({state:'attached'});assert.equal(await present('ink-a'),1);assert.equal(await present('ink-b'),1,'one undo restores the whole gesture');
+  await sweep([[300,140],[300,270]],true);await page.locator('[data-stroke="ink-a"]').waitFor({state:'attached'});assert.equal(await present('ink-a'),1);assert.equal(await present('ink-b'),1,'pointer cancellation restores the document');
   await sweep([[300,285],[300,355]]);assert.equal(await present('locked-ink'),1,'locked strokes are protected');
   await page.getByLabel('ズーム倍率',{exact:true}).selectOption('50');
   await sweep([[300,360],[300,480]]);assert.equal(await present('legacy-path'),0);assert.equal(await present('legacy-line'),0,'legacy lines erase at the displayed zoom');
