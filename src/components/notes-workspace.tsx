@@ -336,7 +336,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function updateBlock(id:string,html:string,height:number){const d=current.current?.content;if(!d)return;const b=d.blocks?.find(b=>b.id===id);if(!b||b.html===html)return;
     const newGroup=!typing.current||typing.current.id!==id||Date.now()-typing.current.at>1200;
     typing.current={id,at:Date.now()};commit({...d,blocks:d.blocks?.map(b=>b.id===id?{...b,html,h:height}:b)},newGroup);}
-  function undo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const previous=undoStack.current.pop();(window as any).__knInkTestTrace?.push(['undo',undoStack.current.length,d?.paintStrokes?.map(s=>s.id),previous?.paintStrokes?.map(s=>s.id)]);if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
+  function undo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const previous=undoStack.current.pop();if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
   function redo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const next=redoStack.current.pop();if(!d||!next)return;undoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(next);redraw(v=>v+1);}
   function toggleSidebar(){if(sharedAccess)return;setWorkspaceMenu(null);setCategoryBrowserOpen(false);if(focusMode){setFocusMode(false);setLayersOpen(focusRestore.current.layersOpen);setDrawer('');}setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
   useEffect(()=>{
@@ -757,7 +757,6 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function up(e:ReactPointerEvent<HTMLDivElement>,cancel=false){const a=action.current;if(!a||a.pointerId!==e.pointerId)return;action.current=null;
     if(plane.current?.hasPointerCapture(e.pointerId))plane.current.releasePointerCapture(e.pointerId);
     if(a.kind==='erase'){
-      (window as any).__knInkTestTrace?.push(['erase-up',cancel,a.moved,a.original.paintStrokes?.map(s=>s.id),a.next?.paintStrokes?.map(s=>s.id)]);
       if(!cancel)eraseAlong(a,position(e));
       if(a.moved){if(cancel)notes.change(a.original);else{undoStack.current=[...undoStack.current.slice(-39),a.original];redoStack.current=[];}redraw(v=>v+1);}
       if(a.pen)lastPen.current=Date.now();return;
