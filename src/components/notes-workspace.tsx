@@ -25,6 +25,7 @@ import {listLocalRevisions,saveLocalRevision,type LocalRevision} from '@/lib/loc
 import {readNoteAsset} from '@/lib/note-files';
 import {saveBlob,formatFileSize} from '@/lib/file-download';
 import {eraseInk} from '@/lib/ink-eraser';
+import {useTouchButtons} from '@/lib/use-touch-buttons';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
   const [url,setURL]=useState('');
@@ -194,6 +195,7 @@ function preference(key:string,fallback:string){try{return localStorage.getItem(
 function savePreference(key:string,value:string){try{localStorage.setItem(key,value);}catch{/* Preferences do not gate editing. */}}
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId,sharedAccess}:{accountId:string;sharedAccess?:SharedAccess}){
+  const touchButtons=useTouchButtons();
   const notes=useNotes(accountId,sharedAccess);const {record}=notes;
   useEffect(()=>{
     let composing=false;
@@ -1242,7 +1244,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     </g>;
   }
   return <main className={`notes-app ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''} ${organizerOpen?'is-organizing-pages':''}`}
-    onPointerDownCapture={event=>{if(event.button===2){event.preventDefault();event.stopPropagation();}}}
+    onPointerDownCapture={event=>{touchButtons.onPointerDownCapture(event);if(event.button===2){event.preventDefault();event.stopPropagation();}}}
+    onPointerMoveCapture={touchButtons.onPointerMoveCapture} onPointerUpCapture={touchButtons.onPointerUpCapture} onPointerCancelCapture={touchButtons.onPointerCancelCapture} onClickCapture={touchButtons.onClickCapture}
     onContextMenu={event=>{if(organizerOpen)return;event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
     {workspaceMenu&&<WorkspaceContextMenu point={workspaceMenu} items={workspaceMenuItems()} onClose={()=>setWorkspaceMenu(null)}/>}
     <header className="notes-header notes-header-compact">
