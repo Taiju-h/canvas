@@ -8,6 +8,7 @@ export function useTouchButtons(){
   useEffect(()=>clear,[]);
   const buttonAt=(target:EventTarget|null)=>target instanceof Element?target.closest<HTMLButtonElement>('button'):null;
   return {
+    onContextMenuCapture(){clear();},
     onPointerDownCapture(e:PointerEvent<HTMLElement>){
       clear();
       if(e.pointerType!=='touch'||!e.isPrimary||e.button!==0)return;
