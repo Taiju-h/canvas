@@ -7,8 +7,8 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
  let record={id,title:'タブレット操作検証',revision:1,updated_at:1,content:{version:1,grid:'none',snap:false,
   layers:[{id:'drawing',name:'手書き',visible:true,locked:false},{id:'locked',name:'保護',visible:true,locked:true},{id:'hidden',name:'非表示',visible:false,locked:false},{id:'layout',name:'配置',studioKind:'layout',visible:true,locked:false}],
   paintStrokes:[ink('ink-a',180),ink('ink-b',240),ink('locked-ink',300,'locked'),ink('hidden-ink',340,'hidden'),{...ink('rotated-ink',190),points:[{x:600,y:190},{x:750,y:190}],rotation:90}],
-  items:[{id:'legacy-path',kind:'path',layerId:'drawing',x:180,y:400,w:340,h:0,points:[{x:180,y:400},{x:520,y:400}],width:3,color:'#333333'},
-   {id:'legacy-line',kind:'line',layerId:'drawing',x:180,y:450,w:340,h:0,width:3,color:'#333333'},
+  items:[{id:'legacy-path',kind:'path',layerId:'drawing',keepLayer:true,x:180,y:400,w:340,h:0,points:[{x:180,y:400},{x:520,y:400}],width:3,color:'#333333'},
+   {id:'legacy-line',kind:'line',layerId:'drawing',keepLayer:true,x:180,y:450,w:340,h:0,width:3,color:'#333333'},
    {id:'original-image',kind:'image',layerId:'layout',imageId:'f'.repeat(32),x:180,y:120,w:340,h:340,width:0,color:'#333333'}],
   blocks:[],fixedNote:{html:'<p>大事な日本語の本文</p><img alt="注釈用の画像" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC" style="width:340px;height:200px">',visible:true,locked:false},attachments:[],note:{category:'仕事',tags:['保持']},studioOrder:['canvas','note','layout','graph']}};
  const original=structuredClone(record.content),json=(res,data,status=200)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
@@ -36,6 +36,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='タブレット操作検証');
   await page.locator('.notes-studio-tools').getByRole('button',{name:'キャンバス',exact:true}).tap();
   await page.getByRole('button',{name:'消しゴム',exact:true}).tap();
+  await page.locator('.notes-basic-ribbon').getByLabel('消しゴムの種類',{exact:true}).selectOption('stroke'); // The explicit whole-stroke option retains the original behavior.
   const cdp=await context.newCDPSession(page);
   let tapToken=0;
   const tapControl=async locator=>{await locator.waitFor({state:'visible'});const token=++tapToken;await locator.evaluate((el,token)=>el.addEventListener('click',()=>{window.tabletTapDone=token;},{once:true}),token);const box=await locator.boundingBox();await cdp.send('Input.synthesizeTapGesture',{x:box.x+box.width/2,y:box.y+box.height/2,gestureSourceType:'touch',duration:50});await page.waitForFunction(token=>window.tabletTapDone===token,token);};

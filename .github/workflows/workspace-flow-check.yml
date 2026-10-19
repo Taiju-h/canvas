@@ -26,6 +26,7 @@ jobs:
       - run: node tests/workspace-flow.cjs
       - run: node tests/tablet-ink.cjs
       - run: node tests/drawing-modes.cjs
+      - run: node tests/canvas-toolbox.cjs
       - run: node tests/organizer-flow.cjs
       - run: node tests/note-offline.cjs
       - uses: actions/upload-artifact@v4
@@ -38,4 +39,5 @@ jobs:
             /tmp/kaeru-offline*.png
             /tmp/kaeru-tablet-ink*.png
             /tmp/kaeru-drawing-*.png
+            /tmp/kaeru-canvas-toolbox-*.png
           if-no-files-found: ignore

@@ -12,12 +12,12 @@ function segmentDistance(a:Point,b:Point,c:Point,d:Point){
     if(t>=0&&t<=1&&s>=0&&s<=1)return 0;}
   return Math.min(pointDistance(a,c,d),pointDistance(b,c,d),pointDistance(c,a,b),pointDistance(d,a,b));
 }
-function touches(points:Point[],from:Point,to:Point,radius:number,closed=false){
+export function touches(points:Point[],from:Point,to:Point,radius:number,closed=false){
   if(points.length===1)return pointDistance(points[0],from,to)<=radius;
   for(let i=1;i<points.length;i++)if(segmentDistance(points[i-1],points[i],from,to)<=radius)return true;
   return closed&&points.length>1&&segmentDistance(points.at(-1)!,points[0],from,to)<=radius;
 }
-function itemPoints(item:Item):Point[]{
+export function itemPoints(item:Item):Point[]{
   if(item.kind==='path'||item.kind==='polygon')return item.points||[];
   if(item.kind==='line')return [{x:item.x,y:item.y},{x:item.x+item.w,y:item.y+item.h}];
   if(item.kind==='rect')return [{x:item.x,y:item.y},{x:item.x+item.w,y:item.y},{x:item.x+item.w,y:item.y+item.h},{x:item.x,y:item.y+item.h}];
@@ -25,7 +25,7 @@ function itemPoints(item:Item):Point[]{
   return [];
 }
 const strokeBounds=new WeakMap<object,{x:number;y:number}>();
-function unrotate(stroke:NonNullable<NoteDoc['paintStrokes']>[number],p:Point):Point{
+export function unrotate(stroke:NonNullable<NoteDoc['paintStrokes']>[number],p:Point):Point{
   if(!stroke.rotation||!stroke.points.length)return p;
   let center=strokeBounds.get(stroke);
   if(!center){let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;

@@ -1,3 +1,4 @@
+import type {InkMask} from './ink-masks';
 export type Point = { x: number; y: number; p?: number };
 export type Tool = "select" | "hand" | "pen" | "marker" | "line" | "rect" | "ellipse" | "box" | "text" | "eraser" | "delete";
 export type ItemKind = "path" | "line" | "rect" | "ellipse" | "box" | "text" | "image" | "polygon";
@@ -6,6 +7,7 @@ export type Item = {
   kind: ItemKind;
   layerId: string;
   keepLayer?:boolean;
+  inkMasks?:InkMask[];
   x: number;
   y: number;
   w: number;

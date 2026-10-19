@@ -1,6 +1,6 @@
 import type {Point} from './canvas';
 
-export type InkBrush='pen'|'gpen'|'marker'|'brush'|'airbrush';
+export type InkBrush='pen'|'pencil'|'gpen'|'marker'|'brush'|'airbrush';
 type Sample=Point&{t:number};
 
 export function pressureWidth(width:number,pressure?:number){
