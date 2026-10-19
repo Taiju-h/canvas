@@ -79,8 +79,6 @@
 
 
 .notes-sidebar-head-actions{display:flex;align-items:center;gap:6px}
-.notes-sidebar-close{width:36px;height:36px;padding:0;background:transparent!important;border:1px solid #ddd7cc!important;color:#736b60!important}
-.notes-sidebar-close:hover{background:#e9e5dc!important}
 
 
 /* Context-sensitive studio UI */
@@ -253,6 +251,8 @@
 .notes-header-compact>input:focus{background:#fff;border:1px solid #b7b2a7}
 .notes-header-actions{margin-left:auto;display:flex;align-items:center;gap:5px;min-width:0}
 .notes-header-compact .notes-header-icon{display:grid;place-items:center;min-width:31px;width:31px;min-height:31px;height:31px;padding:5px;flex-shrink:0;border-radius:6px}
+.notes-header-compact .notes-sidebar-toggle{color:#765b32;border:1px solid #d7c7a7;background:#faf7ef}
+.notes-header-compact .notes-sidebar-toggle[aria-expanded=true]{background:#f1e8d5}
 .notes-header-compact .notes-header-share{min-height:30px;padding:5px 10px;gap:5px;border:1px solid #b9ad91;background:#eee5d2;color:#624b22;font-size:11px;white-space:nowrap;font-weight:650}
 .notes-header-compact .notes-header-share:hover{background:#e3d4b7}
 .notes-header-compact .notes-save-status{font-size:10px;max-width:110px;overflow:hidden;text-overflow:ellipsis;color:#8b856e}
@@ -455,7 +455,6 @@
 .is-compact .notes-category-cascade-stage.multilevel{isolation:isolate;overflow:hidden}.is-compact .notes-category-files-layer{position:relative;inset:auto;width:100%;height:100%;box-shadow:none;z-index:auto}.is-compact .notes-folder-note-picker{border-left:0;border-top:1px solid #d8cbb4}.is-compact .notes-folder-note-picker>header{padding:8px 12px;gap:6px}.is-compact .notes-folder-note-picker h2{font-size:13px}.is-compact .notes-folder-note-picker header small{display:none}.is-compact .notes-folder-scope{padding:5px 12px}.is-compact .notes-folder-note-picker>footer{padding:5px 12px}
 
 /* Navigation stays under manual control; the app supplies the context menu. */
-.notes-context .notes-menu-window{flex-shrink:0;min-width:32px;min-height:28px;color:#765b32;background:#f1e8d5;border:1px solid #d7c7a7}
 .kn-workspace-popup{position:fixed;z-index:150;width:236px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;padding:5px;background:#faf6ed;color:#594b34;border:1px solid #d1c4ae;border-radius:9px;box-shadow:0 10px 35px #49351d33;overscroll-behavior:contain}
 .kn-workspace-popup-heading{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 4px 7px;color:#98856a;font-size:10px}.kn-workspace-popup-heading button{min-height:24px;padding:3px}
 .kn-workspace-popup [role=menuitem]{display:flex;width:100%;justify-content:flex-start;min-height:32px;padding:6px 9px;text-align:left;font-size:12px}.kn-workspace-popup [role=menuitem]>svg{flex-shrink:0;color:#947442}.kn-workspace-popup [role=menuitem]>span{overflow-wrap:anywhere}.kn-workspace-popup [role=menuitem]:hover,.kn-workspace-popup [role=menuitem]:focus{background:#e9dcbe;outline:none}.kn-workspace-popup [role=separator]{height:1px;background:#e0d4bd;margin:4px 6px}
@@ -472,7 +471,6 @@
 .notes-drawing-style .notes-width-control{font-size:11px;color:#715d3e}
 .notes-drawing-style input[type=range]{width:80px;accent-color:#9a793e}
 @media(max-width:760px){.notes-sidebar-resizable{position:absolute}.notes-sidebar-resize{right:-8px;width:16px}.notes-sidebar-resize::after{left:7px}.notes-sidebar-resize::before{left:5px}.notes-drawing-style input[type=range]{width:60px}}
-@media(max-width:760px){.notes-context .notes-menu-window{order:5;margin-left:auto;position:relative;z-index:27}}
 
 /* Start inside the sidebar, then borrow more width for each selected folder. */
 .notes-category-root-list{max-height:180px;overflow:auto;overscroll-behavior:contain;padding:3px 0;scrollbar-width:thin}

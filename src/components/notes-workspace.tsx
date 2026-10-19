@@ -1,7 +1,7 @@
 import {planCategorySync,type Classification} from '@/lib/category-sync';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, FileText, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette, Square, Circle, Minus } from 'lucide-react';
+import { PanelLeft, PanelLeftClose, PanelLeftOpen, Plus, MoreHorizontal, Search, Share2, Save, FileDown, FileText, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette, Square, Circle, Minus } from 'lucide-react';
 import EditableBlock from './note-block';
 import InkStroke from './ink-stroke';
 import WorkspaceViewSwitch, {type WorkspaceView} from './workspace-view-switch';
@@ -351,7 +351,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     typing.current={id,at:Date.now()};commit({...d,blocks:d.blocks?.map(b=>b.id===id?{...b,html,h:height}:b)},newGroup);}
   function undo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const previous=undoStack.current.pop();if(!d||!previous)return;redoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(previous);redraw(v=>v+1);}
   function redo(){if(organizing||meta.trashedAt)return;const d=current.current?.content;const next=redoStack.current.pop();if(!d||!next)return;undoStack.current.push(d);setFocus('');(document.activeElement as HTMLElement)?.blur();notes.change(next);redraw(v=>v+1);}
-  function toggleSidebar(){if(sharedAccess)return;setWorkspaceMenu(null);setCategoryBrowserOpen(false);if(focusMode){setFocusMode(false);setLayersOpen(focusRestore.current.layersOpen);setDrawer('');}setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
+  function toggleSidebar(){if(sharedAccess)return;setWorkspaceMenu(null);setSidebarMenuOpen(false);setCategoryBrowserOpen(false);if(focusMode){setFocusMode(false);setLayersOpen(focusRestore.current.layersOpen);setDrawer('');}setSidebar(old=>{const next=!old;try{localStorage.setItem('canvas-notes-sidebar',next?'open':'closed');}catch{}return next;});}
   useEffect(()=>{
     if(!shareOpen||!record||record.id.startsWith('local-')||sharedAccess)return;
     let mounted=true;
@@ -1284,7 +1284,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     onContextMenu={event=>{if(organizerOpen)return;event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
     {workspaceMenu&&<WorkspaceContextMenu point={workspaceMenu} items={workspaceMenuItems()} onClose={()=>setWorkspaceMenu(null)}/>}
     <header className="notes-header notes-header-compact">
-      {!sharedAccess&&<button className="notes-header-icon" onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} title="メモ一覧を開閉"><PanelLeft size={19}/></button>}
+      {!sharedAccess&&<button className="notes-header-icon notes-sidebar-toggle" onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} aria-controls="notes-file-navigation" title={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'}>{sidebar?<PanelLeftClose size={19}/>:<PanelLeftOpen size={19}/>}</button>}
       <strong className="notes-brand">Kaeru<span>Note</span></strong>
       <span className="notes-header-divider"/>
       <input aria-label="メモのタイトル" placeholder="新しいメモ" value={record?.title||''} maxLength={80} disabled={!record||notes.busy||importing||organizing||!!meta.trashedAt||meta.importState==='pending'} onChange={e=>doc&&notes.change(doc,e.target.value)}/>
@@ -1312,7 +1312,6 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button role="menuitem" onClick={()=>{setSidebarMenuOpen(false);setSettings(true);}}><Settings2 size={16}/>メモの整理・設定</button>
             </div>}
           </div>
-          <button className="notes-sidebar-close" onClick={()=>{setSidebarMenuOpen(false);toggleSidebar();}} aria-label="サイドバーを閉じる" title="左のメニューを閉じる"><ChevronLeft size={20}/></button>
         </div></div>
         <button className="notes-organize-open" onClick={()=>showOrganizer(true)}><Folder size={17}/>ページ・フォルダを整理</button>
         <label className="notes-search"><Search size={17}/><input ref={searchInput} placeholder="全メモの本文・タグを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)} onBlur={()=>rememberSearch()} onKeyDown={e=>{if(e.key==='Enter')rememberSearch();}}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
@@ -1336,7 +1335,6 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       <section className="notes-editor">
         {workspaceView==='drawing'&&!focusMode&&<div className="notes-drawing-toolbar" role="toolbar" aria-label="お絵かきツール" inert={!record||notes.busy||importing||organizing||!!meta.trashedAt||meta.importState==='pending'}>
           {modePicker()}
-          {!sharedAccess&&<button aria-label="お絵かきのファイル一覧" aria-expanded={sidebar} onClick={toggleSidebar}><PanelLeft size={18}/></button>}
           <div className="notes-tool-group">
             <button aria-label="お絵かきの元に戻す" onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button>
             <button aria-label="お絵かきのやり直す" onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button>
@@ -1467,7 +1465,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           {doc&&doc.layers.find(l=>l.id===activeLayer)&&<div className="notes-tool-group"><strong>レイヤー設定</strong><button onClick={()=>setLayersOpen(true)}>表示・ロック・重なり順</button><label>不透明度<input aria-label="レイヤー不透明度" type="range" min="0" max="100" value={Math.round((doc.layers.find(l=>l.id===activeLayer)?.opacity??1)*100)} onChange={e=>commit({...doc,layers:doc.layers.map(l=>l.id===activeLayer?{...l,opacity:Number(e.target.value)/100}:l)})}/></label></div>}
         </div>}
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
-        <div className="notes-context">{!sharedAccess&&<button className="notes-menu-window" aria-label="作業メニューを開閉" aria-expanded={sidebar} onClick={toggleSidebar} title="左メニューを表示／非表示"><PanelLeft size={17}/></button>}<span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：太さ・透明度・筆圧は「詳細」で変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>ノートの文字サイズはCanvasのズームとは独立しています。上下スクロールはCanvasと連動します。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：レイアウト上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
+        <div className="notes-context"><span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：太さ・透明度・筆圧は「詳細」で変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>ノートの文字サイズはCanvasのズームとは独立しています。上下スクロールはCanvasと連動します。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：レイアウト上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
           {workspaceView==='memo'&&!focusMode&&modePicker()}
           {workspaceMode==='layout'&&<div className="notes-shape-tools" role="toolbar" aria-label="図形の選択ツール">
             <strong>図形編集</strong>
