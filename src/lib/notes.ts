@@ -3,6 +3,7 @@ import { marked } from 'marked';
 import TurndownService from 'turndown';
 import type { CanvasDoc, Point, Layer } from './canvas';
 import {migrateLegacyNoteBody} from './note-body-migration';
+import type {InkBrush} from './ink-brushes';
 
 export type NoteBlock = { id: string; x: number; y: number; w: number; h: number; html: string; background?: string; layerId?: string };
 export type Attachment = { id: string; name: string; mime: string; size: number; sourceId?: string; pending?: boolean };
@@ -13,7 +14,7 @@ export type NoteMeta = { category: string; tags: string[]; alias?: string; relat
 export type NoteDoc = Omit<CanvasDoc, 'layers'> & { layers: (Layer & { rasterImageId?: string; rasterBounds?: {x:number;y:number;w:number;h:number} })[]; blocks?: NoteBlock[]; note?: NoteMeta; attachments?: Attachment[];
   fixedNote?:{html:string;visible:boolean;locked:boolean;opacity?:number}; studioOrder?:('note'|'canvas'|'layout'|'graph')[];
   legacyNoteBody?:{version:1;block:NoteBlock};
-  paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string; brush?: 'pen' | 'gpen' | 'marker'; pressure?:boolean; rotation?: number }[] };
+  paintStrokes?: { id: string; layerId: string; points: Point[]; color: string; width: number; opacity: number; blockId?: string; brush?: InkBrush; pressure?:boolean; rotation?: number }[] };
 export type NoteIndex = { id: string; title: string; revision: number; updated_at: number; excerpt?: string; searchText?: string; note?: NoteMeta };
 export type NoteRecord = NoteIndex & { content: NoteDoc; accountId?: string; dirty?: boolean };
 export const id32 = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
