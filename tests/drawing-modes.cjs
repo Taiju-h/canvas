@@ -43,7 +43,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const airMark=page.locator('[data-stroke]').filter({has:page.locator('[data-ink-brush="airbrush"]')});const airId=await airMark.getAttribute('data-stroke');
   await toolbar.getByRole('button',{name:'消しゴム',exact:true}).click();const cdp=await context.newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:air.mid.x,y:air.mid.y-8,id:0,force:1}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:air.mid.x,y:air.mid.y+8,id:0,force:1}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-  await page.locator('[data-stroke="'+airId+'"]').waitFor({state:'detached'});assert.ok((await pixelAt(air.mid)).slice(0,3).every(c=>c>240),'eraser removes airbrush ink and preserves the white image');
+  await page.locator('[data-stroke="'+airId+'"] [data-ink-masked]').waitFor();assert.ok((await pixelAt(air.mid)).slice(0,3).every(c=>c>240),'eraser removes airbrush ink and preserves the white image');
   await page.getByLabel('お絵かきの元に戻す',{exact:true}).click();await page.locator('[data-stroke="'+airId+'"]').waitFor();
   await picker.getByRole('button',{name:'完全作業領域',exact:true}).click();await page.locator('.notes-stage.focus-mode').waitFor();
   const full=await page.locator('.notes-stage').boundingBox();assert.ok(full.x===0&&full.y===0&&full.width===1400&&full.height===1000,'full workspace occupies the viewport');

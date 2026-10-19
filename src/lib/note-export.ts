@@ -85,7 +85,7 @@ export async function exportDocx(record:NoteRecord){
 }
 export async function exportPng(element:HTMLElement,name:string,filter?:(node:HTMLElement)=>boolean){
   // Capture only a bounded viewport to avoid exhausting graphics memory.
-  const url=await toPng(element,{cacheBust:true,pixelRatio:1,backgroundColor:'#ffffff',filter});
+  const url=await toPng(element,{cacheBust:true,pixelRatio:1,backgroundColor:'#ffffff',filter:node=>!node.matches?.('.notes-canvas-overlay')&&(!filter||filter(node))});
   const a=document.createElement('a');a.href=url;a.download=(name||'KaeruNote').replace(/[\\/:*?"<>|]/g,'_')+'.png';a.click();
 }
 export function exportPlain(record:NoteRecord){

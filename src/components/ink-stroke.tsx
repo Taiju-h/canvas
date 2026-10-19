@@ -15,6 +15,10 @@ export default function InkStroke({id,points,color,width,opacity,brush='pen',pre
     const path=brushOutline(points,width,pressure);
     return <g data-ink-brush="brush" fill={color} stroke="none" opacity={opacity} pointerEvents="none">{path?<path d={path}/>:<circle cx={points[0].x} cy={points[0].y} r={(pressure?pressureWidth(width,points[0].p):width)/2}/>}</g>;
   }
+  if(brush==='pencil')return <g data-ink-brush="pencil" fill="none" stroke={color} strokeLinecap="round" opacity={opacity} pointerEvents="none">
+    <polyline points={points.map(p=>`${p.x},${p.y}`).join(' ')} strokeWidth={width} opacity={.32}/>
+    <polyline points={points.map(p=>`${p.x},${p.y}`).join(' ')} strokeWidth={Math.max(.5,width*.65)} strokeDasharray="1.7 .8 .6 .5" opacity={.65}/>
+  </g>;
   if(brush==='marker')return <polyline data-ink-brush={brush} points={points.map(point=>`${point.x},${point.y}`).join(' ')} stroke={color} strokeWidth={width} opacity={opacity} strokeLinecap="round" fill="none" pointerEvents="none"/>;
   return <g data-ink-brush={brush} stroke={color} strokeLinecap="round" opacity={opacity} pointerEvents="none">{points.length<2?<circle cx={points[0].x} cy={points[0].y} r={width/2} fill={color} stroke="none"/>:points.slice(1).map((point,index)=><line key={index} x1={points[index].x} y1={points[index].y} x2={point.x} y2={point.y} strokeWidth={pressure?pressureWidth(width,point.p):width}/>)}</g>;
 }

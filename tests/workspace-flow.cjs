@@ -272,7 +272,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
 
   // Opening a cached server note from an offline local draft is not ID promotion.
   if(!await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:/^すべてのメモ/}).click();
-  await page.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');assert.equal(await page.locator('.notes-fixed-editor').getAttribute('contenteditable'),'true');
+  await page.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA'&&document.querySelector('.notes-fixed-editor')?.getAttribute('contenteditable')==='true');assert.equal(await page.locator('.notes-fixed-editor').getAttribute('contenteditable'),'true');
   await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.locator('.notes-list-item').filter({hasText:'オフライン新規本文'}).click();await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor').textContent.includes('オフライン新規本文'));await page.locator('.notes-sidebar').waitFor({state:'detached'});
   // No network is needed to switch cached notes or create categories.
   if(!await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを管理',exact:true}).click();
@@ -396,10 +396,13 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await dp.locator('.notes-fixed-editor').fill('描画ツールを切り替えても残す本文');
   const drawingToolbar=dp.getByRole('toolbar',{name:'編集オプション',exact:true});
   await dp.getByTitle('キャンバスレイヤー',{exact:true}).click();
-  for(const name of ['枠（四角形）','丸（楕円）','直線','テキストボックス','画像'])assert.ok(await drawingToolbar.getByRole('button',{name,exact:true}).isVisible(),'drawing tools are immediately in the upper toolbar: '+name);
+  assert.equal(await drawingToolbar.getByRole('group',{name:'枠と図形',exact:true}).count(),0,'Canvas has no Layout shapes');
+  for(const name of ['筆','鉛筆','Gペン','エアブラシ'])assert.ok(await drawingToolbar.getByRole('button',{name,exact:true}).isVisible(),'Canvas exposes '+name);
+  await dp.getByTitle('レイアウトレイヤー',{exact:true}).click();
+  for(const name of ['枠（四角形）','丸（楕円）','三角形','矢印','テキストボックス','画像'])assert.ok(await drawingToolbar.getByRole('button',{name,exact:true}).isVisible(),'Layout exposes '+name);
   assert.equal(await dp.getByRole('region',{name:'Canvas詳細ツール'}).count(),0,'frames are available without opening details');
   const drawFromToolbar=async(name,offset=0)=>{
-    await drawingToolbar.getByRole('button',{name,exact:true}).click();const box=await dp.locator('.notes-plane').boundingBox();
+    if(name==='直線')await drawingToolbar.getByLabel('図形プリセット',{exact:true}).selectOption('line');else await drawingToolbar.getByRole('button',{name,exact:true}).click();const box=await dp.locator('.notes-plane').boundingBox();
     await dp.mouse.move(box.x+90+offset,box.y+90);await dp.mouse.down();await dp.mouse.move(box.x+210+offset,box.y+170,{steps:6});await dp.mouse.up();
   };
   await drawFromToolbar('枠（四角形）');await dp.locator('.notes-ink [data-stroke] rect').waitFor();
