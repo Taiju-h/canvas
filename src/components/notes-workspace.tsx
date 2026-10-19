@@ -1,12 +1,13 @@
 import {planCategorySync,type Classification} from '@/lib/category-sync';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
-import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, FileText, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette } from 'lucide-react';
+import { PanelLeft, Plus, MoreHorizontal, Search, Share2, Save, FileDown, FileText, Upload, Paperclip, Type, Pencil, MousePointer2, MousePointer, Hand, Undo2, Redo2, Bold, Italic, Underline, Superscript, Subscript, Highlighter, Table2, Columns3, ChevronDown, ChevronLeft, ChevronRight, List, ListChecks, ImagePlus, Pin, X, Folder, Tag, Settings2, Copy, Trash2, Eraser, ZoomIn, ZoomOut, Box, Maximize2, Minimize2, Palette, Square, Circle, Minus } from 'lucide-react';
 import EditableBlock from './note-block';
 import {CategoryTree,CategoryManager,type CategoryOperation} from './note-categories';
 import {WorkspaceContextMenu,type WorkspaceMenuItem} from './workspace-context-menu';
 import UpdateBadge from './web-update-badge';
 import NoteOrganizer from './note-organizer';
+import ResizableNoteSidebar from './resizable-note-sidebar';
 import {isScreenFullscreen,setScreenFullscreen} from '@/lib/screen-fullscreen';
 import {categoryPath,categoryPaths,inCategory,movedCategory,matchesSearch,searchExcerpt} from '@/lib/note-organization';
 import { useNotes, type SharedAccess } from '@/lib/use-notes';
@@ -386,9 +387,15 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   function rememberSearch(value=query){const q=value.trim();if(!q)return;setRecentSearches(old=>{const next=[q,...old.filter(v=>v!==q)].slice(0,12);try{localStorage.setItem('canvas-search-history',JSON.stringify(next));}catch{}return next;});}
   function activateFamily(kind:'canvas'|'layout'){
     const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return'';
-    let layer=d.layers.find(l=>(l.studioKind||'canvas')===kind&&l.visible&&!l.locked);
+    const writable=(layer:StudioNoteDoc['layers'][number])=>(layer.studioKind||'canvas')===kind&&layer.visible&&!layer.locked;
+    let layer=d.layers.find(l=>l.id===activeLayer&&writable(l))||d.layers.find(writable);
     if(!layer){const id=id32();layer={id,name:(kind==='canvas'?'キャンバス ':'レイアウト ')+(d.layers.filter(l=>(l.studioKind||'canvas')===kind).length+1),visible:true,locked:false,studioKind:kind};commit({...d,layers:[...d.layers,layer]} as NoteDoc);}
     setActiveLayer(layer.id);setWorkspaceMode(kind);return layer.id;
+  }
+  function selectDrawingLayer(id:string,addedKind?:'canvas'|'layout'){
+    const layer=(current.current?.content as StudioNoteDoc|undefined)?.layers.find(l=>l.id===id);if(!layer&&!addedKind)return;
+    const kind=layer?.studioKind||addedKind||'canvas';
+    setActiveLayer(id);setWorkspaceMode(kind);setTool(kind==='layout'?'select':'pen');setFocus('');
   }
   function chooseTool(next:typeof tool){
     if(next!=='sheet'&&workspaceMode==='excel'&&!sheetHasData)setSheetPreviewOpen(false);
@@ -1267,7 +1274,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       </div>
     </header>
     <div className="notes-layout">
-      {!sharedAccess&&sidebar&&<><div className="notes-sidebar-backdrop" aria-hidden="true"/><aside className="notes-sidebar">
+      {!sharedAccess&&sidebar&&<><div className="notes-sidebar-backdrop" aria-hidden="true"/><ResizableNoteSidebar>
         <div className="notes-sidebar-head"><small>MY WORKSPACE</small><div className="notes-sidebar-head-actions">
           <button className="notes-new" onClick={()=>void createNote()} disabled={importing||attaching||notes.busy||organizing} aria-label="新しいメモ"><Plus size={22}/></button>
           <div className="notes-sidebar-more">
@@ -1297,7 +1304,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         </div>
         <button className="kn-category-create" disabled={importing||attaching||notes.busy||organizing} onClick={()=>void createNote()}>＋ このカテゴリに新規ノート</button>
         {noteList()}</div></div>}
-      </aside></>}
+      </ResizableNoteSidebar></>}
       <section className="notes-editor">
         <div className="notes-basic-ribbon" inert={!!meta.trashedAt||organizing||meta.importState==='pending'}>
         <div inert={!!meta.trashedAt||organizing||meta.importState==='pending'} className={`notes-toolbar ${workspaceMode==='note'?'notes-toolbar-word':''} ${meta.importState==='pending'||meta.trashedAt||organizing?'notes-disabled':''}`} role="toolbar" aria-label="編集オプション">
@@ -1331,8 +1338,21 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             </div>
           </>:<>
             <div className="notes-tool-group"><button title="元に戻す" onClick={undo} disabled={!undoStack.current.length}><Undo2 size={18}/></button><button title="やり直す" onClick={redo} disabled={!redoStack.current.length}><Redo2 size={18}/></button></div>
-            {workspaceMode==='canvas'&&<div className="notes-tool-group"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><button onClick={()=>{activateFamily('layout');chooseTool('select');}}>選択</button><button onClick={()=>chooseTool('pen')}>ペン</button><button onClick={()=>chooseTool('eraser')}>消しゴム</button><button onClick={()=>{activateFamily('layout');chooseTool('text');}}>文字</button><button onClick={()=>{activateFamily('layout');chooseTool('rect');}}>図形</button><button onClick={()=>imageInput.current?.click()}>画像配置</button></div>}
-            {(workspaceMode==='layout')&&<div className="notes-tool-group"><button onClick={()=>addBlock()}><Type size={18}/>テキストボックス</button><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input type="range" min="1" max="20" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><button onClick={()=>imageInput.current?.click()}><ImagePlus size={18}/><span>画像</span></button></div>}
+            {workspaceMode==='canvas'&&<div className="notes-tool-group"><button className={tool==='pen'?'active':''} aria-pressed={tool==='pen'} onClick={()=>chooseTool('pen')}><Pencil size={17}/>ペン</button><button className={tool==='eraser'?'active':''} aria-pressed={tool==='eraser'} onClick={()=>chooseTool('eraser')}><Eraser size={17}/>消しゴム</button><button onClick={()=>chooseTool('select')}><MousePointer2 size={17}/>選択</button></div>}
+            {workspaceMode==='layout'&&<div className="notes-tool-group notes-layout-tools">
+              <button className={tool==='select'?'active':''} aria-pressed={tool==='select'} onClick={()=>chooseTool('select')} title="図形全体を選択して移動・拡縮・回転"><MousePointer2 size={17}/>黒矢印</button>
+              <button className={tool==='vertex'?'active':''} aria-pressed={tool==='vertex'} onClick={()=>chooseTool('vertex')} title="頂点と線分を個別編集"><MousePointer size={17}/>白矢印</button>
+            </div>}
+            {(workspaceMode==='canvas'||workspaceMode==='layout')&&<>
+              <div className="notes-tool-group notes-drawing-tools" role="group" aria-label="枠と図形">
+                <button className={tool==='rect'?'active':''} aria-label="枠（四角形）" aria-pressed={tool==='rect'} onClick={()=>chooseTool('rect')} title="四角い枠を描く"><Square size={17}/>枠</button>
+                <button className={tool==='ellipse'?'active':''} aria-label="丸（楕円）" aria-pressed={tool==='ellipse'} onClick={()=>chooseTool('ellipse')} title="丸い枠を描く"><Circle size={17}/>丸</button>
+                <button className={tool==='line'?'active':''} aria-pressed={tool==='line'} onClick={()=>chooseTool('line')} title="直線を描く"><Minus size={17}/>直線</button>
+                <button className={tool==='text'?'active':''} onClick={()=>addBlock()}><Type size={17}/>テキストボックス</button>
+                <button onClick={()=>imageInput.current?.click()}><ImagePlus size={17}/>画像</button>
+              </div>
+              <div className="notes-tool-group notes-drawing-style"><button className="notes-color-button" onClick={()=>{if(colorOpen)setColorOpen(false);else wakeColorPanel();}}><span style={{background:inkColor}}/>色</button><label className="notes-width-control">線幅<input aria-label="描画の線幅" type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label></div>
+            </>}
             {(workspaceMode==='excel'||workspaceMode==='graph')&&<div className="notes-tool-group"><span>{workspaceMode==='excel'?'Excelレイヤー':'グラフレイヤー'}</span>{workspaceMode==='excel'&&<>
               <button disabled={!sheetSelection} onClick={()=>setChartOpen(true)}>グラフ作成</button>
               <button onClick={()=>void updateSpreadsheetReferences()}>参照値を更新</button>
@@ -1396,9 +1416,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         {colorOpen&&<div className={'notes-color-popover '+(colorFading?'fading':'')} onPointerDown={wakeColorPanel}><ColorStudio color={inkColor} onChange={value=>{setDrawingColor(value);if(workspaceMode==='note')format('foreColor',value);}}/></div>}
         <div className="notes-context">{!sharedAccess&&<button className="notes-menu-window" aria-label="作業メニューを開閉" aria-expanded={sidebar} onClick={toggleSidebar} title="左メニューを表示／非表示"><PanelLeft size={17}/></button>}<span>{tool==='pen'||tool==='eraser'||tool==='line'||tool==='rect'||tool==='ellipse'?<>{tool==='pen'?'ペン：太さ・透明度・筆圧は「詳細」で変更できます。':tool==='eraser'?'消しゴム：ペンの消しゴムボタンにも対応しています。':'レイアウト図形を作成します。'}</>:tool==='note'?<>ノートの文字サイズはCanvasのズームとは独立しています。上下スクロールはCanvasと連動します。</>:tool==='sheet'?<>Excelレイヤー：セルを編集。Shift＋クリックで範囲選択。{sheetSelection&&<b>{sheetSelection.start}{sheetSelection.end!==sheetSelection.start?':'+sheetSelection.end:''}</b>}<button disabled={!sheetSelection} onClick={()=>{setChartLayer(activeLayer||doc?.layers[0]?.id||'');setChartOpen(true);}}>グラフ作成</button></>:tool==='text'?<>テキストボックス：レイアウト上の好きな位置に独立した文章ブロックを置きます。</>:tool==='magic'?<>マジック選択：クリックした図形・画像・線・グラフを直接つかみます。</>:<>左のツールバーから操作を選択します。</>}</span>
           {workspaceMode==='layout'&&<div className="notes-shape-tools" role="toolbar" aria-label="図形の選択ツール">
-            <strong>図形編集 v0.4.2</strong>
-            <button className={tool==='select'?'active':''} onClick={()=>chooseTool('select')} title="図形全体を選択して移動・拡縮・回転"><MousePointer2 size={16}/> 黒矢印</button>
-            <button className={tool==='vertex'?'active':''} onClick={()=>chooseTool('vertex')} title="頂点と線分を個別編集"><MousePointer size={16}/> 白矢印</button>
+            <strong>図形編集</strong>
             <button className={multiMode?'active':''} onClick={()=>setMultiMode(v=>!v)} title="スマホ・タブレットでShiftの代わりにタップを追加選択へ切り替えます。再タップすると選択解除">複数選択 {multiMode?'ON':'OFF'}</button>
             <small>{selectedGraphic?'選択中：'+graphicName(selectedGraphic)+'（'+selectedIds.length+'個）':multiMode?'図形をタップして追加・解除できます':'図形または手書き線を選択できます'}</small>
             {selectedIds.length>=2&&<span className="notes-composite-actions">
@@ -1437,7 +1455,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <button className="notes-drawer-handle right" onClick={()=>setDrawer(drawer==='right'?'':'right')}>‹</button>
             <div className={`notes-focus-drawer top ${drawer==='top'?'open':''}`}><ColorStudio color={inkColor} onChange={value=>{setInkColor(value);if(workspaceMode==='note')format('foreColor',value);window.setTimeout(()=>setDrawer(''),850);}}/><div className="notes-focus-drawing-controls"><label className="notes-width-control">太さ<input type="range" min="1" max="40" value={inkWidth} onChange={e=>setInkWidth(Number(e.target.value))}/><b>{inkWidth}px</b></label><label className="notes-opacity-control">透明度<input type="range" min="5" max="100" value={Math.round(inkOpacity*100)} onChange={e=>setInkOpacity(Number(e.target.value)/100)}/><b>{Math.round(inkOpacity*100)}%</b></label></div></div>
             <div className={`notes-focus-drawer left ${drawer==='left'?'open':''}`}><button onClick={()=>chooseTool('pen')}><Pencil size={20}/><small>ペン</small></button><button onClick={()=>chooseTool('eraser')}><Eraser size={20}/><small>消し</small></button><button onClick={()=>chooseTool('select')}><MousePointer2 size={20}/><small>選択</small></button><button onClick={()=>chooseTool('hand')}><Hand size={20}/><small>移動</small></button></div>
-            <div className={`notes-focus-drawer right ${drawer==='right'?'open':''}`}>{studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer} onProperties={setLayerProperties}/>}</div>
+            <div className={`notes-focus-drawer right ${drawer==='right'?'open':''}`}>{studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={selectDrawingLayer} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer} onProperties={setLayerProperties}/>}</div>
           </>}
           <nav className="notes-studio-tools" aria-label="制作ツール">
             <button className={'studio-family '+(workspaceMode==='note'?'active':'')} onClick={useNoteLayer} title="ノートレイヤー"><Type size={22}/><small>ノート</small></button>
@@ -1545,7 +1563,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <strong>このExcelを参照中</strong>
             {sheetDependents.map(d=><button key={d.id} title={d.title} onClick={()=>void notes.open(d.id)}>{d.title}</button>)}
           </div>}
-          {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={id=>{setActiveLayer(id);const layer=studio.layers.find(l=>l.id===id);setWorkspaceMode((layer?.studioKind||'canvas')==='layout'?'layout':'canvas');setTool((layer?.studioKind||'canvas')==='layout'?'select':'pen');}} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'layout':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer} onProperties={setLayerProperties}/>}
+          {!focusMode&&layersOpen&&!relatedPanel&&studio&&<LayerPanel doc={studio} activeLayer={activeLayer} onActive={selectDrawingLayer} onSelectObject={(id,kind)=>{setSelected(id);setFocus(kind==='text'?id:'');setWorkspaceMode(kind==='text'?'layout':'graph');setTool(kind==='text'?'text':'select');}} onChange={next=>commit(next as NoteDoc)} onNoteTool={useNoteLayer} onSheetTool={useSheetLayer} onProperties={setLayerProperties}/>}
           {!focusMode&&layersOpen&&relatedPanel&&<aside className="notes-layer-panel kn-related-panel" aria-label="関連ノート">
             <div className="notes-layer-title"><strong>関連ノート</strong><button onClick={()=>setRelatedPanel(false)} title="レイヤー一覧に戻る">←</button></div>
             {meta.relatedNotes?.length?meta.relatedNotes.map(item=><button key={item.id} onClick={()=>void notes.open(item.id)} title={item.reason}>

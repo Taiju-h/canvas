@@ -460,6 +460,17 @@
 .kn-workspace-popup [role=menuitem]{display:flex;width:100%;justify-content:flex-start;min-height:32px;padding:6px 9px;text-align:left;font-size:12px}.kn-workspace-popup [role=menuitem]>svg{flex-shrink:0;color:#947442}.kn-workspace-popup [role=menuitem]>span{overflow-wrap:anywhere}.kn-workspace-popup [role=menuitem]:hover,.kn-workspace-popup [role=menuitem]:focus{background:#e9dcbe;outline:none}.kn-workspace-popup [role=separator]{height:1px;background:#e0d4bd;margin:4px 6px}
 
 .notes-sidebar-backdrop{pointer-events:none}
+.notes-sidebar-resizable{position:relative;min-width:0;max-width:calc(100vw - 24px)}
+.notes-sidebar-resize{position:absolute;right:-6px;top:0;bottom:0;width:12px;z-index:60;cursor:col-resize;touch-action:none;outline:none}
+.notes-sidebar-resize::after{content:"";position:absolute;left:5px;top:0;bottom:0;width:2px;background:transparent;transition:background .12s ease}
+.notes-sidebar-resize::before{content:"";position:absolute;left:3px;top:calc(50% - 24px);width:6px;height:48px;border:1px solid #c6b490;border-radius:6px;background:#e1d5bc}
+.notes-sidebar-resize:hover::after,.notes-sidebar-resize:focus-visible::after,.notes-sidebar.is-resizing .notes-sidebar-resize::after{background:#a1814e}
+.notes-sidebar-resize:focus-visible::before,.notes-sidebar.is-resizing .notes-sidebar-resize::before{background:#a1814e;border-color:#7f6037}
+.notes-basic-ribbon .notes-drawing-tools{gap:3px}
+.notes-drawing-tools button,.notes-layout-tools button{white-space:nowrap}
+.notes-drawing-style .notes-width-control{font-size:11px;color:#715d3e}
+.notes-drawing-style input[type=range]{width:80px;accent-color:#9a793e}
+@media(max-width:760px){.notes-sidebar-resizable{position:absolute}.notes-sidebar-resize{right:-8px;width:16px}.notes-sidebar-resize::after{left:7px}.notes-sidebar-resize::before{left:5px}.notes-drawing-style input[type=range]{width:60px}}
 @media(max-width:760px){.notes-context .notes-menu-window{order:5;margin-left:auto;position:relative;z-index:27}}
 
 /* Start inside the sidebar, then borrow more width for each selected folder. */
