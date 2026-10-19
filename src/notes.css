@@ -386,7 +386,8 @@
 .kn-conflict-diffs dl{display:grid;grid-template-columns:65px minmax(0,1fr);gap:4px}.kn-conflict-diffs dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:760px){.notes-toolbar{padding:5px 7px;gap:3px;max-height:26vh}.notes-details{padding:7px;max-height:24vh}.notes-tool-group{padding-right:3px}.notes-context{max-height:15vh;overflow:auto;flex-shrink:0}.notes-inspector-toggle{margin:0}}
 /* Note and Canvas share vertical scrolling; only the Canvas plane is transformed. */
-.notes-surface>.notes-fixed-layer{inset:0 auto auto 0;height:100%;overflow:visible;backdrop-filter:none}
+.notes-surface .notes-plane>.notes-fixed-layer{inset:0 auto auto 0;overflow:visible;backdrop-filter:none}
+.notes-graph-layer{position:absolute;inset:0;pointer-events:none}.notes-graph-layer .notes-chart{pointer-events:auto}
 .notes-category-heading{flex-wrap:wrap;gap:3px}.notes-category-heading strong{margin-right:auto}.notes-category-heading button{font-size:11px;min-height:30px}
 @media(max-width:900px){.notes-toolbar .notes-format{display:flex}}
 .kn-layer-properties input:not([type=checkbox]):not([type=range]){width:100%;padding:8px;border:1px solid #cec5b4;border-radius:5px;margin-top:5px}

@@ -15,7 +15,7 @@ import { api, blankNote, block, cleanHTML, markdownHTML, download, escapeHTML, e
 import { readJex, type JexArchive } from '@/lib/jex';
 import { importJex } from '@/lib/import-jex';
 import { inverseTransformPoint, type Point, type Item } from '@/lib/canvas';
-import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, type CellRange, type ChartItem, type SheetData, type StudioNoteDoc } from './note-studio-layers';
+import { ChartsLayer, FixedNoteLayer, LayerPanel, SpreadsheetLayer, studioLayerOrder, type CellRange, type ChartItem, type SheetData, type StudioNoteDoc } from './note-studio-layers';
 import '../notes.css';
 import { getLocalImage, getLocalDoc, putLocalImage, listLocalDocs } from '@/lib/local-docs';
 import { loadOfflineWorkspace, persistOfflineWorkspace, locallyApplyCategory, type OfflineWorkspace } from '@/lib/offline-workspace';
@@ -325,6 +325,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const doc=record?.content;const selectedShape=doc?.items.find(i=>i.id===selected);const selectedStroke=doc?.paintStrokes?.find(i=>i.id===selected);const selectedGraphic:Graphic|undefined=selectedShape||selectedStroke;
   const selectedIds=selected?[...new Set([selected,...multiSelected.filter(id=>!!doc?.items.some(i=>i.id===id)||!!doc?.paintStrokes?.some(i=>i.id===id))])]:[];const studio=doc as StudioNoteDoc|undefined;const meta=doc?.note||{category:'',tags:[]};
   const fixedNote=studio?.fixedNote||{html:'',visible:true,locked:false};const sheet=studio?.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};const sheetHasData=Object.values(sheet.cells||{}).some(value=>String(value).trim()!=='');const sheetForView=sheetPreviewOpen&&!sheet.visible?{...sheet,visible:true}:sheet;const charts=studio?.charts||[];
+  const layerOrder=studioLayerOrder(studio);
+  const familyZ=(family:typeof layerOrder[number])=>(layerOrder.length-layerOrder.indexOf(family))*10;
+  const drawingFamily=(layerId?:string)=>studio?.layers.find(layer=>layer.id===layerId)?.studioKind||'canvas';
   useEffect(()=>{if(!record)return;const promoted=previousId.current.startsWith('local-')&&notes.resolveId(previousId.current)===record.id;previousId.current=record.id;if(promoted)return;setFixedHeight(0);setSelected('');setActiveAnchor(null);setActiveSegment(null);setMultiSelected([]);setHoveredShape('');setOverlapItems([]);setOverlapAt(null);setFocus('');setSizes({});undoStack.current=[];redoStack.current=[];typing.current=null;setTool(sharedAccess?'select':'note');setWorkspaceMode(sharedAccess?'layout':'note');setSheetSelection(undefined);setSheetPreviewOpen(false);const layers=(record.content as StudioNoteDoc).layers;setActiveLayer((sharedAccess?layers.find(l=>(l.studioKind||'canvas')==='layout'&&l.visible&&!l.locked)?.id:undefined)||layers.find(l=>(l.studioKind||'canvas')==='canvas'&&l.visible&&!l.locked)?.id||layers.find(l=>l.visible&&!l.locked)?.id||layers[0]?.id||'');scroll.current?.scrollTo(0,0);},[record?.id]);
   useEffect(()=>{const fit=()=>{
     const d=current.current;if(!d)return;const viewportWidth=scroll.current?.clientWidth||innerWidth;
@@ -633,12 +636,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(next===(a.next||a.original))return;
     a.next=next;a.moved=true;notes.change(next);
   }
-  function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt)return;
+  function down(e:ReactPointerEvent<HTMLDivElement>){if(!doc||notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending')return;
     if(e.button===2)return;
     if(action.current||(!e.isPrimary&&e.pointerType==='touch')){e.preventDefault();return;}
     suppressClick.current=false;
     const target=e.target as Element;
-    if(target.closest('button,.notes-sheet-layer,.notes-fixed-layer'))return;
+    if(target.closest('button,.notes-sheet-layer'))return;
+    if(target.closest('.notes-fixed-layer')&&e.pointerType!=='pen'&&tool!=='pen'&&tool!=='eraser'&&!(e.pointerType==='touch'&&tool==='note'))return;
     const control=target.closest('[data-shape-handle]');
     if(control&&selectedGraphic){const handle=control.getAttribute('data-shape-handle')||'';e.preventDefault();e.stopPropagation();clearOverlapTimer();setOverlapItems([]);
       if(handle.startsWith('vertex:')){setActiveAnchor({id:selectedGraphic.id,index:Number(handle.slice(7))});setActiveSegment(null);}
@@ -660,7 +664,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     }
     if(effective==='pen'){
       e.preventDefault();e.stopPropagation();(document.activeElement as HTMLElement)?.blur();setFocus('');typing.current=null;
-      const layer=writableLayer(doc,'canvas');if(!layer){notes.setError('キャンバスレイヤーを選んでください');return;}setActiveLayer(layer.id);setWorkspaceMode('canvas');
+      const layer=writableLayer(doc,'canvas');if(!layer){notes.setError('キャンバスレイヤーを選んでください');return;}setActiveLayer(layer.id);if(tool!=='note'&&tool!=='text')setWorkspaceMode('canvas');
+      suppressClick.current=true;
       action.current={pointerId:e.pointerId,kind:'ink',start:position(e),original:doc,points:[position(e)],pen,blockId:target.closest('[data-note-block]')?.getAttribute('data-note-block')||undefined};e.currentTarget.setPointerCapture(e.pointerId);setDraft([position(e)]);return;
     }
     if(effective==='eraser'){
@@ -1487,10 +1492,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                 <div ref={plane} className={`notes-plane tool-${tool}`} tabIndex={0} style={{...gridStyle(doc),width,height,transform:`scale(${scale})`,pointerEvents:notes.busy||importing||organizing||meta.trashedAt||meta.importState==='pending'?'none':undefined}}
                   onPasteCapture={pasteWorkspace} onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();suppressClick.current=false;}}} onPointerDownCapture={down} onPointerMove={move} onPointerUp={e=>up(e)} onPointerCancel={e=>up(e,true)}>
                   <SpreadsheetLayer sheet={sheetForView} active={tool==='sheet'} selection={sheetSelection} onChange={updateSheet} onSelect={setSheetSelection}/>
-                  <svg className="notes-ink" width={width} height={height}>
-                    <defs>{doc?.items.filter(i=>i.kind==='image'&&i.clip).map(i=><clipPath key={i.id} id={'kn-clip-'+i.id} clipPathUnits="userSpaceOnUse"><rect x={i.clip!.x} y={i.clip!.y} width={i.clip!.w} height={i.clip!.h}/></clipPath>)}</defs>
-                    {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds).map(l=><g key={l.id} data-layer-id={l.id} opacity={l.opacity??1}><LegacyImage docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/></g>)}
-                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(i=><g key={i.id} data-stroke={i.id} data-layer-id={i.layerId} stroke={i.color} strokeWidth={i.width} opacity={(i.opacity??1)*(doc.layers.find(l=>l.id===i.layerId)?.opacity??1)} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined} clipPath={i.kind==='image'&&i.clip?'url(#kn-clip-'+i.id+')':undefined}>
+                  {(['canvas','layout'] as const).map(family=><svg key={family} className="notes-ink" data-studio-family={family} style={{zIndex:familyZ(family)+1}} width={width} height={height}>
+                    <defs>{doc?.items.filter(i=>i.kind==='image'&&i.clip&&drawingFamily(i.layerId)===family).map(i=><clipPath key={i.id} id={'kn-clip-'+i.id} clipPathUnits="userSpaceOnUse"><rect x={i.clip!.x} y={i.clip!.y} width={i.clip!.w} height={i.clip!.h}/></clipPath>)}</defs>
+                    {doc?.layers.filter(l=>l.visible&&l.rasterImageId&&l.rasterBounds&&drawingFamily(l.id)===family).map(l=><g key={l.id} data-layer-id={l.id} opacity={l.opacity??1}><LegacyImage docId={record.id} imageId={l.rasterImageId!} {...l.rasterBounds!}/></g>)}
+                    {doc?.items.filter(i=>doc.layers.find(l=>l.id===i.layerId)?.visible!==false&&drawingFamily(i.layerId)===family).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(i=><g key={i.id} data-stroke={i.id} data-layer-id={i.layerId} stroke={i.color} strokeWidth={i.width} opacity={(i.opacity??1)*(doc.layers.find(l=>l.id===i.layerId)?.opacity??1)} fill={i.fill||'none'} transform={i.rotation?(()=>{const b=shapeBox(i);return `rotate(${i.rotation} ${b.x+b.w/2} ${b.y+b.h/2})`;})():undefined} clipPath={i.kind==='image'&&i.clip?'url(#kn-clip-'+i.id+')':undefined}>
                       {workspaceMode==='layout'&&(tool==='select'||tool==='vertex'||tool==='magic')&&(()=>{
                         const b=shapeBox(i);
                         return i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h} stroke="transparent" strokeWidth={Math.max(16,i.width)} pointerEvents="stroke"/>:
@@ -1500,10 +1505,10 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                       })()}
                       {i.kind==='path'?<polyline points={stroke(i.points||[])} fill="none" strokeLinecap="round"/>:i.kind==='polygon'?<polygon points={stroke(i.points||[])} strokeLinejoin="round"/>:i.kind==='rect'?<rect x={Math.min(i.x,i.x+i.w)} y={Math.min(i.y,i.y+i.h)} width={Math.abs(i.w)} height={Math.abs(i.h)}/>:i.kind==='ellipse'?<ellipse cx={i.x+i.w/2} cy={i.y+i.h/2} rx={Math.abs(i.w/2)} ry={Math.abs(i.h/2)}/>:i.kind==='line'?<line x1={i.x} y1={i.y} x2={i.x+i.w} y2={i.y+i.h}/>:i.kind==='image'&&i.imageId?(i.imageId.startsWith('file:')?<image href={fileURL(record.id,i.imageId.slice(5))} x={i.x} y={i.y} width={i.w} height={i.h}/>:<LegacyImage docId={record.id} imageId={i.imageId} x={i.x} y={i.y} w={i.w} h={i.h}/>):null}
                     </g>)}
-                    {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(paintStrokeView)}
+                    {doc?.paintStrokes?.filter(stroke=>doc.layers.find(l=>l.id===stroke.layerId)?.visible!==false&&drawingFamily(stroke.layerId)===family).sort((a,b)=>doc.layers.findIndex(l=>l.id===a.layerId)-doc.layers.findIndex(l=>l.id===b.layerId)).map(paintStrokeView)}
                     {workspaceMode==='layout'&&hoveredShape&&!selectedIds.includes(hoveredShape)&&(()=>{
                       const graphic:Graphic|undefined=doc?.items.find(i=>i.id===hoveredShape)||doc?.paintStrokes?.find(i=>i.id===hoveredShape);
-                      if(!graphic)return null;const b=graphicBox(graphic),cx=b.x+b.w/2,cy=b.y+b.h/2;
+                      if(!graphic||drawingFamily(graphic.layerId)!==family)return null;const b=graphicBox(graphic),cx=b.x+b.w/2,cy=b.y+b.h/2;
                       return <g pointerEvents="none" transform={graphic.rotation?'rotate('+graphic.rotation+' '+cx+' '+cy+')':undefined} stroke="#44b5ff" strokeWidth={Math.max(3,graphic.width+2)} fill="none" opacity={.92}>
                         {!isItemGraphic(graphic)?<polyline points={stroke(graphic.points)} strokeLinecap="round" strokeLinejoin="round"/>:
                           graphic.kind==='rect'?<rect x={b.x} y={b.y} width={b.w} height={b.h}/>:
@@ -1517,7 +1522,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                     })()}
                     {workspaceMode==='layout'&&selectedIds.map(id=>{
                       const graphic:Graphic|undefined=doc?.items.find(i=>i.id===id)||doc?.paintStrokes?.find(i=>i.id===id);
-                      if(!graphic)return null;
+                      if(!graphic||drawingFamily(graphic.layerId)!==family)return null;
                       const b=graphicBox(graphic),cx=b.x+b.w/2,cy=b.y+b.h/2,points=graphicVertices(graphic);
                       const handles:[string,number,number][]=[['nw',b.x,b.y],['n',cx,b.y],['ne',b.x+b.w,b.y],['e',b.x+b.w,cy],['se',b.x+b.w,b.y+b.h],['s',cx,b.y+b.h],['sw',b.x,b.y+b.h],['w',b.x,cy]];
                       const currentSegment=activeSegment?.id===id?activeSegment.index:-1;
@@ -1539,9 +1544,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                         </g>}
                       </g>;
                     })}
-                    {draft.length>0&&(brush!=='marker'?<g stroke={inkColor} strokeLinecap="round" opacity={inkOpacity} pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={inkPressure?pressureWidth(inkWidth,point.p):inkWidth}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={.32*inkOpacity} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
-                    {draftShape&&<g stroke={draftShape.color} strokeWidth={draftShape.width} fill="none" pointerEvents="none">{draftShape.kind==='line'?<line x1={draftShape.x} y1={draftShape.y} x2={draftShape.x+draftShape.w} y2={draftShape.y+draftShape.h}/>:draftShape.kind==='rect'?<rect x={Math.min(draftShape.x,draftShape.x+draftShape.w)} y={Math.min(draftShape.y,draftShape.y+draftShape.h)} width={Math.abs(draftShape.w)} height={Math.abs(draftShape.h)}/>:<ellipse cx={draftShape.x+draftShape.w/2} cy={draftShape.y+draftShape.h/2} rx={Math.abs(draftShape.w/2)} ry={Math.abs(draftShape.h/2)}/>}</g>}
-                  </svg>
+                    {family==='canvas'&&draft.length>0&&(brush!=='marker'?<g stroke={inkColor} strokeLinecap="round" opacity={inkOpacity} pointerEvents="none">{draft.slice(1).map((point,index)=><line key={index} x1={draft[index].x} y1={draft[index].y} x2={point.x} y2={point.y} strokeWidth={inkPressure?pressureWidth(inkWidth,point.p):inkWidth}/>)}</g>:<polyline points={stroke(draft)} stroke={inkColor} strokeWidth={inkWidth} opacity={.32*inkOpacity} strokeLinecap="round" fill="none" pointerEvents="none"/>)}
+                    {family==='layout'&&draftShape&&<g stroke={draftShape.color} strokeWidth={draftShape.width} fill="none" pointerEvents="none">{draftShape.kind==='line'?<line x1={draftShape.x} y1={draftShape.y} x2={draftShape.x+draftShape.w} y2={draftShape.y+draftShape.h}/>:draftShape.kind==='rect'?<rect x={Math.min(draftShape.x,draftShape.x+draftShape.w)} y={Math.min(draftShape.y,draftShape.y+draftShape.h)} width={Math.abs(draftShape.w)} height={Math.abs(draftShape.h)}/>:<ellipse cx={draftShape.x+draftShape.w/2} cy={draftShape.y+draftShape.h/2} rx={Math.abs(draftShape.w/2)} ry={Math.abs(draftShape.h/2)}/>}</g>}
+                  </svg>)}
                   {overlapAt&&overlapItems.length>1&&workspaceMode==='layout'&&<div className="notes-overlap-picker" style={{left:Math.max(8,Math.min(width-190,overlapAt.x+14)),top:Math.max(8,overlapAt.y-10)}}>
                     <button type="button" title="密集した線や図形から選ぶ" aria-expanded={overlapOpen} onPointerDown={e=>e.stopPropagation()} onClick={()=>setOverlapOpen(v=>!v)}>近くの図形 {overlapItems.length}件 ▾</button><button className="notes-overlap-dismiss" type="button" title="候補を閉じる" aria-label="候補リストを閉じる" onPointerDown={e=>e.stopPropagation()} onClick={()=>{clearOverlapTimer();setOverlapItems([]);setOverlapAt(null);setOverlapOpen(false);}}>×</button>
                     {overlapOpen&&<div className="notes-overlap-list" role="group" aria-label="密集部分の図形候補">{overlapItems.map((id,index)=>{const graphic:Graphic|undefined=doc?.items.find(i=>i.id===id)||doc?.paintStrokes?.find(i=>i.id===id);
@@ -1549,12 +1554,12 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                       return <button key={id} type="button" aria-pressed={selectedIds.includes(id)} onPointerDown={e=>e.stopPropagation()} onPointerEnter={()=>setHoveredShape(id)} onClick={()=>{selectGraphic(id,multiMode);setOverlapItems([]);setOverlapAt(null);setOverlapOpen(false);setHoveredShape(id);}}>{index+1}. {graphicName(graphic)} <small>{layer?.name||'レイヤー'}</small></button>;
                     })}</div>}
                   </div>}
-                  <ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/>
-                  {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} onDownloadFile={saveAttachment} block={noteBlock} opacity={doc.layers.find(l=>l.id===noteBlock.layerId)?.opacity??1} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
+                  <div className="notes-graph-layer" style={{zIndex:familyZ('graph')}}><ChartsLayer sheet={sheet} charts={charts} visibleLayers={new Set((doc?.layers||[]).filter(l=>l.visible).map(l=>l.id))}/></div>
+                  {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} onDownloadFile={saveAttachment} block={noteBlock} zIndex={familyZ('layout')} opacity={doc.layers.find(l=>l.id===noteBlock.layerId)?.opacity??1} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selected===noteBlock.id} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
                     onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
+                  {record&&<FixedNoteLayer docId={record.id} onDownloadFile={saveAttachment} html={fixedNote.html} opacity={fixedNote.opacity??1} width={scroll.current?.clientWidth||innerWidth} viewportHeight={scroll.current?.clientHeight||400} onHeight={setFixedHeight} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} scale={scale} zIndex={familyZ('note')} height={Math.max(height*scale,fixedHeight)} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
                 </div>
-                {record&&<FixedNoteLayer docId={record.id} onDownloadFile={saveAttachment} html={fixedNote.html} opacity={fixedNote.opacity??1} width={scroll.current?.clientWidth||innerWidth} viewportHeight={scroll.current?.clientHeight||400} onHeight={setFixedHeight} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
               </div>}
             </div>
 

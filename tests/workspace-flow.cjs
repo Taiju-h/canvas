@@ -264,7 +264,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   // Opening a cached server note from an offline local draft is not ID promotion.
   if(!await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:/^すべてのメモ/}).click();
   await page.locator('.notes-list-item').filter({hasText:'既存ノートA'}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]').value==='既存ノートA');assert.equal(await page.locator('.notes-fixed-editor').getAttribute('contenteditable'),'true');
-  await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.locator('.notes-list-item').filter({hasText:'オフライン新規本文'}).click();await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor').textContent.includes('オフライン新規本文'));
+  await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.locator('.notes-list-item').filter({hasText:'オフライン新規本文'}).click();await page.waitForFunction(()=>document.querySelector('.notes-fixed-editor').textContent.includes('オフライン新規本文'));await page.locator('.notes-sidebar').waitFor({state:'detached'});
   // No network is needed to switch cached notes or create categories.
   if(!await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を開く',{exact:true}).click();await page.getByRole('button',{name:'カテゴリを管理',exact:true}).click();
   await page.getByLabel('カテゴリの操作').selectOption('move');await page.getByLabel('対象カテゴリ',{exact:true}).selectOption('仕事 / 開発 / KaeruNote');await page.getByLabel('新しいカテゴリ名',{exact:true}).fill('復旧テスト');await page.getByRole('button',{name:'カテゴリを保存',exact:true}).click();
