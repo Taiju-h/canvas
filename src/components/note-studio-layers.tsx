@@ -106,7 +106,7 @@ export function ChartsLayer({sheet,charts,visibleLayers}:{sheet:SheetData;charts
   </div>;})}</>;
 }
 
-export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onNoteTool,onSheetTool,onProperties}:{doc:StudioNoteDoc;activeLayer:string;onActive:(id:string)=>void;onSelectObject:(id:string,kind:'text'|'chart')=>void;onChange:(next:StudioNoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void;onProperties?:(id:string)=>void}){
+export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onNoteTool,onSheetTool,onProperties}:{doc:StudioNoteDoc;activeLayer:string;onActive:(id:string,kind?:'canvas'|'layout')=>void;onSelectObject:(id:string,kind:'text'|'chart')=>void;onChange:(next:StudioNoteDoc)=>void;onNoteTool:()=>void;onSheetTool:()=>void;onProperties?:(id:string)=>void}){
   const note=doc.fixedNote||{html:'',visible:true,locked:false};
   const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
   const charts=doc.charts||[];
@@ -138,7 +138,7 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
       items:doc.items.map(i=>i.layerId===id?{...i,layerId:replacement.id}:i),
       paintStrokes:doc.paintStrokes?.map(i=>i.layerId===id?{...i,layerId:replacement.id}:i),
       charts:doc.charts?.map(i=>i.layerId===id?{...i,layerId:replacement.id}:i)});
-    if(activeLayer===id)onActive(replacement.id);
+    if(activeLayer===id)onActive(replacement.id,kind);
   };
   const namePicker=(kind:'note'|'canvas'|'layout'|'excel',options:string[])=><select
     className="notes-layer-group-name" value={displayName(kind,options[0])} aria-label="レイヤー種別の表示名"
@@ -162,7 +162,7 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
   };
   const addLayer=(kind:'canvas'|'layout')=>{
     const id=crypto.randomUUID(), count=doc.layers.filter(l=>(l.studioKind||'canvas')===kind).length+1;
-    onChange({...doc,layers:[...doc.layers,{id,name:(kind==='canvas'?'キャンバス ':'レイアウト ')+count,visible:true,locked:false,studioKind:kind}]});onActive(id);
+    onChange({...doc,layers:[...doc.layers,{id,name:(kind==='canvas'?'キャンバス ':'レイアウト ')+count,visible:true,locked:false,studioKind:kind}]});onActive(id,kind);
   };
   const groupButtons=(kind:'note'|'canvas'|'layout'|'graph')=><span className="notes-layer-order">
     <button title="この親レイヤーを上へ" disabled={order.indexOf(kind)===0} onClick={e=>{e.stopPropagation();moveGroup(kind,-1);}}>↑</button>

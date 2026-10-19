@@ -40,6 +40,7 @@ export function CategoryTree({paths,notes,selected,onSelect,onManage,onCreate,on
     measure();window.addEventListener('resize',measure);
     const observer=new ResizeObserver(measure);
     observer.observe(stage.closest('.notes-layout')||stage.parentElement!);
+    const sidebar=stage.closest('.notes-sidebar');if(sidebar)observer.observe(sidebar);
     return()=>{window.removeEventListener('resize',measure);observer.disconnect();};
   },[expanded,!!paths.length,!!notePicker]);
 
