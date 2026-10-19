@@ -9,6 +9,10 @@ export type SheetData={visible:boolean;locked:boolean;rows:number;cols:number;ce
 export type ChartItem={id:string;layerId:string;x:number;y:number;w:number;h:number;type:'bar'|'line'|'pie';range:string;title?:string;visible?:boolean;locked?:boolean;name?:string};
 export type StudioLayer=NoteDoc['layers'][number] & {studioKind?:'canvas'|'layout'};
 export type StudioNoteDoc=Omit<NoteDoc,'layers'> & {layers:StudioLayer[];fixedNote?:{html:string;visible:boolean;locked:boolean;opacity?:number};sheet?:SheetData;charts?:ChartItem[];studioOrder?:('note'|'canvas'|'layout'|'graph')[];studioNames?:{note?:string;canvas?:string;layout?:string;excel?:string}};
+export function studioLayerOrder(doc?:StudioNoteDoc){
+  const defaults=['canvas','note','layout','graph'] as const;
+  return [...new Set([...(doc?.studioOrder||[]),...defaults])];
+}
 
 export type CellRange={start:string;end:string};
 
@@ -27,7 +31,7 @@ export function displayCell(sheet:SheetData,key:string,seen=new Set<string>()):s
   try{const value=Function('"use strict";return ('+expr+')')();return Number.isFinite(value)?String(Math.round(value*1e8)/1e8):'#ERR!';}catch{return '#ERR!';}
 }
 
-export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,onDownloadFile,opacity=1,width,viewportHeight,onHeight}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;onDownloadFile:(id:string,name:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void}){
+export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,onDownloadFile,opacity=1,width,viewportHeight,onHeight,scale=1,zIndex,height}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;onDownloadFile:(id:string,name:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void;scale?:number;zIndex?:number;height?:number}){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);
   useEffect(()=>{
     const el=ref.current;if(!el)return;
@@ -52,7 +56,7 @@ export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPast
   useEffect(()=>{const el=ref.current;if(!el||!onHeight)return;const measure=()=>onHeight(el.scrollHeight);const observer=new ResizeObserver(measure);observer.observe(el);measure();return()=>observer.disconnect();},[docId,visible,onHeight]);
   if(!visible)return null;
   const emit=()=>{if(locked)return;const el=ref.current;if(el){flowNoteColumns(el);onChange(cleanHTML(el.innerHTML));}};
-  return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー" style={{opacity,width}}>
+  return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー" style={{opacity,width,height,zIndex,transform:`scale(${1/scale})`,transformOrigin:'0 0'}}>
     <div ref={ref} className="notes-fixed-editor" style={{minHeight:viewportHeight||400}} role="textbox" aria-label="固定ノート本文" aria-multiline="true" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
       onPaste={e=>{e.preventDefault();if(e.clipboardData.files.length){onPaste(Array.from(e.clipboardData.files));return;}
         const html=e.clipboardData.getData('text/html');document.execCommand(html?'insertHTML':'insertText',false,html?cleanHTML(html):e.clipboardData.getData('text/plain'));emit();}}
@@ -110,7 +114,7 @@ export function LayerPanel({doc,activeLayer,onActive,onSelectObject,onChange,onN
   const note=doc.fixedNote||{html:'',visible:true,locked:false};
   const sheet=doc.sheet||{visible:false,locked:false,rows:20,cols:10,cells:{}};
   const charts=doc.charts||[];
-  const order:('note'|'canvas'|'layout'|'graph')[]=doc.studioOrder?.length?[...doc.studioOrder]:['note','canvas','layout','graph'];
+  const order=studioLayerOrder(doc);
   const canvasLayers=doc.layers.filter(l=>(l.studioKind||'canvas')==='canvas');
   const layoutLayers=doc.layers.filter(l=>l.studioKind==='layout');
   const displayName=(kind:'note'|'canvas'|'layout'|'excel',fallback:string)=>doc.studioNames?.[kind]||fallback;
