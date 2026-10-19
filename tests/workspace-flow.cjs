@@ -62,6 +62,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const inlineList=await page.locator('.notes-list').boundingBox(),inlineSidebar=await page.locator('.notes-sidebar').boundingBox();
   assert.ok(inlineList.x>=inlineSidebar.x&&inlineList.x+inlineList.width<=inlineSidebar.x+inlineSidebar.width+1,'normal Note list fits within the left menu');
   const initialNoteId=new URL(page.url()).searchParams.get('d'),initialBody=await page.locator('.notes-fixed-editor').innerHTML();
+  const sidebarToggle=page.locator('.notes-sidebar-toggle'),sidebarToggleBounds=await sidebarToggle.boundingBox();
   await page.locator('.notes-category-root-list [data-category-path="仕事"]').click();
   await page.getByRole('region',{name:'選択フォルダのNote一覧'}).waitFor();
   assert.ok((await page.locator('.notes-category-browser').boundingBox()).width>inlineSidebar.width,'choosing a folder directly from the compact sidebar expands its sheets to the right');
@@ -75,6 +76,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await page.mouse.move(resizeBounds.x+resizeBounds.width/2,resizeBounds.y+100);await page.mouse.down();await page.mouse.move(resizeBounds.x+resizeBounds.width/2+130,resizeBounds.y+100,{steps:8});await page.mouse.up();
   assert.equal(Math.round((await page.locator('.notes-sidebar').boundingBox()).width),Math.round(inlineSidebar.width+130));
   assert.equal(Math.round((await page.locator('.notes-editor').boundingBox()).width),Math.round(initialEditorWidth-130),'file menu width changes the available editor width');
+  assert.deepEqual(await sidebarToggle.boundingBox(),sidebarToggleBounds,'resizing the sidebar leaves its toggle in the same place');
   assert.equal(new URL(page.url()).searchParams.get('d'),initialNoteId);assert.equal(await page.locator('.notes-fixed-editor').innerHTML(),initialBody,'resizing preserves the open Note body');
   await page.reload();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='既存ノートA');await page.locator('.notes-fixed-editor').waitFor();
   assert.equal(Math.round((await page.locator('.notes-sidebar').boundingBox()).width),Math.round(inlineSidebar.width+130),'file menu width survives reload');
@@ -139,8 +141,15 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.equal(await page.locator('.notes-sidebar').count(),1,'reselecting the active Note also folds only the chooser');
   assert.equal(await page.getByLabel('メモのタイトル',{exact:true}).inputValue(),'既存ノートB');
   assert.equal(documents.get(ids[1]).content.fixedNote,undefined,'reading and switching old Notes does not rewrite the server body before an actual edit');
-  await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),0);
-  await page.getByRole('button',{name:'作業メニューを開閉',exact:true}).click();assert.equal(await page.locator('.notes-sidebar').count(),1);assert.equal(await page.locator('.notes-category-browser').count(),0);
+  await page.getByLabel('メモメニュー',{exact:true}).click();
+  const togglePoint={x:sidebarToggleBounds.x+sidebarToggleBounds.width/2,y:sidebarToggleBounds.y+sidebarToggleBounds.height/2};
+  await page.mouse.click(togglePoint.x,togglePoint.y);assert.equal(await page.locator('.notes-sidebar').count(),0);
+  assert.equal(await sidebarToggle.getAttribute('aria-label'),'メモ一覧を開く');assert.equal(await sidebarToggle.getAttribute('aria-expanded'),'false');
+  assert.deepEqual(await sidebarToggle.boundingBox(),sidebarToggleBounds,'closing keeps the reopen target at the same coordinates');
+  await page.mouse.click(togglePoint.x,togglePoint.y);assert.equal(await page.locator('.notes-sidebar').count(),1);
+  assert.equal(await sidebarToggle.getAttribute('aria-label'),'メモ一覧を閉じる');assert.equal(await sidebarToggle.getAttribute('aria-expanded'),'true');
+  assert.deepEqual(await sidebarToggle.boundingBox(),sidebarToggleBounds,'the same stationary click closes and reopens the list');
+  assert.equal(await page.locator('.notes-sidebar-menu').count(),0,'reopening the sidebar does not restore a stale popup');assert.equal(await page.locator('.notes-category-browser').count(),0);
   const popup=page.getByRole('menu',{name:'作業メニュー',exact:true}),editor=page.locator('.notes-fixed-editor');
   const selectText=async()=>editor.evaluate(el=>{el.focus();const range=document.createRange();range.selectNodeContents(el);const selection=getSelection();selection.removeAllRanges();selection.addRange(range);});
   const rightText=async()=>{await selectText();await editor.click({button:'right',position:{x:35,y:35}});await popup.waitFor();};
@@ -288,11 +297,19 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const touchFolder=result.documents.find(n=>n.id===ids[1]).content.note.category.split(' / ')[0];
   const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});const mp=await mobile.newPage();lastPage=mp;mp.setDefaultTimeout(12000);
   await mp.addInitScript(()=>{localStorage.setItem('kn-sidebar-autoclose','off');localStorage.setItem('kn-note-details','open');});
-  await mp.goto('http://127.0.0.1:5187/canvas/');await mp.getByLabel('メモ一覧を開く',{exact:true}).click();await mp.locator('.notes-list-item').first().click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
+  await mp.goto('http://127.0.0.1:5187/canvas/');
+  const mobileToggle=mp.locator('.notes-sidebar-toggle'),mobileToggleBounds=await mobileToggle.boundingBox();
+  const mobileTogglePoint={x:mobileToggleBounds.x+mobileToggleBounds.width/2,y:mobileToggleBounds.y+mobileToggleBounds.height/2};
+  for(const open of [true,false,true]){
+   await mp.touchscreen.tap(mobileTogglePoint.x,mobileTogglePoint.y);
+   assert.equal(await mobileToggle.getAttribute('aria-expanded'),String(open));assert.equal(await mp.locator('.notes-sidebar').count(),Number(open));
+   assert.deepEqual(await mobileToggle.boundingBox(),mobileToggleBounds,'touch opens and closes from the same point');
+  }
+  await mp.locator('.notes-list-item').first().click();assert.equal(await mp.locator('.notes-sidebar').count(),1);
   const mobileUpdate=mp.getByRole('button',{name:'更新あり',exact:true});await mobileUpdate.waitFor();
   for(const width of [390,360]){
    await mp.setViewportSize({width,height:844});
-   for(const target of [mobileUpdate,mp.getByRole('button',{name:'全画面にする',exact:true})]){
+   for(const target of [mobileToggle,mobileUpdate,mp.getByRole('button',{name:'全画面にする',exact:true})]){
     const b=await target.boundingBox();assert.ok(b.x>=0&&b.x+b.width<=width&&b.y+b.height<=46,'update and fullscreen stay within the header on narrow screens');
     assert.ok(await target.evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),'system-safe header targets are not covered by another element');
    }
@@ -318,7 +335,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await mp.locator('.notes-category-browser').waitFor({state:'detached'});
   await mp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).waitFor();
   assert.equal(await mp.locator('.notes-category-cascade-stage').count(),0,'manual close returns the borrowed workspace');
-  await mp.getByLabel('サイドバーを閉じる',{exact:true}).click();await mp.getByLabel('ノートの詳細',{exact:true}).waitFor();
+  await mp.getByLabel('メモ一覧を閉じる',{exact:true}).tap();await mp.getByLabel('ノートの詳細',{exact:true}).waitFor();
   const bounds=await mp.getByLabel('ノートの詳細',{exact:true}).boundingBox();assert.ok(bounds.x>=0&&bounds.x+bounds.width<=391,'detail button within mobile width');const ribbon=await mp.locator('.notes-basic-ribbon').boundingBox();assert.ok(bounds.y>=ribbon.y&&bounds.y+bounds.height<=ribbon.y+ribbon.height,'detail stays visible outside the scrolling basic controls');
   await mp.screenshot({path:'/tmp/kaeru-workspace-mobile.png'});
   // A blank sheet edge raises the Note list; an exposed Note row opens directly.
@@ -370,7 +387,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   await tp.getByRole('button',{name:'カテゴリを選ぶ',exact:true}).tap();
   await tp.getByTitle('ノートレイヤー',{exact:true}).tap();
   assert.equal(await tp.locator('.notes-category-browser').count(),0,'tapping the Note tool also closes the category chooser on touch devices');
-  await tp.getByRole('button',{name:'作業メニューを開閉',exact:true}).tap();assert.equal(await tp.locator('.notes-sidebar').count(),0);
+  await tp.getByLabel('メモ一覧を閉じる',{exact:true}).tap();assert.equal(await tp.locator('.notes-sidebar').count(),0);
   await tablet.close();
   const drawingContext=await browser.newContext({viewport:{width:1280,height:950}}),dp=await drawingContext.newPage();lastPage=dp;dp.setDefaultTimeout(12000);
   await dp.goto('http://127.0.0.1:5187/canvas/');await dp.waitForFunction(()=>!!document.querySelector('[aria-label="メモのタイトル"]')?.value);

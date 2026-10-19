@@ -26,7 +26,9 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const body=page.getByLabel('固定ノート本文',{exact:true}),image=page.getByAltText('筆のテスト画像',{exact:true}),picker=page.getByRole('group',{name:'作業モード',exact:true});
   await image.evaluate(el=>el.decode());const html=await body.innerHTML(),noteId=new URL(page.url()).searchParams.get('d'),memoWidth=(await page.locator('.notes-stage-center').boundingBox()).width;
   assert.equal(await picker.getByRole('button',{name:'メモ帳',exact:true}).getAttribute('aria-pressed'),'true');assert.equal(await page.locator('.notes-sidebar').count(),1);
+  const sidebarToggle=page.locator('.notes-sidebar-toggle'),memoToggleBounds=await sidebarToggle.boundingBox();
   await picker.getByRole('button',{name:'お絵かき',exact:true}).click();const toolbar=page.getByRole('toolbar',{name:'お絵かきツール',exact:true});await toolbar.waitFor();
+  assert.deepEqual(await sidebarToggle.boundingBox(),memoToggleBounds,'memo and drawing share the same stationary navigation toggle');
   assert.equal(await page.locator('.notes-sidebar').count(),0);assert.equal(await page.locator('.notes-layer-panel').count(),0);assert.ok((await page.locator('.notes-stage-center').boundingBox()).width>memoWidth+400);
   assert.equal(await body.innerHTML(),html);assert.equal(new URL(page.url()).searchParams.get('d'),noteId);assert.equal(puts,0,'layout changes must not rewrite the Note');
   await page.getByLabel('お絵かきの筆圧',{exact:true}).uncheck();await page.getByLabel('描画ブラシ',{exact:true}).selectOption('brush');await page.getByLabel('お絵かきのペンの太さ',{exact:true}).fill('36');
@@ -55,7 +57,12 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   assert.ok(record.content.paintStrokes.some(s=>s.brush==='brush')&&record.content.paintStrokes.some(s=>s.brush==='airbrush'));
   const saved=structuredClone(record.content);await page.reload();await image.waitFor();await image.evaluate(el=>el.decode());assert.equal(await body.innerHTML(),html);assert.deepEqual(record.content,saved);
   await picker.getByRole('button',{name:'お絵かき',exact:true}).click();await page.reload();await toolbar.waitFor();assert.equal(await page.locator('.notes-sidebar').count(),0);assert.equal(await page.locator('[data-stroke]').count(),count);assert.equal(new URL(page.url()).searchParams.get('d'),noteId);
-  await page.getByLabel('お絵かきのファイル一覧',{exact:true}).click();await page.locator('.notes-list-item').filter({hasText:'描画モード検証'}).click();await toolbar.waitFor();assert.equal(await body.innerHTML(),html);
+  const drawingToggleBounds=await sidebarToggle.boundingBox(),togglePoint={x:drawingToggleBounds.x+drawingToggleBounds.width/2,y:drawingToggleBounds.y+drawingToggleBounds.height/2};
+  for(const open of [true,false,true]){
+   await page.mouse.click(togglePoint.x,togglePoint.y);assert.equal(await page.locator('.notes-sidebar').count(),Number(open));
+   assert.deepEqual(await sidebarToggle.boundingBox(),drawingToggleBounds,'drawing opens and closes navigation from the same point');
+  }
+  await page.locator('.notes-list-item').filter({hasText:'描画モード検証'}).click();await toolbar.waitFor();assert.equal(await body.innerHTML(),html);
   await picker.getByRole('button',{name:'メモ帳',exact:true}).click();await page.setViewportSize({width:390,height:844});
   if(await page.locator('.notes-sidebar').count())await page.getByLabel('メモ一覧を閉じる',{exact:true}).click();await picker.getByRole('button',{name:'お絵かき',exact:true}).tap();await toolbar.waitFor();
   const mobileToolbar=await toolbar.boundingBox(),mobileStage=await page.locator('.notes-stage-center').boundingBox();assert.ok(mobileToolbar.x>=0&&mobileToolbar.x+mobileToolbar.width<=391&&mobileStage.height>350);
