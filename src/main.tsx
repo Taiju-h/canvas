@@ -5,47 +5,14 @@ import NotesWorkspace from "@/components/notes-workspace";
 import type { SharedAccess } from "@/lib/use-notes";
 import "./styles.css";
 import "./visitor.css";
-
-type Session = {
-  authenticated: boolean;
-  memberAuthenticated?: boolean;
-  accountId?: string;
-  nickname?: string | null;
-  csrfToken?: string;
-};
+import {readSession,cacheSession,cachedSession,localSession,type Session} from "@/lib/offline-session";
+import {setLocalMode} from "@/lib/network";
+import {ensureOfflineShell} from "@/lib/offline-shell";
+import {prepareWebUpdate} from "@/lib/web-update";
 
 const API = "/canvas/api.php?path=";
 function stored(key: string) { try { return localStorage.getItem(key) || ""; } catch { return ""; } }
 function store(key: string, value: string) { try { localStorage.setItem(key, value); } catch {} }
-function cachedSession(): Session | null { try { const raw=localStorage.getItem("canvasSessionCache"); return raw?JSON.parse(raw) as Session:null; } catch { return null; } }
-function cacheSession(value: Session) { try { localStorage.setItem("canvasSessionCache", JSON.stringify(value)); } catch {} }
-
-async function readSession(): Promise<Session> {
-  const cached = cachedSession();
-  if(!navigator.onLine&&cached?.authenticated&&cached.accountId)return cached;
-  const appBridge = (window as Window & {CanvasApp?:unknown}).CanvasApp;
-  if (appBridge && cached?.authenticated && cached.accountId) {
-    void fetch(API + encodeURIComponent("/api/session"), {
-      credentials: "same-origin", cache: "no-store",
-    }).then(async response => {
-      if (response.ok) cacheSession(await response.json() as Session);
-    }).catch(()=>{});
-    return cached;
-  }
-  try {
-    const response = await fetch(API + encodeURIComponent("/api/session"), {
-      credentials: "same-origin", cache: "no-store",
-    });
-    if (!response.ok) throw new Error("利用者情報を確認できません");
-    const result = await response.json() as Session;
-    cacheSession(result);
-    return result;
-  } catch (error) {
-    if (cached?.authenticated && cached.accountId) return cached;
-    throw error;
-  }
-}
-
 function VisitorGate({ session, onReady }: { session: Session; onReady: (next: Session) => void }) {
   const [nickname, setNickname] = useState(stored("canvasVisitorNickname"));
   const [error, setError] = useState("");
@@ -82,6 +49,7 @@ function VisitorGate({ session, onReady }: { session: Session; onReady: (next: S
         {error && <p className="visitor-error" role="alert">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? "確認中…" : "KaeruNoteを開始"}</button>
       </form>
+      <button type="button" className="kn-local-open" onClick={()=>onReady(localSession())}>{cachedSession()?.authenticated?"端末に保存したノートを開く":"この端末だけで使う"}</button>
     </section>
   </main>;
 }
@@ -95,29 +63,17 @@ function sharedLink():SharedAccess|undefined{
 }
 function App() {
   const shared=sharedLink();
-  const [session, setSession] = useState<Session | null>(null);
-  const [fatal, setFatal] = useState("");
-  useEffect(() => {
-    void readSession().then(result => {
-      window.CanvasCsrf = result.csrfToken || "";
-      setSession(result);
-    }).catch(error => setFatal(error instanceof Error ? error.message : "保存用DBに接続できません"));
-  }, []);
-  if (fatal) return <main className="visitor-gate"><section className="visitor-card"><h1>接続できません</h1><p>{fatal}</p></section></main>;
-  if (!session) return <main className="hybrid-loading"><div className="hybrid-spinner" />起動しています…</main>;
-  // An invited collaborator opens exactly one shared board and never sees the owner's notes.
-  if (shared)return <NotesWorkspace accountId={'shared:'+shared.id} sharedAccess={shared} />;
-  if (!session.authenticated) return <><VisitorGate session={session} onReady={setSession} /><UpdateBadge floating /></>;
-  return <NotesWorkspace accountId={session.accountId || ""} />;
+  const [session,setSession]=useState<Session|null>(null),[fatal,setFatal]=useState(''),[connecting,setConnecting]=useState(false);
+  const accept=(next:Session)=>{setLocalMode(!!next.localOnly);window.CanvasCsrf=next.csrfToken||'';setSession(next);setFatal('');};
+  const reconnect=async()=>{if(connecting)return;setConnecting(true);try{const next=await readSession(true);await prepareWebUpdate();accept(next);}catch(error){setFatal(error instanceof Error?error.message:'接続できません。端末内の編集は続けられます');}finally{setConnecting(false);}};
+  useEffect(()=>{void readSession().then(accept).catch(error=>setFatal(error instanceof Error?error.message:'接続できません'));},[]);
+  useEffect(()=>{const online=()=>{if(session?.localOnly&&!session.deviceOnly)void reconnect();};addEventListener('online',online);return()=>removeEventListener('online',online);},[session,connecting]);
+  if(!session&&fatal)return <main className="visitor-gate"><section className="visitor-card"><h1>端末でノートを使えます</h1><p>サーバーに接続できません。保存済みのノートを開くか、この端末で新しく書き始められます。</p><p role="status">{fatal}</p><button onClick={()=>accept(localSession())}>{cachedSession()?.authenticated?'端末に保存したノートを開く':'この端末だけで使う'}</button><button onClick={()=>void reconnect()} disabled={connecting}>接続を再確認</button></section></main>;
+  if(!session)return <main className="hybrid-loading"><div className="hybrid-spinner"/>起動しています…</main>;
+  if(shared)return <NotesWorkspace key={'shared:'+shared.id} accountId={'shared:'+shared.id} sharedAccess={shared}/>;
+  if(!session.authenticated)return <><VisitorGate session={session} onReady={accept}/><UpdateBadge floating/></>;
+  const workspace=<NotesWorkspace key={session.accountId+':'+!!session.localOnly} accountId={session.accountId||''}/>;
+  return session.localOnly?<div className="kn-local-shell"><div className="kn-local-status" role="status"><span>{session.deviceOnly?'この端末に保存しています':'端末のノートを編集中・接続後に同期'}{fatal?'：'+fatal:''}</span><button onClick={()=>void reconnect()} disabled={connecting}>{connecting?'接続確認中…':'オンライン接続'}</button></div>{workspace}</div>:workspace;
 }
-
-// Install the prebuilt offline shell. Without registration, offline-assets.json
-// and sw.js existed but were never used, so a restarted browser could not work
-// without network access.
-if('serviceWorker' in navigator){
-  const base=location.pathname.startsWith('/canvas/')?'/canvas/':'/';
-  void navigator.serviceWorker.register(base+'sw.js',{scope:base}).catch(error=>{
-    console.warn('KaeruNote offline cache registration failed',error);
-  });
-}
+void ensureOfflineShell().catch(error=>console.warn('KaeruNote offline cache registration failed',error));
 createRoot(document.getElementById("root")!).render(<App />);

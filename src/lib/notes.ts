@@ -1,3 +1,4 @@
+import {networkAvailable,fetchWithTimeout} from './network';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import TurndownService from 'turndown';
@@ -26,6 +27,9 @@ const richCSS=/^(?:color|background-color|background|font-size|font-weight|font-
 const safeCSSValue=(value:string)=>value.length<140&&!/[;{}<>]|url\s*\(|expression\s*\(|@import/i.test(value)&&
  /^[#\w\d\s.,()%+\-/]+$/.test(value);
 export function cleanHTML(value: string): string {
+  // The rendered image may use an IndexedDB Blob; persist its stable server URL.
+  if(value.includes('data-kn-offline-src')){const template=document.createElement('template');template.innerHTML=value;for(const image of template.content.querySelectorAll('img[data-kn-offline-src]')){image.setAttribute('src',image.getAttribute('data-kn-offline-src')||'');image.removeAttribute('data-kn-offline-src');}value=template.innerHTML;}
+
   const sanitized = DOMPurify.sanitize(value, {
     ALLOWED_TAGS: ['p','div','br','strong','b','em','i','u','s','strike','h1','h2','h3','h4','ul','ol','li','blockquote','pre','code','a','img','table','thead','tbody','tr','th','td','span','font','input','mark','ruby','rt','rp','sup','sub','section'],
     ALLOWED_ATTR: ['href','src','alt','title','color','size','type','checked','disabled','style','class','colspan','rowspan','data-kn-layout','data-kn-flow','data-kn-height','data-kn-align','data-kn-width','data-kn-list','data-kn-local-image','data-kn-local-file','data-kn-ref'],
@@ -107,9 +111,10 @@ export function indexOf(record: NoteRecord): NoteIndex {
   return { id: record.id, title: record.title, revision: record.revision, updated_at: record.updated_at, note, excerpt: text.slice(0,160), searchText: text };
 }
 export async function api(path: string, init: RequestInit = {}) {
+  if(!networkAvailable())throw new Error('端末に保存しています。サーバーとの同期にはオンライン接続を確認してください');
   const headers = new Headers(init.headers);
   if (init.method && !['GET','HEAD'].includes(init.method)) headers.set('X-CSRF-Token', window.CanvasCsrf || '');
-  const response = await fetch(API + encodeURIComponent(path), { ...init, headers, credentials: 'same-origin', cache: 'no-store' });
+  const response = await fetchWithTimeout(API + encodeURIComponent(path), { ...init, headers, credentials: 'same-origin', cache: 'no-store' },30000);
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
     const error = new Error(result.error || `通信エラー (${response.status})`) as Error & { status: number };

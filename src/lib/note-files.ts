@@ -1,3 +1,4 @@
+import {fetchWithTimeout} from './network';
 import {fileURL,type NoteRecord} from './notes';
 import {getLocalImage} from './local-docs';
 
@@ -31,7 +32,7 @@ export async function readNoteAsset(documentId:string,asset:NoteAsset,shareToken
     if(!navigator.onLine||documentId.startsWith('local-')||asset.id.startsWith('local-'))throw new Error(`「${asset.name}」はこの端末に未取得です。元の端末か、接続中に取り出してください。`);
     const id=asset.documentId||documentId;
     const url=asset.kind==='file'?fileURL(id,asset.id):'/canvas/api.php?path='+encodeURIComponent(`/api/documents/${id}/images/${asset.id}`);
-    const response=await fetch(url,{credentials:'same-origin',headers:shareToken?{'X-Share-Token':shareToken}:undefined,signal});
+    const response=await fetchWithTimeout(url,{credentials:'same-origin',headers:shareToken?{'X-Share-Token':shareToken}:undefined,signal});
     if(!response.ok)throw new Error(`「${asset.name}」を取得できません（${response.status}）。同じ利用者で開いているか確認してください。`);
     blob=await response.blob();
   }
