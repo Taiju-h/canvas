@@ -1,3 +1,4 @@
+import {useOfflineNoteImages} from '@/lib/offline-note-images';
 import {flowNoteColumns} from '@/lib/rich-note-commands';
 import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
 import {getLocalImage} from '@/lib/local-docs';
@@ -38,21 +39,7 @@ export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPast
     const safe=cleanHTML(html);
     if(!composing.current&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
   },[html,visible,docId]);
-  useEffect(()=>{
-    const el=ref.current;if(!el)return;
-    let live=true;const urls:string[]=[];
-    const hydrate=async()=>{
-      for(const image of Array.from(el.querySelectorAll<HTMLImageElement>('img[data-kn-local-image]'))){
-        const imageId=image.dataset.knLocalImage||'';if(!imageId)continue;
-        const blob=await getLocalImage(imageId).catch(()=>undefined);
-        if(!live)return;
-        if(blob){const url=URL.createObjectURL(blob);urls.push(url);image.src=url;}
-        else if(docId&&!docId.startsWith('local-'))image.src=fileURL(docId,imageId);
-      }
-    };
-    void hydrate();
-    return()=>{live=false;urls.forEach(URL.revokeObjectURL);};
-  },[html,docId,visible]);
+  useOfflineNoteImages(ref,docId,html,visible);
   useEffect(()=>{const el=ref.current;if(!el||!onHeight)return;const measure=()=>onHeight(el.scrollHeight);const observer=new ResizeObserver(measure);observer.observe(el);measure();return()=>observer.disconnect();},[docId,visible,onHeight]);
   if(!visible)return null;
   const emit=()=>{if(locked)return;const el=ref.current;if(el){flowNoteColumns(el);onChange(cleanHTML(el.innerHTML));}};

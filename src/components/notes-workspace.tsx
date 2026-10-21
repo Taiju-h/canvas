@@ -1,3 +1,5 @@
+import {ensureOfflineShell} from '@/lib/offline-shell';
+import {networkAvailable,fetchWithTimeout} from '@/lib/network';
 import {planCategorySync,type Classification} from '@/lib/category-sync';
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
@@ -41,7 +43,7 @@ import {useTouchButtons} from '@/lib/use-touch-buttons';
 
 function LegacyImage({docId,imageId,x,y,w,h}:{docId:string;imageId:string;x:number;y:number;w:number;h:number}) {
   const [url,setURL]=useState('');
-  useEffect(()=>{let live=true;let objectURL='';void getLocalImage(imageId).then(blob=>{if(!live)return;
+  useEffect(()=>{let live=true;let objectURL='';void getLocalImage(imageId).then(async blob=>{if(!blob&&networkAvailable()&&!imageId.startsWith('local-')){try{blob=await readNoteAsset(docId,{id:imageId,kind:'image',name:imageId});await putLocalImage(imageId,blob);}catch{}}if(!live)return;
     if(blob){objectURL=URL.createObjectURL(blob);setURL(objectURL);}else if(!imageId.startsWith('local-'))setURL('/canvas/api.php?path='+encodeURIComponent(`/api/documents/${docId}/images/${imageId}`));
   }).catch(()=>{if(live&&!imageId.startsWith('local-'))setURL('/canvas/api.php?path='+encodeURIComponent(`/api/documents/${docId}/images/${imageId}`));});return()=>{live=false;if(objectURL)URL.revokeObjectURL(objectURL);};},[docId,imageId]);
   return url?<image href={url} x={x} y={y} width={w} height={h}/>:null;
@@ -712,7 +714,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       const latest=current.current;if(!latest||latest.id!==notes.resolveId(r.id))throw new Error('読み込み先ノートが切り替わりました');
       const added=working.items.filter(i=>!r.content.items.some(old=>old.id===i.id));
       commit({...latest.content,layers:latest.content.layers.some(l=>l.id===layer!.id)?latest.content.layers:[...latest.content.layers,layer],items:[...latest.content.items,...added]} as NoteDoc);setSelected(added.at(-1)?.id||'');setTool('select');
-      if(navigator.onLine)void notes.save();
+      if(networkAvailable())void notes.save();
     }catch(err){notes.setError(err instanceof Error?err.message:'画像を配置できません');}
     finally{setAttaching(false);}
   }
@@ -1155,7 +1157,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   async function callChatGPT(action:'organize'|'related',send=true){
     const currentRecord=current.current;
     if(!currentRecord||currentRecord.id.startsWith('local-')){notes.setError('ChatGPT接続は最初にノートをサーバーへ保存してください');return;}
-    if(!navigator.onLine){notes.setError('AI処理にはネット接続が必要です。メモの編集はオフラインで続けられます');return;}
+    if(!networkAvailable()){notes.setError('AI処理にはネット接続が必要です。メモの編集はオフラインで続けられます');return;}
     if(send&&!window.confirm(action==='related'?'このノートと関連候補のタイトル・本文抜粋をOpenAI APIへ送信します。続けますか？':'このノートの内容をOpenAI APIへ送信して整理します。続けますか？'))return;
     aiTarget.current=currentRecord.id;setAiBusy(true);
     try{
@@ -1181,7 +1183,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   }
   async function transcribeAudio(file:File){
     if(!file)return;
-    if(!navigator.onLine){notes.setError('音声文字起こしにはネット接続が必要です');return;}
+    if(!networkAvailable()){notes.setError('音声文字起こしにはネット接続が必要です');return;}
     if(!window.confirm('この音声をOpenAI APIへ送信して文字起こしします。続けますか？'))return;
     aiTarget.current=current.current?.id||'';setAiBusy(true);
     try{
@@ -1205,7 +1207,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(offlinePreparing)return;
     setOfflinePreparing(true);setOfflineProgress(null);
     try{
-      const result=await notes.prepareOffline(true,setOfflineProgress);
+      if(!await ensureOfflineShell())throw new Error('このブラウザでは画面を端末に保存できません');const result=await notes.prepareOffline(true,setOfflineProgress);
       notes.setError(result.errors
         ?'端末への準備：'+result.done+'件・添付'+result.files+'件を保存。'+result.errors+'件は保存できませんでした（空き容量や権限を確認してください）'
         :'オフライン準備完了：'+result.done+'件のノートと添付'+result.files+'件を端末へ保存しました');
@@ -1258,7 +1260,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       }
       // IndexedDB stores the actual binary even without any connection.
       // On reconnect useNotes uploads pending attachments and clears their flag.
-      if(navigator.onLine)void notes.save();
+      if(networkAvailable())void notes.save();
     }catch(err){notes.setError(err instanceof Error?err.message:'添付できません');}
     finally{setAttaching(false);}
   }
@@ -1272,7 +1274,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   async function loadJex(file:File){setImportMessage('JEXを確認しています…');try{const value=await readJex(file);setArchive(value);setImportMessage('');}catch(err){setImportMessage(String(err));}}
   async function runImport(){if(!archive)return;cancelImport.current=false;setImporting(true);
     try{await notes.save();const existing=await notes.refresh();const result=await importJex(archive,existing,setImportMessage,()=>cancelImport.current,accountId);
-      setImportMessage(`${result.completed}件を取り込みました。取り込み済み ${result.skipped}件は重複を避けてスキップしました。`);setArchive(null);const rows=await notes.refresh();if(navigator.onLine)for(const row of rows)if(row.note?.importState==='complete')void notes.save(row.id);
+      setImportMessage(`${result.completed}件を取り込みました。取り込み済み ${result.skipped}件は重複を避けてスキップしました。`);setArchive(null);const rows=await notes.refresh();if(networkAvailable())for(const row of rows)if(row.note?.importState==='complete')void notes.save(row.id);
     }catch(err){setImportMessage(err instanceof Error?err.message:'取り込みに失敗しました');await notes.refresh().catch(()=>{});}finally{setImporting(false);}}
   async function applyOrganization(file:File){try{
     if(file.size>2_000_000)throw new Error('整理ファイルが大きすぎます');
@@ -1282,7 +1284,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const changed=await assignPages(payload.notes,true);
     notes.setError(`分類を${changed}件、端末に反映しました`);
   }catch(err){notes.setError(String(err));}}
-  async function exportAll(throwErrors=false){try{await notes.persistPending();const rows=navigator.onLine?await notes.refresh(true):notes.list;const texts:string[]=[];const entries:{id:string;category:string;tags:string[];revision:number}[]=[];
+  async function exportAll(throwErrors=false){try{await notes.persistPending();const rows=networkAvailable()?await notes.refresh(true):notes.list;const texts:string[]=[];const entries:{id:string;category:string;tags:string[];revision:number}[]=[];
     for(const n of rows.filter(n=>!n.note?.trashedAt)){const r=await notes.readForExport(n.id);
       texts.push(exportMarkdown(r));entries.push({id:r.id,category:r.content.note?.category||'',tags:r.content.note?.tags||[],revision:r.revision});}
     download('Canvas-メモ整理.md',texts.join('\n\n<!-- 次のメモ -->\n\n'));download('Canvas-分類.json',JSON.stringify({version:1,notes:entries},null,2),'application/json');
@@ -1319,7 +1321,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     setDeleteOpen(false);setFocus('');undoStack.current=[];redoStack.current=[];
   }
   async function syncOfflineCategories(){
-    if(!navigator.onLine||syncingWorkspace.current||organizingRef.current||sharedAccess)return;
+    if(!networkAvailable()||syncingWorkspace.current||organizingRef.current||sharedAccess)return;
     const first=workspaceRef.current;
     if(!first.pending.length)return;
     syncingWorkspace.current=true;setClassificationStatus('syncing');
@@ -1365,7 +1367,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   useEffect(()=>{
     const onOnline=()=>{void syncOfflineCategories();};
     addEventListener('online',onOnline);
-    const interval=window.setInterval(()=>{if(navigator.onLine&&workspaceRef.current.pending.length)void syncOfflineCategories();},12000);
+    const interval=window.setInterval(()=>{if(networkAvailable()&&workspaceRef.current.pending.length)void syncOfflineCategories();},12000);
     onOnline();
     return()=>{removeEventListener('online',onOnline);clearInterval(interval);};
   },[accountId,!!sharedAccess]);
@@ -1389,7 +1391,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       if(op.kind!=='create')await notes.applyOfflineCategory(op);
       navigateCategory(op.kind==='tag'?'':op.target);
       if(op.kind==='tag')setTag(op.target);
-    }finally{setOrganizing(false);organizingRef.current=false;if(navigator.onLine)void syncOfflineCategories();}
+    }finally{setOrganizing(false);organizingRef.current=false;if(networkAvailable())void syncOfflineCategories();}
   }
   async function assignPages(entries:Classification[],strictRevision=false){
     if(organizingRef.current||syncingWorkspace.current||sharedAccess)throw new Error('分類の同期・整理が終わるまでお待ちください');
@@ -1415,7 +1417,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       await notes.applyLocalMetadata(resolved,{sync:false,strictRevision:false});
       return entries.length;
     }catch(error){if(queued&&previous)updateWorkspace(previous);setClassificationStatus(workspaceRef.current.pending.length?'pending':'saved');throw error;}
-    finally{setOrganizing(false);organizingRef.current=false;if(navigator.onLine)void syncOfflineCategories();}
+    finally{setOrganizing(false);organizingRef.current=false;if(networkAvailable())void syncOfflineCategories();}
   }
   function reorderGraphic(direction:'front'|'back'){
     if(!doc||!selectedShape)return;

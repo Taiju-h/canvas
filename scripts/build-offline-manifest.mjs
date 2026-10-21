@@ -31,8 +31,8 @@ for(const name of await assetFiles(pdfSupport,'assets/pdf-support'))built.add(na
 await Promise.all((await assetFiles(assets)).filter(name=>!built.has(name)).map(name=>unlink(join(output,name))));
 const files = [...built].sort().map(name => base + name);
 await writeFile(join(output, "offline-assets.json"), JSON.stringify(files));
-const serviceWorker = await readFile(join(root, "public", "sw.js"), "utf8");
-const buildId = createHash("sha256").update(JSON.stringify(files)).digest("hex").slice(0, 12);
+const serviceWorker = await readFile(join(root, "src", "service-worker.js"), "utf8");
+const buildId = createHash("sha256").update(JSON.stringify(files)).update(serviceWorker).digest("hex").slice(0, 12);
 await writeFile(join(output, "build-version.json"), JSON.stringify({ buildId, commitTime:commitTime(), commit: process.env.VITE_APP_COMMIT || "" }));
 await writeFile(join(output, "sw.js"), serviceWorker.replace("__BUILD_ID__", buildId));
 await copyFile(join(root, "public", "favicon.svg"), join(output, "favicon.svg"));

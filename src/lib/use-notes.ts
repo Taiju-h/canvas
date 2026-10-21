@@ -1,3 +1,5 @@
+import {noteAssets,readNoteAsset} from './note-files';
+import {networkAvailable,fetchWithTimeout} from '@/lib/network';
 import {materializeSheetReferences,referenceSourceFromNote,referencedAliases} from './sheet-references';
 import type {StudioNoteDoc} from '../components/note-studio-layers';
 import { useEffect, useRef, useState } from 'react';
@@ -45,11 +47,12 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     await localJobs.current;
     const local = (await listLocalDocs()).filter(n=>n.accountId===accountId);
     const merged = new Map<string,NoteIndex>();
-    if (navigator.onLine) {
+    setList(local.map(n=>indexOf({...n,content:normalizeNote(n.content)})));
+    if (networkAvailable()) {
       try {
       let offset = 0;
       while (true) {
-        const response = await fetch('/canvas/api.php?path=%2Fapi%2Fnotes-index&offset='+offset, { credentials:'same-origin',cache:'no-store' });
+        const response = await fetchWithTimeout('/canvas/api.php?path=%2Fapi%2Fnotes-index&offset='+offset, { credentials:'same-origin',cache:'no-store' });
         if (!response.ok) throw new Error('メモ一覧を取得できません');
         const page = await response.json();
         for (const n of page.documents as NoteIndex[]) merged.set(n.id,n);
@@ -70,7 +73,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
   }
   async function prepareOffline(includeFiles:boolean,onProgress?:(progress:{done:number;total:number;files:number;errors:number})=>void){
     if(shared)throw new Error('共有リンクでは所有者の全ノートを一括取得できません');
-    if(!navigator.onLine)throw new Error('初回のオフライン準備には接続が必要です。準備済みのノートは接続不要で使用できます');
+    if(!networkAvailable())throw new Error('初回のオフライン準備には接続が必要です。準備済みのノートは接続不要で使用できます');
     try{await navigator.storage?.persist?.();}catch{/* Browser may not support persistent storage. */}
     const rows=await refresh();
     let done=0,files=0,errors=0;
@@ -90,23 +93,12 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
         });
         await localJobs.current;
         if(includeFiles){
-          const refs=new Map<string,string>();
-          for(const a of remote.content.attachments||[])refs.set(a.id,fileURL(index.id,a.id));
-          for(const image of [...(remote.content.items||[]).map(x=>x.imageId),...(remote.content.layers||[]).map(x=>x.rasterImageId)]){
-            if(!image||image.startsWith('local-'))continue;
-            if(image.startsWith('file:'))refs.set(image.slice(5),fileURL(index.id,image.slice(5)));
-            else refs.set(image,'/canvas/api.php?path='+encodeURIComponent('/api/documents/'+index.id+'/images/'+image));
-          }
-          for(const [assetId,url] of refs){
+          for(const asset of noteAssets({...remote,content:remote.content})){
             try{
-              if(await getLocalImage(assetId))continue;
-              const response=await fetch(url,{credentials:'same-origin'});
-              if(!response.ok)throw new Error('添付 '+assetId+' を読み込めません');
-              const length=Number(response.headers.get('content-length')||0);
+              if(await getLocalImage(asset.id))continue;
               const estimate=await navigator.storage?.estimate?.();
-              if(estimate?.quota&&estimate?.usage&&length>estimate.quota-estimate.usage)
-                throw new Error('端末の空き容量が足りません');
-              await putLocalImage(assetId,await response.blob());files++;
+              if(estimate?.quota&&estimate?.usage&&asset.size&&asset.size>estimate.quota-estimate.usage)throw new Error('端末の空き容量が足りません');
+              await putLocalImage(asset.id,await readNoteAsset(index.id,asset));files++;
             }catch{errors++;}
           }
         }
@@ -164,13 +156,13 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       }
       if(blocked.current.has(id))return;
       if(!shared&&loadOfflineWorkspace(accountId).pending.length){report('端末に保存済み（分類の同期待ち）',id);return;}
-      if(!navigator.onLine&&!shared){
+      if(!networkAvailable()&&!shared){
         report('端末に保存・履歴作成済み（同期待ち）',id);
         return;
       }
       let attempts=0;
       let key=id;
-      while (navigator.onLine) {
+      while (networkAvailable()) {
         if(!shared&&loadOfflineWorkspace(accountId).pending.length)break;
         let sent=records.current.get(key); if (!sent?.dirty||sent.content.note?.importState==='pending') break;
         report('同期中…',key);
@@ -257,7 +249,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     const previous=records.current.get(active.current); if(!previous)return;
     const next={...previous,content,title:title??previous.title,updated_at:Date.now(),dirty:true};show(next);
     report('保存中…',next.id);
-    void persist(next).then(()=>{ if(records.current.get(next.id)===next)report(navigator.onLine?'同期待ち':'端末に保存済み',next.id); }).catch(()=>{setError('端末に保存できません。MDを書き出して内容を保存してください');setStatus('端末保存エラー');});
+    void persist(next).then(()=>{ if(records.current.get(next.id)===next)report(networkAvailable()?'同期待ち':'端末に保存済み',next.id); }).catch(()=>{setError('端末に保存できません。MDを書き出して内容を保存してください');setStatus('端末保存エラー');});
     clearTimeout(timers.current.get(next.id));timers.current.set(next.id,setTimeout(()=>void save(next.id),700));
   }
   function restoreBase(cached:import('./local-docs').LocalDoc){
@@ -270,8 +262,8 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     await persistPending();
     const cached=await getLocalDoc(id);let latest=records.current.get(id);
     if(cached?.accountId===accountId){restoreBase(cached);if(!latest||!latest.dirty&&(cached.dirty||cached.revision>latest.revision))latest={...cached,content:normalizeNote(cached.content)};}
-    if(latest&&(latest.dirty||id.startsWith('local-')||!navigator.onLine||latest.revision>=(knownRevision??list.find(n=>n.id===id)?.revision??Infinity)))return latest;
-    if(!navigator.onLine||id.startsWith('local-'))throw new Error('この端末に未取得のページがあります。接続中に取り出すか、取得済みのページを選んでください');
+    if(latest&&(latest.dirty||id.startsWith('local-')||!networkAvailable()||latest.revision>=(knownRevision??list.find(n=>n.id===id)?.revision??Infinity)))return latest;
+    if(!networkAvailable()||id.startsWith('local-'))throw new Error('この端末に未取得のページがあります。接続中に取り出すか、取得済みのページを選んでください');
     const remote=await(await documentApi('/api/documents/'+id)).json() as NoteRecord;
     const current=records.current.get(id)||latest;
     if(current&&(current.dirty||current.revision>remote.revision))return current;
@@ -287,7 +279,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     try {
       const cached=shared?undefined:await getLocalDoc(id); let next=records.current.get(id);
       if(cached?.accountId===accountId){restoreBase(cached);if(!next)next={...cached,content:normalizeNote(cached.content)};}
-      if (navigator.onLine && !id.startsWith('local-')) {
+      if (networkAvailable() && !id.startsWith('local-')) {
         try {
           const remote=await (await documentApi('/api/documents/'+id)).json() as NoteRecord;
           if (next?.dirty) { /* save() uses the retained common base; never replace a draft here. */ }
@@ -391,11 +383,12 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       if(sharedAccess){await open(sharedAccess.id);return;}
       // Fast path for APK/WebView startup: restore the last cached document first,
       // then refresh the remote index in the background.
-      if(wanted){
-        const cached=await getLocalDoc(wanted).catch(()=>undefined);
+      {
+        const local=await listLocalDocs().catch(()=>[]);
+        const cached=local.find(n=>n.id===wanted&&n.accountId===accountId)||local.filter(n=>n.accountId===accountId&&!(n.content as NoteDoc).note?.trashedAt).sort((a,b)=>b.updated_at-a.updated_at)[0];
         if(live&&cached?.accountId===accountId){
           restoreBase(cached);const next={...cached,content:normalizeNote(cached.content)} as NoteRecord;
-          active.current=wanted;show(next);setURL(wanted);setBusy(false);
+          active.current=cached.id;show(next);setURL(cached.id);setBusy(false);
           setStatus(next.dirty?'同期待ち':'端末から復元');
         }
       }
@@ -403,12 +396,13 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       const target=rows.find(n=>n.id===wanted)||rows.find(n=>!n.note?.trashedAt);
       if(target){
         if(active.current!==target.id || !records.current.get(target.id)) await open(target.id);
-        else if(navigator.onLine&&!target.id.startsWith('local-')) void open(target.id);
+        else if(networkAvailable()&&!target.id.startsWith('local-')) void open(target.id);
       } else if(!active.current) await create();
+      if(networkAvailable())for(const row of records.current.values())if(row.dirty)void save(row.id);
     })().catch(err=>setError(String(err)));
     const online=()=>{
       void listLocalDocs().then(rows=>{
-        if(!navigator.onLine||shared)return;
+        if(!networkAvailable()||shared)return;
         for(const doc of rows.filter(row=>row.accountId===accountId&&row.dirty)){
           restoreBase(doc);if(!records.current.has(doc.id))records.current.set(doc.id,{...doc,content:normalizeNote(doc.content)});
           void save(doc.id);
@@ -422,7 +416,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     // A concurrent write is merged only if the affected objects do not overlap.
     let refreshing=false;
     const poll=window.setInterval(async()=>{
-      if(!live||refreshing||!navigator.onLine)return;
+      if(!live||refreshing||!networkAvailable())return;
       const id=active.current,local=records.current.get(id);
       if(!id||id.startsWith('local-')||!local||local.dirty||blocked.current.has(id)||jobs.current.has(id))return;
       if((document.activeElement as HTMLElement|null)?.closest?.('[contenteditable=true]'))return;
@@ -439,7 +433,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       }
       finally{refreshing=false;}
     },2500);
-    return()=>{live=false;clearInterval(poll);removeEventListener('online',online);removeEventListener('beforeunload',before);};
+    return()=>{live=false;clearInterval(poll);for(const timer of timers.current.values())clearTimeout(timer);timers.current.clear();removeEventListener('online',online);removeEventListener('beforeunload',before);};
   },[]);
   async function reconcileClassification(entries:{id:string;category:string;tags:string[]}[]){
     await persistPending();

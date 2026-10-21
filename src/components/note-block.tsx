@@ -1,3 +1,4 @@
+import {useOfflineNoteImages} from '@/lib/offline-note-images';
 import {flowNoteColumns} from '@/lib/rich-note-commands';
 import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
 import { useEffect, useLayoutEffect, useRef } from 'react';
@@ -12,20 +13,7 @@ export default function EditableBlock({docId,block,opacity=1,zIndex,readOnly,foc
   useLayoutEffect(()=>{const el=ref.current;if(!el)return;const html=cleanHTML(block.html);
     if(document.activeElement!==el && el.innerHTML!==html)el.innerHTML=html;
   },[block.html]);
-  useEffect(()=>{
-    const root=ref.current;if(!root)return;
-    const urls:string[]=[];let live=true;
-    void (async()=>{
-      for(const img of Array.from(root.querySelectorAll<HTMLImageElement>('img[data-kn-local-image]'))){
-        const id=img.dataset.knLocalImage||'';if(!id)continue;
-        const blob=await getLocalImage(id).catch(()=>undefined);
-        if(!live)return;
-        if(blob){const url=URL.createObjectURL(blob);urls.push(url);img.src=url;}
-        else if(!docId.startsWith('local-'))img.src=fileURL(docId,id);
-      }
-    })();
-    return()=>{live=false;urls.forEach(URL.revokeObjectURL);};
-  },[docId,block.html]);
+  useOfflineNoteImages(ref,docId,block.html);
   useEffect(()=>{if(focused&&!readOnly)ref.current?.focus({preventScroll:true});},[focused,readOnly]);
   useEffect(()=>{const el=ref.current;if(!el)return;const observer=new ResizeObserver(()=>callback.current(Math.max(140,el.scrollHeight+54)));observer.observe(el);return()=>observer.disconnect();},[]);
   function emit(){if(readOnly)return;const el=ref.current;if(el){flowNoteColumns(el);onChange(cleanHTML(el.innerHTML),Math.max(140,el.scrollHeight+54));}}
