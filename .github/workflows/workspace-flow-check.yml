@@ -31,6 +31,7 @@ jobs:
       - run: node tests/organizer-flow.cjs
       - run: node tests/note-offline.cjs
       - run: node tests/offline-startup.cjs
+      - run: node tests/web-update-check.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

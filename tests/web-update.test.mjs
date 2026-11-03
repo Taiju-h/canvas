@@ -1,6 +1,6 @@
 import {test,afterEach} from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareWebUpdate} from '../src/lib/web-update.ts';
+import {describeWebUpdate,prepareWebUpdate} from '../src/lib/web-update.ts';
 
 const originalWindow=globalThis.window;
 afterEach(()=>{if(originalWindow===undefined)delete globalThis.window;else globalThis.window=originalWindow;});
@@ -23,4 +23,13 @@ test('a stalled local save times out instead of leaving an unresponsive update b
   storageWaits(new Promise(()=>{}));
   await assert.rejects(prepareWebUpdate(20),/保存確認に時間がかかっています/);
   storageWaits();await prepareWebUpdate();
+});
+test('manual checks distinguish current, available and older public versions and include the shell version',()=>{
+  assert.match(describeWebUpdate('aaaaaaa1234',200,{commit:'aaaaaaa',commitTime:200},'0.4.5-web-shell'),/アプリ 0\.4\.5-web-shell。最新版です/);
+  assert.match(describeWebUpdate('aaaaaaa',200,{commit:'bbbbbbb',commitTime:201}),/更新できます/);
+  assert.match(describeWebUpdate('aaaaaaa',200,{commit:'bbbbbbb',commitTime:100}),/新しくないため、更新しません/);
+});
+test('missing version metadata is reported as unknown instead of falsely saying the app is current',()=>{
+  assert.match(describeWebUpdate(undefined,0,{commit:'bbbbbbb',commitTime:200}),/版情報を確認できません/);
+  assert.match(describeWebUpdate('aaaaaaa',200,{commit:'bbbbbbb'}),/公開版の日時を確認できません/);
 });
