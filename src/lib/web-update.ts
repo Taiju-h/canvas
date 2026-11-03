@@ -17,3 +17,12 @@ export function hasNewerWebVersion(commit:string|undefined,time:unknown,remote:{
   // Unknown/older production metadata must never downgrade a newer bundled APK.
   return Number.isFinite(candidate)&&candidate>0&&candidate>(Number.isFinite(installed)?installed:0);
 }
+
+export function describeWebUpdate(commit:string|undefined,time:unknown,remote:{commit?:string;commitTime?:number},appVersion=''){
+  const versions=`現在の画面 ${commit?.slice(0,7)||'不明'}／公開版 ${remote.commit?.slice(0,7)||'不明'}${appVersion?'／アプリ '+appVersion:''}`;
+  if(!commit||!remote.commit)return versions+'。版情報を確認できません。';
+  if(sameCommit(commit,remote.commit))return versions+'。最新版です。';
+  if(hasNewerWebVersion(commit,time,remote))return versions+'。更新できます。「更新あり」から取り込んでください。';
+  if(!Number.isFinite(Number(remote.commitTime))||Number(remote.commitTime)<=0)return versions+'。公開版の日時を確認できません。';
+  return versions+'。公開版は現在の画面より新しくないため、更新しません。';
+}

@@ -14,6 +14,7 @@ import androidx.test.core.app.ActivityScenario;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.lifecycle.Lifecycle;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.io.File;
@@ -66,6 +67,47 @@ public final class WindowLayoutTest {
         int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
         return (flags & View.SYSTEM_UI_FLAG_FULLSCREEN) != 0 && (flags & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) != 0 &&
             visible.top <= position[1] && visible.bottom >= position[1] + root.getHeight() && root.getChildAt(0).getHeight() == root.getHeight();
+    }
+    private void showWindowFixture(ActivityScenario<MainActivity> scenario) {
+        scenario.onActivity(activity -> {
+            WebView view = (WebView) root(activity).getChildAt(0);
+            view.stopLoading();
+            view.loadDataWithBaseURL("https://canvas.uzero.style/canvas/", "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'><title>resume-fixture</title></head><body>Fullscreen resume check</body></html>", "text/html", "UTF-8", null);
+            view.clearFocus();root(activity).setFocusableInTouchMode(true);root(activity).requestFocus();
+            WindowCompat.getInsetsController(activity.getWindow(), activity.getWindow().getDecorView()).hide(WindowInsetsCompat.Type.ime());
+        });
+        await(scenario, activity -> "resume-fixture".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "Window fixture must load");
+    }
+    @Test public void legacyNormalPreferenceDoesNotShowTheClockOnANewLaunch() {
+        ApplicationProvider.getApplicationContext().getSharedPreferences("canvas-shell", 0).edit().putBoolean("fullscreen", false).commit();
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            showWindowFixture(scenario);
+            await(scenario, this::barsHidden, "A fresh launch must hide the clock despite the previous normal-mode preference");
+            scenario.onActivity(activity -> activity.setFullscreenEnabled(false));
+            await(scenario, activity -> {
+                WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root(activity));
+                return insets != null && insets.isVisible(WindowInsetsCompat.Type.statusBars());
+            }, "An explicit normal-mode toggle must still work");
+            scenario.recreate();
+            showWindowFixture(scenario);
+            await(scenario, activity -> {
+                WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root(activity));
+                return insets != null && insets.isVisible(WindowInsetsCompat.Type.statusBars());
+            }, "Recreation must preserve the current session's explicit normal mode");
+        }
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            showWindowFixture(scenario);
+            await(scenario, this::barsHidden, "The next fresh launch must return to fullscreen");
+        }
+    }
+    @Test public void returningToTheForegroundRestoresHiddenSystemBars() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            showWindowFixture(scenario);
+            await(scenario, this::barsHidden, "The initial window must be fullscreen");
+            scenario.moveToState(Lifecycle.State.CREATED);
+            scenario.moveToState(Lifecycle.State.RESUMED);
+            await(scenario, this::barsHidden, "Returning to the app must keep the clock and navigation bar hidden");
+        }
     }
     @Test public void fullscreenHidesBarsAndNormalModeReservesTheirSpace() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {

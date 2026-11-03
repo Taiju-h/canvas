@@ -13,6 +13,7 @@ import android.provider.Browser;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
@@ -59,6 +60,7 @@ public final class MainActivity extends ComponentActivity {
     private static final String CANVAS_URL = CANVAS_ROOT + "?app=" + BuildConfig.VERSION_NAME;
     private static final String CANVAS_HOST = "canvas.uzero.style";
     private static final int FILE_CHOOSER_REQUEST = 701;
+    private static final String FULLSCREEN_STATE = "canvas.fullscreen";
 
     private WebView webView;
     private LinearLayout errorPanel;
@@ -80,7 +82,9 @@ public final class MainActivity extends ComponentActivity {
 
         // An older downloaded UI must not override the Web bundle in a newer APK.
         android.content.SharedPreferences shell = getSharedPreferences("canvas-shell", MODE_PRIVATE);
-        fullscreenEnabled = shell.getBoolean("fullscreen", true);
+        // A previous session's normal mode must not leave the clock visible on
+        // the next launch. Preserve an explicit toggle only across recreation.
+        fullscreenEnabled = savedInstanceState == null || savedInstanceState.getBoolean(FULLSCREEN_STATE, true);
         String bundledCommit = readWebVersion(null).optString("commit", "");
         if (shell.getInt("installedVersion", 0) != BuildConfig.VERSION_CODE ||
             !shell.getString("bundledCommit", "").equals(bundledCommit)) {
@@ -163,20 +167,38 @@ public final class MainActivity extends ComponentActivity {
 
     void setFullscreenEnabled(boolean enabled) {
         fullscreenEnabled = enabled;
-        getSharedPreferences("canvas-shell", MODE_PRIVATE).edit().putBoolean("fullscreen", enabled).apply();
-        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        controller.setAppearanceLightStatusBars(true);
-        controller.setAppearanceLightNavigationBars(true);
-        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-        if (enabled) controller.hide(WindowInsetsCompat.Type.systemBars());
-        else controller.show(WindowInsetsCompat.Type.systemBars());
+        applySystemBarVisibility();
         if (root != null) ViewCompat.requestApplyInsets(root);
         if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('canvas-fullscreen-change'))", null);
     }
 
+    private void applySystemBarVisibility() {
+        if (fullscreenEnabled) getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        controller.setAppearanceLightStatusBars(true);
+        controller.setAppearanceLightNavigationBars(true);
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        if (fullscreenEnabled) controller.hide(WindowInsetsCompat.Type.systemBars());
+        else controller.show(WindowInsetsCompat.Type.systemBars());
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (root != null) root.post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            applySystemBarVisibility();
+            ViewCompat.requestApplyInsets(root);
+            if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('canvas-app-resume'))", null);
+        });
+    }
+
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus && root != null) setFullscreenEnabled(fullscreenEnabled);
+        if (hasFocus && root != null) {
+            applySystemBarVisibility();
+            ViewCompat.requestApplyInsets(root);
+        }
     }
 
     private String canvasUrlFromIntent(Intent intent) {
@@ -664,6 +686,7 @@ public final class MainActivity extends ComponentActivity {
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
+        outState.putBoolean(FULLSCREEN_STATE, fullscreenEnabled);
         webView.saveState(outState);
         super.onSaveInstanceState(outState);
     }
