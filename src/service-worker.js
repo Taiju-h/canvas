@@ -30,9 +30,10 @@ self.addEventListener("fetch",event=>{
   const editor=["/","/index.html","/index.php","/canvas/","/canvas/index.html","/canvas/index.php"].includes(url.pathname);
   if(request.mode==="navigate"&&editor){
     event.respondWith((async()=>{
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),2500);
-      try{const response=await fetch(request,{signal:controller.signal});if(!response.ok)throw new Error("Editor unavailable");return response;}
-      catch{return await matchShell(OFFLINE)||Response.error();}finally{clearTimeout(timer);}
+      // Start from the complete, installed app even when Wi-Fi is connected but
+      // the server is unreachable. Authentication and sync happen inside it.
+      const cached=await matchShell(OFFLINE);if(cached)return cached;
+      return fetch(request);
     })());return;
   }
   if(url.pathname.startsWith("/canvas/assets/")||/^\/canvas\/(?:manifest\.webmanifest|favicon\.svg|icon-\d+\.png)$/.test(url.pathname)){

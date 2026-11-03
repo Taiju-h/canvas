@@ -4,7 +4,7 @@ export function cachedSession():Session|null{try{const raw=localStorage.getItem(
 export function cacheSession(session:Session){if(!session.authenticated)return;try{const {localOnly,...saved}=session;localStorage.setItem('canvasSessionCache',JSON.stringify(saved));}catch{}}
 export function localSession():Session{
   const cached=cachedSession();if(cached?.authenticated&&cached.accountId)return{...cached,localOnly:true};
-  let id=localStorage.getItem('canvasDeviceAccount');if(!id){id='device-'+crypto.randomUUID();localStorage.setItem('canvasDeviceAccount',id);}
+  let id=localStorage.getItem('canvasDeviceAccount');if(!id){id='device-'+Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');localStorage.setItem('canvasDeviceAccount',id);}
   const session={authenticated:true,accountId:id,localOnly:true,deviceOnly:true};cacheSession(session);return session;
 }
 export async function readSession(forceRemote=false):Promise<Session>{

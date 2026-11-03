@@ -1,5 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {hasNewerWebVersion,prepareWebUpdate} from '@/lib/web-update';
+import {ensureOfflineShell} from '@/lib/offline-shell';
 
 type Bridge={applyWebUpdate?:()=>void;activateWebUpdate?:()=>void;confirmWebUpdate?:(commit:string)=>void};
 const appBridge=()=> (window as Window&{CanvasApp?:Bridge}).CanvasApp;
@@ -42,7 +43,11 @@ export default function UpdateBadge({floating=false}:{floating?:boolean}){
       setPhase('downloading');watch();
       const bridge=appBridge();
       if(bridge?.applyWebUpdate){if(!bridge.activateWebUpdate)document.querySelector<HTMLElement>('.notes-app')?.setAttribute('inert','');bridge.applyWebUpdate();}
-      else{const url=new URL(location.href);url.searchParams.set('remoteui','1');url.searchParams.set('update',String(Date.now()));location.assign(url.toString());}
+      else{
+        if('serviceWorker' in navigator)await ensureOfflineShell(true);
+        if(!busy.current)return;
+        const url=new URL(location.href);url.searchParams.set('remoteui','1');url.searchParams.set('update',String(Date.now()));location.assign(url.toString());
+      }
     }catch(error){fail(error instanceof Error?error.message:'端末への保存を確認できません');}
   }
   if(!available&&!message)return null;

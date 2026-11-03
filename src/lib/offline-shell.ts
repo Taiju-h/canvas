@@ -1,8 +1,12 @@
 let starting:Promise<boolean>|undefined;
-export function ensureOfflineShell():Promise<boolean>{
+export function ensureOfflineShell(refresh=false):Promise<boolean>{
   if(!('serviceWorker' in navigator))return Promise.resolve(!!(window as Window&{CanvasApp?:unknown}).CanvasApp);
+  if(refresh)starting=undefined;
   if(!starting)starting=(async()=>{
     const registration=await navigator.serviceWorker.register('/sw.js',{scope:'/',updateViaCache:'none'});
+    // Cached-first navigation must switch only after the new shell has
+    // installed completely, rather than reloading the previous cached HTML.
+    if(refresh)await registration.update();
     const worker=registration.installing||registration.waiting||registration.active;
     if(!worker)throw new Error('画面の端末保存を開始できません');
     if(worker.state!=='activated')await new Promise<void>((resolve,reject)=>{

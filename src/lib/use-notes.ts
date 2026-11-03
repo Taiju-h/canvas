@@ -25,6 +25,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
   const [error,setError] = useState('');
   const [busy,setBusy] = useState(false);
   const [conflict,setConflict] = useState(false);
+  const [indexReady,setIndexReady] = useState(false);
   const records = useRef(new Map<string,NoteRecord>());
   const promoted=useRef(new Map<string,string>());
   const active = useRef(''); const blocked = useRef(new Set<string>());
@@ -42,7 +43,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     return localJobs.current;
   }
   function report(message: string, id: string) { if (active.current === id) setStatus(message); }
-  async function refresh(strict=false) {
+  async function refresh(strict=false,signal?:AbortSignal) {
     if(shared)return [...records.current.values()].map(indexOf);
     await localJobs.current;
     const local = (await listLocalDocs()).filter(n=>n.accountId===accountId);
@@ -52,7 +53,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       try {
       let offset = 0;
       while (true) {
-        const response = await fetchWithTimeout('/canvas/api.php?path=%2Fapi%2Fnotes-index&offset='+offset, { credentials:'same-origin',cache:'no-store' });
+        const response = await fetchWithTimeout('/canvas/api.php?path=%2Fapi%2Fnotes-index&offset='+offset, { credentials:'same-origin',cache:'no-store',signal });
         if (!response.ok) throw new Error('メモ一覧を取得できません');
         const page = await response.json();
         for (const n of page.documents as NoteIndex[]) merged.set(n.id,n);
@@ -69,40 +70,47 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     }
     for (const n of local) if (!merged.has(n.id) || n.dirty) merged.set(n.id,indexOf({ ...n,content:normalizeNote(n.content) }));
     for (const n of records.current.values()) if (n.dirty) merged.set(n.id,indexOf(n));
-    const result=[...merged.values()].sort((a,b)=>b.updated_at-a.updated_at); setList(result); return result;
+    const result=[...merged.values()].sort((a,b)=>b.updated_at-a.updated_at); setList(result);setIndexReady(true); return result;
   }
-  async function prepareOffline(includeFiles:boolean,onProgress?:(progress:{done:number;total:number;files:number;errors:number})=>void){
+  async function prepareOffline(includeFiles:boolean,onProgress?:(progress:{done:number;total:number;files:number;errors:number})=>void,signal?:AbortSignal){
     if(shared)throw new Error('共有リンクでは所有者の全ノートを一括取得できません');
     if(!networkAvailable())throw new Error('初回のオフライン準備には接続が必要です。準備済みのノートは接続不要で使用できます');
     try{await navigator.storage?.persist?.();}catch{/* Browser may not support persistent storage. */}
-    const rows=await refresh();
+    // A partial index must never be reported as a complete offline download.
+    const rows=await refresh(true,signal);
     let done=0,files=0,errors=0;
     const progress=()=>onProgress?.({done,total:rows.length,files,errors});
     progress();
     for(const index of rows){
+      signal?.throwIfAborted();
       try{
         const old=await getLocalDoc(index.id);
         const remote=old?.accountId===accountId&&(old.dirty||old.revision>=index.revision)
           ?({...old,content:normalizeNote(old.content)} as NoteRecord)
-          :await(await documentApi('/api/documents/'+index.id)).json() as NoteRecord;
+          :await(await documentApi('/api/documents/'+index.id,{signal})).json() as NoteRecord;
+        signal?.throwIfAborted();
+        remote.content=normalizeNote(remote.content);
         // Recheck after the network wait; an edit may have occurred meanwhile.
         localJobs.current=localJobs.current.catch(()=>{}).then(async()=>{
           const latest=records.current.get(index.id)||await getLocalDoc(index.id);
-          if(!latest||!latest.dirty&&latest.revision<remote.revision)
-            await putLocalDoc({...remote,base:remote.content,dirty:false,owner:true,accountId});
+          if(!latest||latest.accountId!==accountId||!latest.dirty&&latest.revision<remote.revision)
+            await putLocalDoc({...remote,base:remote.content,baseTitle:remote.title,baseRevision:remote.revision,dirty:false,owner:true,accountId});
         });
         await localJobs.current;
         if(includeFiles){
-          for(const asset of noteAssets({...remote,content:remote.content})){
+          const latest=records.current.get(index.id)||await getLocalDoc(index.id);
+          const source=latest?.accountId===accountId&&(latest.dirty||latest.revision>=remote.revision)?{...latest,content:normalizeNote(latest.content)}:remote;
+          for(const asset of noteAssets(source)){
+            signal?.throwIfAborted();
             try{
               if(await getLocalImage(asset.id))continue;
               const estimate=await navigator.storage?.estimate?.();
               if(estimate?.quota&&estimate?.usage&&asset.size&&asset.size>estimate.quota-estimate.usage)throw new Error('端末の空き容量が足りません');
-              await putLocalImage(asset.id,await readNoteAsset(index.id,asset));files++;
-            }catch{errors++;}
+              await putLocalImage(asset.id,await readNoteAsset(index.id,asset,undefined,signal));files++;
+            }catch(error){if(signal?.aborted)throw error;errors++;}
           }
         }
-      }catch{errors++;}
+      }catch(error){if(signal?.aborted)throw error;errors++;}
       done++;progress();
     }
     return{done,total:rows.length,files,errors};
@@ -269,6 +277,21 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     if(current&&(current.dirty||current.revision>remote.revision))return current;
     const next={...remote,content:normalizeNote(remote.content),accountId,dirty:false};
     synced.current.set(id,{revision:next.revision,content:next.content,title:next.title});return next;
+  }
+  async function pinReference(requestedId:string,key:string){
+    if(shared)throw new Error('共有画面では資料を固定できません');
+    const loaded=await readForExport(requestedId),id=loaded.id;
+    const current=records.current.get(id);
+    const latest=current&&(current.dirty||current.revision>loaded.revision)?current:loaded;
+    if(latest.content.note?.trashedAt||latest.content.note?.importState==='pending')throw new Error('通常のメモで固定してください');
+    const meta=latest.content.note||{category:'',tags:[]};
+    const pins=new Set(meta.referencePins||[]);
+    if(key!=='note'){if(pins.has(key))pins.delete(key);else pins.add(key);}
+    const next={...latest,content:{...latest.content,note:{...meta,...(key==='note'?{pinned:!meta.pinned}:{referencePins:[...pins]})}},updated_at:Date.now(),dirty:true};
+    // Publish once before waiting for IndexedDB, so an edit or completed sync
+    // during that wait can never be replaced with this older snapshot.
+    show(next);await persist(next);
+    clearTimeout(timers.current.get(id));timers.current.set(id,setTimeout(()=>void save(id),700));
   }
   async function settleSaves(){await Promise.all([...jobs.current.values()]);await persistPending();}
   function hasUnsynced(){return [...records.current.values()].some(n=>n.dirty);}
@@ -447,6 +470,6 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     }
   }
   async function resumeSync(){await refresh();for(const row of records.current.values())if(row.dirty)void save(row.id);}
-  return {resolveId:(id:string)=>promoted.current.get(id)||id,readForExport,persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
+  return {resolveId:(id:string)=>promoted.current.get(id)||id,readForExport,pinReference,indexReady,persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }
