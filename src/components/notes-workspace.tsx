@@ -1,4 +1,6 @@
-import {ensureOfflineShell} from '@/lib/offline-shell';
+import {useDeviceOffline} from '@/lib/use-device-offline';
+import ReferenceLibrary from './reference-library';
+import {referenceMarkup,type ReferenceEntry} from '@/lib/reference-library';
 import {networkAvailable,fetchWithTimeout} from '@/lib/network';
 import {planCategorySync,type Classification} from '@/lib/category-sync';
 import { useEffect, useRef, useState } from 'react';
@@ -210,6 +212,11 @@ function savePreference(key:string,value:string){try{localStorage.setItem(key,va
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
 export default function NotesWorkspace({accountId,sharedAccess}:{accountId:string;sharedAccess?:SharedAccess}){
   const notes=useNotes(accountId,sharedAccess);const {record}=notes;
+  const deviceOffline=useDeviceOffline(notes,accountId,!sharedAccess&&!notes.list.some(n=>n.note?.importState==='pending'));
+  const [referenceView,setReferenceView]=useState<'browse'|'downloads'|null>(null);
+  function showReferences(view:'browse'|'downloads'='browse'){
+    (document.activeElement as HTMLElement)?.blur();setCategoryBrowserOpen(false);setSidebarMenuOpen(false);setSettings(false);setWorkspaceMenu(null);setReferenceView(view);
+  }
   const touchButtons=useTouchButtons(accountId+':'+(record?.id||'')+':'+notes.busy);
   useEffect(()=>{
     let composing=false;
@@ -259,8 +266,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const aiTarget=useRef('');
   const [aiResult,setAiResult]=useState('');
   const aiAudioInput=useRef<HTMLInputElement>(null);
-  const [offlinePreparing,setOfflinePreparing]=useState(false);
-  const [offlineProgress,setOfflineProgress]=useState<{done:number;total:number;files:number;errors:number}|null>(null);const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
+  const offlinePreparing=deviceOffline.working,offlineProgress=deviceOffline.progress;
+  const [sidebarMenuOpen,setSidebarMenuOpen]=useState(false);const [query,setQuery]=useState('');const [category,setCategory]=useState('');const [tag,setTag]=useState('');
   const [tool,setTool]=useState<'note'|'text'|'pen'|'select'|'vertex'|'magic'|'hand'|'eraser'|'lasso'|'inkMove'|'preset'|'line'|'rect'|'ellipse'|'sheet'>('note');const [workspaceMode,setWorkspaceMode]=useState<'note'|'canvas'|'layout'|'excel'|'graph'>('note');const [inkColor,setInkColor]=useState('#263443');const [inkWidth,setInkWidth]=useState(3);const [inkOpacity,setInkOpacity]=useState(1);const [brush,setBrush]=useState<InkBrush>('gpen');
   const brushWidths=useRef<Record<InkBrush,number>>({pen:3,pencil:4,gpen:3,marker:18,brush:18,airbrush:48});
   const [shapePreset,setShapePreset]=useState('triangle');const [draftPreset,setDraftPreset]=useState<Item[]>([]);const [layoutWidth,setLayoutWidth]=useState(3);
@@ -1204,15 +1211,24 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     setAiResult('');
   }
   async function prepareOffline(){
-    if(offlinePreparing)return;
-    setOfflinePreparing(true);setOfflineProgress(null);
-    try{
-      if(!await ensureOfflineShell())throw new Error('このブラウザでは画面を端末に保存できません');const result=await notes.prepareOffline(true,setOfflineProgress);
-      notes.setError(result.errors
-        ?'端末への準備：'+result.done+'件・添付'+result.files+'件を保存。'+result.errors+'件は保存できませんでした（空き容量や権限を確認してください）'
-        :'オフライン準備完了：'+result.done+'件のノートと添付'+result.files+'件を端末へ保存しました');
-    }catch(err){notes.setError('オフライン準備：'+String(err));}
-    finally{setOfflinePreparing(false);}
+    showReferences('downloads');await deviceOffline.prepare();
+  }
+  async function insertReference(entry:ReferenceEntry){
+    const target=current.current;
+    if(!target||target.content.note?.trashedAt||target.content.fixedNote?.locked||target.content.note?.importState==='pending')throw new Error('編集できるノートを開いてください');
+    let attachment:Attachment|undefined,reference=entry;
+    if(entry.kind==='image'&&entry.asset){
+      const blob=await readNoteAsset(entry.documentId,entry.asset);
+      attachment={id:id32(),name:entry.asset.name,mime:blob.type||entry.asset.mime||'image/png',size:blob.size,pending:true};
+      await putLocalImage(attachment.id,blob);
+      reference={...entry,documentId:target.id,asset:{...attachment,kind:'file'}};
+    }
+    const latest=current.current;
+    if(!latest||latest.id!==target.id||latest.content.note?.trashedAt||latest.content.fixedNote?.locked)throw new Error('開いているノートが変わりました。もう一度挿入してください');
+    const fixed=latest.content.fixedNote||{html:'',visible:true,locked:false};
+    const html=referenceMarkup(reference);if(!html)throw new Error('この資料は挿入できません');
+    commit({...latest.content,fixedNote:{...fixed,html:fixed.html+html},attachments:attachment?[...(latest.content.attachments||[]),attachment]:latest.content.attachments});
+    await notes.persistPending();
   }
   async function openRevisions(){
     if(!record)return;
@@ -1475,7 +1491,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   return <main data-workspace-mode={workspaceMode} className={`notes-app view-${workspaceView} ${focusMode?'is-focus-view':''} ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''} ${organizerOpen?'is-organizing-pages':''}`}
     onPointerDownCapture={event=>{touchButtons.onPointerDownCapture(event);if(event.button===2){event.preventDefault();event.stopPropagation();}}}
     onPointerMoveCapture={touchButtons.onPointerMoveCapture} onPointerUpCapture={touchButtons.onPointerUpCapture} onPointerCancelCapture={touchButtons.onPointerCancelCapture} onClickCapture={touchButtons.onClickCapture} onContextMenuCapture={touchButtons.onContextMenuCapture}
-    onContextMenu={event=>{if(organizerOpen)return;event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
+    onContextMenu={event=>{if(organizerOpen||referenceView)return;event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
     {workspaceMenu&&<WorkspaceContextMenu point={workspaceMenu} items={workspaceMenuItems()} onClose={()=>setWorkspaceMenu(null)}/>}
     <header className="notes-header notes-header-compact">
       {!sharedAccess&&<button className="notes-header-icon notes-sidebar-toggle" onClick={toggleSidebar} aria-label={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'} aria-expanded={sidebar} aria-controls="notes-file-navigation" title={sidebar?'メモ一覧を閉じる':'メモ一覧を開く'}>{sidebar?<PanelLeftClose size={19}/>:<PanelLeftOpen size={19}/>}</button>}
@@ -1488,6 +1504,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         {sharedAccess?<span className="notes-shared-indicator" title="このリンクの作品だけが表示されています">共有作品を編集中</span>:
           <>
             <button className="notes-header-icon" onClick={()=>{setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}} aria-label="全メモを横断検索" title="メモを検索"><Search size={18}/></button>
+            <button className="kn-reference-open" onClick={()=>showReferences()} aria-label="画像・YouTube・メモの資料を開く" title="画像・YouTube・リンク・メモ"><ImagePlus size={17}/><span>資料</span></button>
+            <button className={'kn-offline-indicator'+(deviceOffline.ready?' is-ready':'')} onClick={()=>showReferences('downloads')} aria-label="端末への保存状況を開く" title={deviceOffline.message}><FileDown size={15}/><span>{deviceOffline.working?'端末に保存中':deviceOffline.ready?'端末保存済み':deviceOffline.online?'端末保存':'オフライン'}</span></button>
             <button className="notes-header-share" disabled={!record||record.id.startsWith('local-')||notes.conflict} onClick={()=>setShareOpen(true)} aria-label="作品を共有" title="リンクを発行して共同編集"><Share2 size={16}/><span>共有</span></button>
           </>}
         <span className="notes-save-status" role="status" title={attaching?'添付を送信中…':notes.status}>{attaching?'添付中':notes.status}</span>
@@ -1508,6 +1526,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           </div>
         </div></div>
         <button className="notes-organize-open" onClick={()=>showOrganizer(true)}><Folder size={17}/>ページ・フォルダを整理</button>
+        <button className="kn-reference-sidebar-open" onClick={()=>showReferences()}><ImagePlus size={18}/>資料：画像・YouTube・リンク</button>
         <label className="notes-search"><Search size={17}/><input ref={searchInput} placeholder="全メモの本文・タグを検索" aria-label="メモを検索" value={query} onChange={e=>setQuery(e.target.value)} onBlur={()=>rememberSearch()} onKeyDown={e=>{if(e.key==='Enter')rememberSearch();}}/>{query&&<button onClick={()=>setQuery('')} aria-label="検索を消す"><X size={14}/></button>}</label>
         {!!recentSearches.length&&<div className="notes-search-history" aria-label="最近の検索">{recentSearches.map(value=><button key={value} title={value} onClick={()=>{setQuery(value);setSearchScope('all');}}>{value}</button>)}</div>}
         <div className="notes-search-options"><label>検索範囲<select aria-label="検索範囲" value={searchScope} onChange={e=>setSearchScope(e.target.value as 'all'|'filtered')}><option value="all">全カテゴリ横断</option><option value="filtered">選択中のカテゴリ・タグ</option></select></label><small>{trash?'ゴミ箱内を検索':'タイトル・本文・タグ・添付名'} · 空白でAND検索</small></div>
@@ -1839,7 +1858,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
           <button disabled={offlinePreparing} onClick={()=>void prepareOffline()}>{offlinePreparing?'オフライン準備中…':'すべてのノートと添付を端末に保存'}</button>
           <p>ブラウザ／アプリ内部のオフライン用保存です。ファイルとして取り出すには「ページ・フォルダを整理／データを取り出す」を開いてZIPを保存してください。</p>
           {offlineProgress&&<p role="status">ノート {offlineProgress.done}/{offlineProgress.total}件、添付 {offlineProgress.files}件、未取得 {offlineProgress.errors}件</p>}
-          <p>ネット接続中に一度実行すると、端末の容量が許す範囲で全ノート・画像・添付を保存します。保存済みの内容は通信なしで開けます。端末の空き容量とブラウザの保存制限に注意してください。</p>
+          <p>起動後、接続中に全ノート・画像・添付を自動で端末へ保存します。上の「端末保存」から進み具合と未取得件数を確認できます。保存済みの内容は通信なしで開けます。</p>
           <button onClick={()=>void openRevisions()}>ローカル履歴を表示</button>
           <p>保存時に端末内へ最大25世代を記録します。履歴から復元しても、元の世代は残ります。</p>
           <p>同期が不要なノート編集とカテゴリ変更は端末に保存します。共有やChatGPT連携にはネットワーク接続が必要です。</p>
@@ -1953,5 +1972,6 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       <p role="status">{importMessage}</p>{importing&&<button onClick={()=>{cancelImport.current=true;setImportMessage('現在の添付を保存後に中断します…');}}>中断</button>}
     </section></div>}
     {!sharedAccess&&organizerOpen&&<NoteOrganizer accountId={accountId} store={notes} categories={categories} workspace={workspace} status={{saved:'保存済み',syncing:'同期中',pending:'端末に保存済み・同期待ち',conflict:'競合あり',complete:'同期完了'}[classificationStatus]} busy={organizing||importing||attaching||notes.busy||classificationStatus==='syncing'} onClose={()=>showOrganizer(false)} onOpen={async id=>{if(!await notes.open(id))throw new Error('ページを開けません。この端末への保存状況と接続を確認してください');finishNoteSelection();showOrganizer(false);}} onFolder={(kind,path)=>{setCategory(path);setCategoryManagerKind(kind);setCategoryManager(true);}} onAssign={assignPages} onResolve={resolveClassification} onExportForAI={()=>exportAll(true)} onImport={async file=>{if(file.size>2_000_000)throw new Error('整理ファイルが大きすぎます');const payload=JSON.parse(await file.text());if(!payload||payload.version!==1||!Array.isArray(payload.notes))throw new Error('整理ファイルの形式が不正です');await assignPages(payload.notes,true);}}/>}
+    {!sharedAccess&&referenceView&&<ReferenceLibrary accountId={accountId} store={notes} offline={deviceOffline} categories={categories} initialDownloads={referenceView==='downloads'} onClose={()=>setReferenceView(null)} onOpen={async id=>{if(!await notes.open(id))throw new Error('この端末に未取得のメモです。接続して取得してください');finishNoteSelection();setReferenceView(null);}} onInsert={insertReference}/>}
   </main>;
 }
