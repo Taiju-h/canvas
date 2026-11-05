@@ -44,6 +44,8 @@ const {createFixture}=require('./note-links-fixture.cjs');
   const mp=await mobile.newPage();failurePage=mp;mp.setDefaultTimeout(12000);mp.on('pageerror',e=>errors.push(String(e)));await mp.goto(origin+'/canvas/?d='+fixture.primaryId);
   await mp.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='製品紹介の資料');
   const closeSidebar=mp.getByLabel('メモ一覧を閉じる',{exact:true});if(await closeSidebar.isVisible())await closeSidebar.tap();
+  const layerToggle=mp.getByLabel('レイヤー一覧を開閉',{exact:true});if(await layerToggle.getAttribute('aria-expanded')==='true')await layerToggle.tap();
+  await mp.waitForFunction(()=>document.querySelector('[aria-label="レイヤー一覧を開閉"]')?.getAttribute('aria-expanded')==='false');
   await mp.waitForFunction(()=>{const img=document.querySelector('.notes-fixed-editor img');return img?.complete&&img.naturalWidth>0;});
   await mp.screenshot({path:'/tmp/kaeru-links-mobile-before.png'});
   const [linked]=await Promise.all([mobile.waitForEvent('page',{timeout:12000}),mp.getByLabel('固定ノート本文',{exact:true}).locator('a[href="https://example.com/#image"]').tap()]);
