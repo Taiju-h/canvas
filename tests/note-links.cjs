@@ -3,15 +3,15 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
 const {createFixture}=require('./note-links-fixture.cjs');
 (async()=>{
  const fixture=createFixture();await new Promise(resolve=>fixture.server.listen(0,'127.0.0.1',resolve));
- const origin='http://127.0.0.1:'+fixture.server.address().port;let browser,page;
+ const origin='http://127.0.0.1:'+fixture.server.address().port;let browser,page,failurePage;
  try{
   browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage']});
-  const context=await browser.newContext({viewport:{width:1400,height:1100}});page=await context.newPage();page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+  const context=await browser.newContext({viewport:{width:1400,height:1100}});page=await context.newPage();failurePage=page;page.setDefaultTimeout(12000);const errors=[];page.on('pageerror',e=>errors.push(String(e)));
   await context.route('https://example.com/**',route=>route.fulfill({contentType:'text/html',body:'<h1>リンク先</h1>'}));
   const title=page.getByLabel('メモのタイトル',{exact:true}),body=page.getByLabel('固定ノート本文',{exact:true});
   await page.goto(origin+'/canvas/');await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='製品紹介の資料');
   const save=async()=>{await page.getByLabel('保存',{exact:true}).click();await page.waitForFunction(()=>document.querySelector('.notes-save-status')?.textContent.includes('保存済み'));};
-  const follow=async(locator,url)=>{const opened=context.waitForEvent('page');await locator.click();const popup=await opened;await popup.waitForURL(url);await popup.close();};
+  const follow=async(locator,url)=>{const [popup]=await Promise.all([context.waitForEvent('page'),locator.click()]);await popup.waitForURL(url);await popup.close();};
   // Existing and bare URLs both open with one click; non-link text accepts the native caret.
   await follow(body.getByRole('link',{name:'製品の紹介ページ',exact:true}),'https://example.com/#text');
   await follow(body.getByRole('link',{name:'https://example.com/#plain',exact:true}),'https://example.com/#plain');
@@ -37,7 +37,17 @@ const {createFixture}=require('./note-links-fixture.cjs');
   await body.getByRole('link',{name:'関連するメモ',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='関連するメモ');
   await follow(page.getByLabel('メモ本文',{exact:true}).getByRole('link',{name:'文章ブロックのURL',exact:true}),'https://example.com/#block');
   await page.goto(origin+'/canvas/?d='+fixture.primaryId);await page.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='製品紹介の資料');
-  await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();await body.locator('a[href="https://example.com/#image"] img').waitFor();assert.equal(await body.locator('a[href="https://example.com/#video"] video').count(),1);await page.getByLabel('CRMとの関連付け',{exact:true}).click();await crm.getByRole('link').filter({hasText:'サンプル顧客'}).waitFor();await crm.getByLabel('CRMの関連付けを閉じる').click();const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});await mobile.route('https://example.com/**',route=>route.fulfill({contentType:'text/html',body:'<h1>リンク先</h1>'}));const mp=await mobile.newPage();await mp.goto(origin+'/canvas/?d='+fixture.primaryId);await mp.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='製品紹介の資料');const closeSidebar=mp.getByLabel('メモ一覧を閉じる',{exact:true});if(await closeSidebar.isVisible())await closeSidebar.tap();const tapped=mobile.waitForEvent('page');await mp.getByLabel('固定ノート本文',{exact:true}).locator('a[href="https://example.com/#image"]').tap();const linked=await tapped;await linked.waitForURL('https://example.com/#image');await linked.close();await mp.screenshot({path:'/tmp/kaeru-links-mobile.png'});await mobile.close();
+  await page.evaluate(()=>navigator.serviceWorker.ready);await page.reload();await page.waitForFunction(()=>!!navigator.serviceWorker.controller);await context.setOffline(true);await page.reload();
+  await body.locator('a[href="https://example.com/#image"] img').waitFor();assert.equal(await body.locator('a[href="https://example.com/#video"] video').count(),1);
+  await page.getByLabel('CRMとの関連付け',{exact:true}).click();await crm.getByRole('link').filter({hasText:'サンプル顧客'}).waitFor();await crm.getByLabel('CRMの関連付けを閉じる').click();
+  const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});await mobile.route('https://example.com/**',route=>route.fulfill({contentType:'text/html',body:'<h1>リンク先</h1>'}));
+  const mp=await mobile.newPage();failurePage=mp;mp.setDefaultTimeout(12000);mp.on('pageerror',e=>errors.push(String(e)));await mp.goto(origin+'/canvas/?d='+fixture.primaryId);
+  await mp.waitForFunction(()=>document.querySelector('[aria-label="メモのタイトル"]')?.value==='製品紹介の資料');
+  const closeSidebar=mp.getByLabel('メモ一覧を閉じる',{exact:true});if(await closeSidebar.isVisible())await closeSidebar.tap();
+  await mp.waitForFunction(()=>{const img=document.querySelector('.notes-fixed-editor img');return img?.complete&&img.naturalWidth>0;});
+  await mp.screenshot({path:'/tmp/kaeru-links-mobile-before.png'});
+  const [linked]=await Promise.all([mobile.waitForEvent('page',{timeout:12000}),mp.getByLabel('固定ノート本文',{exact:true}).locator('a[href="https://example.com/#image"]').tap()]);
+  await linked.waitForURL('https://example.com/#image');await linked.close();await mp.screenshot({path:'/tmp/kaeru-links-mobile.png'});await mobile.close();failurePage=page;
   assert.deepEqual(errors,[]);console.log('PASS single-click links and media, native text editing, link editing/removal, internal note navigation, CRM search and offline persistence');
- }catch(error){if(page)await page.screenshot({path:'/tmp/kaeru-links-failure.png'}).catch(()=>{});throw error;}finally{await browser?.close();await new Promise(resolve=>fixture.server.close(resolve));}
+ }catch(error){if(failurePage){await failurePage.screenshot({path:'/tmp/kaeru-links-failure.png'}).catch(()=>{});console.error(await failurePage.locator('body').innerText().catch(()=>''));}throw error;}finally{await browser?.close();await new Promise(resolve=>fixture.server.close(resolve));}
 })().catch(error=>{console.error(error);process.exit(1);});

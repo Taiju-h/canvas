@@ -18,7 +18,7 @@ export function noteLinkClick(event:MouseEvent<HTMLElement>,onNavigate:(id:strin
   event.preventDefault();
   // Selecting or dragging linked text remains an editing gesture.
   const selection=window.getSelection();
-  if(event.detail>1||selection&&!selection.isCollapsed&&event.currentTarget.contains(selection.anchorNode))return true;
+  if(event.detail>1||selection&&!selection.isCollapsed&&!!selection.toString()&&event.currentTarget.contains(selection.anchorNode))return true;
   const file=anchor.dataset.knLocalFile;if(file){onDownload(file,anchor.textContent||'attachment');return true;}
   const href=noteLinkURL(anchor.getAttribute('href')||'',location.href);if(!href)return true;
   const url=new URL(href),id=url.searchParams.get('d');

@@ -2,7 +2,7 @@ import {test,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 const server=await createServer({server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]}});
-const {noteLinkURL,safeReferenceURL}=await server.ssrLoadModule('/src/lib/note-links.ts');
+const {noteLinkURL,safeReferenceURL,noteLinkClick}=await server.ssrLoadModule('/src/lib/note-links.ts');
 const {crmLinks}=await server.ssrLoadModule('/src/lib/crm-links.ts');
 const {referenceMarkup}=await server.ssrLoadModule('/src/lib/reference-library.ts');
 after(()=>server.close());
@@ -21,6 +21,17 @@ test('CRM associations survive JSON storage with their entity type and keep unsa
   const data=JSON.parse(JSON.stringify([good,good,{...good,id:'bad-url',url:'javascript:alert(1)'},{...good,id:'credential',url:'https://user:secret@crm.example/'},{...good,id:'bad-kind',kind:'__proto__'},null]));
   assert.deepEqual(crmLinks(data),[good]);assert.deepEqual(crmLinks(undefined),[]);
   assert.equal(crmLinks(Array.from({length:55},(_,i)=>({...good,id:String(i)}))).length,50);
+});
+test('a touch-selected image follows its link once while a dragged text selection stays editable',()=>{
+  const beforeWindow=globalThis.window,beforeLocation=globalThis.location,opened=[];
+  let selectedText='';const selection={isCollapsed:false,anchorNode:{},toString:()=>selectedText};
+  globalThis.window={getSelection:()=>selection,open:(...args)=>opened.push(args)};globalThis.location=new URL('https://canvas.example/canvas/');
+  const anchor={dataset:{},getAttribute:()=> 'https://example.com/detail'},event={button:0,detail:1,defaultPrevented:false,target:{closest:()=>anchor},currentTarget:{contains:()=>true},preventDefault(){this.defaultPrevented=true;}};
+  try{
+    assert.equal(noteLinkClick(event,()=>assert.fail('not an internal note'),()=>assert.fail('not a download')),true);assert.equal(opened.length,1);assert.equal(opened[0][0],'https://example.com/detail');
+    selectedText='編集中の文字';event.defaultPrevented=false;noteLinkClick(event,()=>{},()=>{});assert.equal(opened.length,1,'dragging linked text does not navigate');
+    selectedText='';event.defaultPrevented=false;event.detail=2;noteLinkClick(event,()=>{},()=>{});assert.equal(opened.length,1,'the second click does not open a second page');
+  }finally{if(beforeWindow===undefined)delete globalThis.window;else globalThis.window=beforeWindow;if(beforeLocation===undefined)delete globalThis.location;else globalThis.location=beforeLocation;}
 });
 test('linked media keeps its own source and stable attachment when the click target changes',()=>{
   for(const kind of ['image','video']){
