@@ -1,6 +1,7 @@
 import {useOfflineNoteImages} from '@/lib/offline-note-images';
 import {flowNoteColumns} from '@/lib/rich-note-commands';
 import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
+import {linkifyNoteHTML,noteLinkClick} from '@/lib/note-links';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { cleanHTML, fileURL, type NoteBlock } from '@/lib/notes';
@@ -10,7 +11,7 @@ type Props={docId:string;block:NoteBlock;opacity?:number;zIndex?:number;readOnly
   onDrag:(event:ReactPointerEvent,resize?:boolean)=>void;onSize:(height:number)=>void;onPaste:(files:File[])=>void;onNavigate:(id:string)=>void;onDownloadFile:(id:string,name:string)=>void};
 export default function EditableBlock({docId,block,opacity=1,zIndex,readOnly,focused,selected,onFocus,onChange,onDrag,onSize,onPaste,onNavigate,onDownloadFile}:Props){
   const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);const callback=useRef(onSize);callback.current=onSize;
-  useLayoutEffect(()=>{const el=ref.current;if(!el)return;const html=cleanHTML(block.html);
+  useLayoutEffect(()=>{const el=ref.current;if(!el)return;const html=linkifyNoteHTML(cleanHTML(block.html));
     if(document.activeElement!==el && el.innerHTML!==html)el.innerHTML=html;
   },[block.html]);
   useOfflineNoteImages(ref,docId,block.html);
@@ -21,18 +22,11 @@ export default function EditableBlock({docId,block,opacity=1,zIndex,readOnly,foc
     <button className="note-block-handle" title="ドラッグして移動" aria-label="文章ブロックを移動" onPointerDown={e=>onDrag(e)}>⠿</button>
     <div ref={ref} className="note-content" contentEditable={!readOnly} suppressContentEditableWarning role="textbox" aria-label="メモ本文" aria-multiline="true" data-placeholder="ここから書き始める…" spellCheck
       onFocus={onFocus} onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}}
-      onCompositionEnd={()=>{composing.current=false;emit();}} onBlur={emit}
+      onCompositionEnd={()=>{composing.current=false;emit();}} onBlur={e=>{if(!(e.relatedTarget as Element)?.closest?.('.kn-note-link-dialog,.kn-workspace-popup,.notes-toolbar')){const el=ref.current;if(el){const html=linkifyNoteHTML(el.innerHTML);if(el.innerHTML!==html)el.innerHTML=html;}}emit();}}
       onKeyDown={e=>noteEditorKeyDown(e,emit)}
-      onClick={e=>{noteCheckboxClick(e,emit);
-        const localLink=(e.target as Element).closest<HTMLAnchorElement>('a[data-kn-local-file]');
-        if(localLink?.dataset.knLocalFile){
-          e.preventDefault();
-          const id=localLink.dataset.knLocalFile;
-          onDownloadFile(id,localLink.textContent||'attachment');return;
-        }
-        const anchor=(e.target as Element).closest('a');if(anchor && (e.ctrlKey||e.metaKey)){e.preventDefault();const url=new URL(anchor.href);const id=url.searchParams.get('d');if(url.origin===location.origin&&id)onNavigate(id);else window.open(url.href,'_blank','noopener,noreferrer');}}}
+      onClick={e=>{noteCheckboxClick(e,emit);if(!composing.current)noteLinkClick(e,onNavigate,onDownloadFile);}}
       onPaste={e=>{if(e.clipboardData.files.length){e.preventDefault();onPaste(Array.from(e.clipboardData.files));return;}
-        e.preventDefault();const html=e.clipboardData.getData('text/html');if(html)document.execCommand('insertHTML',false,cleanHTML(html));else document.execCommand('insertText',false,e.clipboardData.getData('text/plain'));emit();}} />
+        e.preventDefault();const html=e.clipboardData.getData('text/html');if(html)document.execCommand('insertHTML',false,linkifyNoteHTML(cleanHTML(html)));else {const text=e.clipboardData.getData('text/plain');const el=document.createElement('div');el.textContent=text;document.execCommand('insertHTML',false,linkifyNoteHTML(el.innerHTML.replace(/\n/g,'<br>')));}emit();}} />
     <button className="note-resize" title="ドラッグして幅を変更" aria-label="文章ブロックの幅を変更" onPointerDown={e=>onDrag(e,true)}>↔</button>
   </section>;
 }

@@ -1,0 +1,10 @@
+import {useEffect,useRef,useState} from 'react';
+import {Link,X} from 'lucide-react';
+import type {NoteLinkTarget} from '@/lib/note-links';
+export default function NoteLinkDialog({target,onSave,onClose}:{target:NoteLinkTarget;onSave:(url:string,label:string,remove?:boolean)=>Promise<void>;onClose:()=>void}){
+  const [url,setURL]=useState(target.href),[label,setLabel]=useState(target.label),[busy,setBusy]=useState(false),[error,setError]=useState('');
+  const dialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{const el=dialog.current;el?.showModal();el?.querySelector('input')?.focus();return()=>el?.close();},[]);
+  async function submit(remove=false){setBusy(true);setError('');try{await onSave(url,label,remove);onClose();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
+  return <dialog ref={dialog} role="dialog" aria-modal="true" aria-labelledby="note-link-title" className="kn-note-link-dialog kn-resource-dialog" onCancel={e=>{e.preventDefault();if(!busy)onClose();}}><div className="notes-settings-title"><h2 id="note-link-title"><Link size={20}/>リンクを設定</h2><button disabled={busy} aria-label="リンク設定を閉じる" onClick={onClose}><X size={20}/></button></div><p>{target.media?'この画像・動画をクリックしたときに開く外部URLを指定します。':'URL付きの文字は1クリックで開き、それ以外の本文はクリックした位置から編集できます。'}</p><form onSubmit={e=>{e.preventDefault();void submit();}}><label>クリック先のURL<input aria-label="クリック先のURL" type="text" value={url} onChange={e=>setURL(e.target.value)} placeholder="https://…" autoFocus required/></label>{!target.media&&<label>表示する文字<input aria-label="リンクの表示文字" value={label} onChange={e=>setLabel(e.target.value)} placeholder="名前を付けられます"/></label>}{error&&<p role="alert">{error}</p>}<footer><button type="submit" disabled={busy||!url.trim()} className="notes-primary">リンクを保存</button>{target.href&&<button type="button" disabled={busy} onClick={()=>void submit(true)}>リンクを解除</button>}<button type="button" disabled={busy} onClick={onClose}>キャンセル</button></footer></form></dialog>;
+}

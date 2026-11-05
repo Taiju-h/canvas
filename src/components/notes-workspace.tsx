@@ -1,5 +1,10 @@
 import {useDeviceOffline} from '@/lib/use-device-offline';
 import ReferenceLibrary from './reference-library';
+import NoteLinkDialog from './note-link-dialog';
+import NoteCRMDialog from './note-crm-dialog';
+import {applyNoteLink,type NoteLinkTarget} from '@/lib/note-links';
+import {crmLinks,type CRMLink} from '@/lib/crm-links';
+import {Link,Building2} from 'lucide-react';
 import {referenceMarkup,type ReferenceEntry} from '@/lib/reference-library';
 import {networkAvailable,fetchWithTimeout} from '@/lib/network';
 import {planCategorySync,type Classification} from '@/lib/category-sync';
@@ -214,6 +219,9 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   const notes=useNotes(accountId,sharedAccess);const {record}=notes;
   const deviceOffline=useDeviceOffline(notes,accountId,!sharedAccess&&!notes.list.some(n=>n.note?.importState==='pending'));
   const [referenceView,setReferenceView]=useState<'browse'|'downloads'|null>(null);
+  const [linkTarget,setLinkTarget]=useState<NoteLinkTarget|null>(null);
+  const lastLinkElement=useRef<{docId:string;element:HTMLElement}|null>(null);
+  const [crmTarget,setCRMTarget]=useState<{docId:string;links:CRMLink[]}|null>(null);
   function showReferences(view:'browse'|'downloads'='browse'){
     (document.activeElement as HTMLElement)?.blur();setCategoryBrowserOpen(false);setSidebarMenuOpen(false);setSettings(false);setWorkspaceMenu(null);setReferenceView(view);
   }
@@ -1028,6 +1036,34 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const fixed=el?.closest?.('.notes-fixed-editor') as HTMLElement|null;
     if(fixed)updateFixedNote(fixed.innerHTML);
   }
+  function openNoteLink(){
+    const latest=current.current;if(!latest||notes.busy||organizing||importing||attaching||latest.content.note?.trashedAt)return;
+    const live=window.getSelection();let range=selectedNoteRoot()&&live?.rangeCount?live.getRangeAt(0).cloneRange():formatCaret.current?.cloneRange()||null;
+    let element=lastLinkElement.current?.docId===latest.id&&lastLinkElement.current.element.isConnected?lastLinkElement.current.element:null;
+    const rangeNode=range?.commonAncestorContainer,rangeElement=rangeNode instanceof HTMLElement?rangeNode:rangeNode?.parentElement;
+    const pointedMedia=element?.closest('img,video')||element?.closest('a')?.querySelector('img,video');
+    if(range&&!range.collapsed&&!pointedMedia)element=rangeElement||null;
+    let root=element?.closest<HTMLElement>('.notes-fixed-editor,.note-content')||rangeElement?.closest<HTMLElement>('.notes-fixed-editor,.note-content');
+    if(!root){root=plane.current?.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable="true"]');element=root||null;range=null;}
+    if(!root||root.getAttribute('contenteditable')!=='true'){notes.setError('編集する本文・画像・動画を選んでください');return;}
+    const media=element?.closest<HTMLElement>('img,video')||element?.closest('a')?.querySelector<HTMLElement>('img,video');
+    if(media)element=media;
+    const anchor=element?.closest<HTMLAnchorElement>('a[href]');
+    if(!range||!root.contains(range.commonAncestorContainer)){range=document.createRange();range.selectNodeContents(root);range.collapse(false);}
+    setLinkTarget({docId:latest.id,element:element||root,range,href:anchor&&!anchor.dataset.knLocalFile?anchor.getAttribute('href')||'':'',label:media?'':anchor?.textContent||range.toString(),media:!!media});setWorkspaceMenu(null);
+  }
+  async function saveNoteLink(url:string,label:string,remove=false){
+    const latest=current.current;
+    if(!linkTarget||!latest||latest.id!==notes.resolveId(linkTarget.docId)||organizingRef.current||latest.content.note?.trashedAt)throw new Error('編集先が変わりました。もう一度リンクを設定してください');
+    typing.current=null;applyNoteLink(linkTarget,url,label,remove);undoStack.current=[...undoStack.current.slice(-39),latest.content];redoStack.current=[];redraw(v=>v+1);await notes.persistPending();
+  }
+  function openCRM(){const latest=current.current;if(!latest)return;(document.activeElement as HTMLElement)?.blur();setCRMTarget({docId:latest.id,links:crmLinks(latest.content.note?.crmLinks)});}
+  async function saveCRM(links:CRMLink[]){
+    const latest=current.current;
+    if(!crmTarget||!latest||latest.id!==notes.resolveId(crmTarget.docId)||organizingRef.current||latest.content.note?.trashedAt||latest.content.note?.importState==='pending')throw new Error('開いているメモが変わりました。もう一度関連付けを開いてください');
+    if(JSON.stringify(crmLinks(latest.content.note?.crmLinks))!==JSON.stringify(crmTarget.links))throw new Error('関連付けが更新されました。閉じてからもう一度開いてください');
+    commit({...latest.content,note:{category:'',tags:[],...latest.content.note,crmLinks:crmLinks(links)}});await notes.persistPending();
+  }
   function openWorkspaceMenu(target:Element,x:number,y:number){
     const selection=window.getSelection(),root=target.closest<HTMLElement>('.notes-fixed-editor,.note-content');
     const selectedRange=root&&selection?.rangeCount&&root.contains(selection.getRangeAt(0).commonAncestorContainer)?selection.getRangeAt(0).cloneRange():null;
@@ -1071,6 +1107,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       {id:'cut',label:'切り取り',disabled:!editable||!menu.range||!menu.copyText,onSelect:()=>void clipboardWorkspace('cut')});
     if(menu.range||workspaceMode!=='note')items.push({id:'paste',label:'貼り付け',disabled:!editable,onSelect:()=>void clipboardWorkspace('paste')});
     if(menu.range)items.push({id:'bold',label:'太字',icon:<Bold size={16}/>,disabled:!editable,onSelect:()=>{formatCaret.current=menu.range;format('bold');}});
+    if(menu.range||lastLinkElement.current?.element.closest('.notes-fixed-editor,.note-content'))items.push({id:'link',label:'リンクを設定・変更',icon:<Link size={16}/>,disabled:!editable,onSelect:openNoteLink});
     items.push(
       {id:'undo',label:'元に戻す',icon:<Undo2 size={16}/>,separatorBefore:true,disabled:!editable||!undoStack.current.length,onSelect:undo},
       {id:'redo',label:'やり直す',icon:<Redo2 size={16}/>,disabled:!editable||!redoStack.current.length,onSelect:redo},
@@ -1217,7 +1254,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const target=current.current;
     if(!target||target.content.note?.trashedAt||target.content.fixedNote?.locked||target.content.note?.importState==='pending')throw new Error('編集できるノートを開いてください');
     let attachment:Attachment|undefined,reference=entry;
-    if(entry.kind==='image'&&entry.asset){
+    if((entry.kind==='image'||entry.kind==='video')&&entry.asset){
       const blob=await readNoteAsset(entry.documentId,entry.asset);
       attachment={id:id32(),name:entry.asset.name,mime:blob.type||entry.asset.mime||'image/png',size:blob.size,pending:true};
       await putLocalImage(attachment.id,blob);
@@ -1259,6 +1296,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         working=(current.current?.content||working) as StudioNoteDoc;
         const encoded=escapeHTML(file.name),html=file.type.startsWith('image/')
           ?'<p class="kn-image-wrap-'+imageAlign+'"><img data-kn-local-image="'+a.id+'" alt="'+encoded+'"></p>'
+          :file.type.startsWith('video/')?'<p><video data-kn-local-file="'+a.id+'" title="'+encoded+'" controls preload="metadata" playsinline></video></p>'
           :'<p><a href="#" data-kn-local-file="'+a.id+'">'+encoded+'</a></p>';
         if(workspaceMode==='note'){
           const fixed=working.fixedNote||{html:'',visible:true,locked:false};
@@ -1489,7 +1527,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     </g>;
   }
   return <main data-workspace-mode={workspaceMode} className={`notes-app view-${workspaceView} ${focusMode?'is-focus-view':''} ${!sharedAccess&&sidebar?'sidebar-open':''} ${sharedAccess?'notes-shared-board':''} ${organizerOpen?'is-organizing-pages':''}`}
-    onPointerDownCapture={event=>{touchButtons.onPointerDownCapture(event);if(event.button===2){event.preventDefault();event.stopPropagation();}}}
+    onPointerDownCapture={event=>{const element=event.target as HTMLElement;if(element.closest?.('.notes-fixed-editor,.note-content')&&record)lastLinkElement.current={docId:record.id,element};touchButtons.onPointerDownCapture(event);if(event.button===2){event.preventDefault();event.stopPropagation();}}}
     onPointerMoveCapture={touchButtons.onPointerMoveCapture} onPointerUpCapture={touchButtons.onPointerUpCapture} onPointerCancelCapture={touchButtons.onPointerCancelCapture} onClickCapture={touchButtons.onClickCapture} onContextMenuCapture={touchButtons.onContextMenuCapture}
     onContextMenu={event=>{if(organizerOpen||referenceView)return;event.preventDefault();openWorkspaceMenu(event.target as Element,event.clientX,event.clientY);}}>
     {workspaceMenu&&<WorkspaceContextMenu point={workspaceMenu} items={workspaceMenuItems()} onClose={()=>setWorkspaceMenu(null)}/>}
@@ -1597,6 +1635,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button title="段組みの表組みレイアウト" onClick={()=>openTableSettings('columns')}><Columns3 size={17}/><span>表組み</span></button>
               <button title="ノートにファイルを添付" onClick={()=>fileInput.current?.click()}><Paperclip size={17}/><span>添付</span></button>
               <button title="画像をノートに挿入" onClick={()=>imageInput.current?.click()}><ImagePlus size={17}/>画像</button>
+              <button title="選んだ文字・画像・動画のリンクを設定・変更" aria-label="リンクを設定・変更" onClick={openNoteLink}><Link size={17}/>リンク</button>
+              {!sharedAccess&&<button title="このメモに顧客・案件のCRMページを関連付ける" aria-label="CRMとの関連付け" onClick={openCRM}><Building2 size={17}/>CRM{meta.crmLinks?.length?' '+meta.crmLinks.length:''}</button>}
               <button title="ノートの作業エリアを拡大" onClick={toggleFocusMode}><Maximize2 size={17}/></button>
 
             </div>
@@ -1811,7 +1851,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
                   {doc?.blocks?.filter(b=>doc.layers.find(l=>l.id===b.layerId)?.visible!==false).map(noteBlock=><EditableBlock key={noteBlock.id} docId={record!.id} onDownloadFile={saveAttachment} block={noteBlock} zIndex={familyZ('layout')} opacity={doc.layers.find(l=>l.id===noteBlock.layerId)?.opacity??1} readOnly={tool!=='text'||!!doc?.layers.find(l=>l.id===noteBlock.layerId)?.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} selected={selectedIds.includes(noteBlock.id)} focused={focus===noteBlock.id} onFocus={()=>{setSelected(noteBlock.id);setFocus(noteBlock.id);}}
                     onChange={(html,h)=>updateBlock(noteBlock.id,html,h)} onDrag={(e,resize)=>drag(e,noteBlock.id,resize)} onSize={h=>setSizes(old=>old[noteBlock.id]===h?old:{...old,[noteBlock.id]:h})}
                     onPaste={files=>void attach(files)} onNavigate={id=>void notes.open(id)}/>)}
-                  {record&&<FixedNoteLayer docId={record.id} onDownloadFile={saveAttachment} html={fixedNote.html} opacity={fixedNote.opacity??1} width={scroll.current?.clientWidth||innerWidth} viewportHeight={scroll.current?.clientHeight||400} onHeight={setFixedHeight} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} scale={scale} zIndex={familyZ('note')} height={Math.max(height*scale,fixedHeight)} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
+                  {record&&<FixedNoteLayer docId={record.id} onNavigate={id=>void notes.open(id)} onDownloadFile={saveAttachment} html={fixedNote.html} opacity={fixedNote.opacity??1} width={scroll.current?.clientWidth||innerWidth} viewportHeight={scroll.current?.clientHeight||400} onHeight={setFixedHeight} visible={fixedNote.visible} locked={fixedNote.locked||!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} active={tool==='note'} scale={scale} zIndex={familyZ('note')} height={Math.max(height*scale,fixedHeight)} onChange={updateFixedNote} onPaste={files=>void attach(files)}/>}
                 </div>
               </div>}
             </div>
@@ -1963,6 +2003,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     <input ref={imageInput} hidden type="file" accept="image/*" multiple onChange={e=>{void placeImages(Array.from(e.target.files||[]));e.target.value='';}}/>
     <input ref={organizationInput} hidden type="file" accept=".json" onChange={e=>{if(e.target.files?.[0])void applyOrganization(e.target.files[0]);e.target.value='';}}/>
     {shortcutHelp&&<WorkspaceShortcutHelp onClose={()=>setShortcutHelp(false)}/>}
+    {linkTarget&&<NoteLinkDialog target={linkTarget} onSave={saveNoteLink} onClose={()=>setLinkTarget(null)}/>}
+    {crmTarget&&<NoteCRMDialog initial={crmTarget.links} title={record?.title||'メモ'} readOnly={!!meta.trashedAt||organizing||importing||notes.busy||meta.importState==='pending'} onSave={saveCRM} onClose={()=>setCRMTarget(null)}/>}
     {importOpen&&<div className="notes-modal"><section role="dialog" aria-modal="true" aria-labelledby="jex-title"><div className="notes-settings-title"><h2 id="jex-title">Joplinから取り込む</h2><button disabled={importing} onClick={()=>setImportOpen(false)} aria-label="取り込み画面を閉じる"><X size={20}/></button></div>
       <p>JEXを選ぶと、メモ・ノートブック・タグ・画像・添付ファイルをまとめて取り込めます。</p>
       <button disabled={importing} className="notes-file-pick" onClick={()=>jexInput.current?.click()}><Upload size={24}/>JEXファイルを選択</button>

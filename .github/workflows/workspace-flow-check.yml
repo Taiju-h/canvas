@@ -32,6 +32,7 @@ jobs:
       - run: node tests/note-offline.cjs
       - run: node tests/offline-startup.cjs
       - run: node tests/web-update-check.cjs
+      - run: node tests/note-links.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -44,4 +45,5 @@ jobs:
             /tmp/kaeru-drawing-*.png
             /tmp/kaeru-canvas-toolbox-*.png
             /tmp/kaeru-shortcuts-*.png
+            /tmp/kaeru-links-*.png
           if-no-files-found: ignore
