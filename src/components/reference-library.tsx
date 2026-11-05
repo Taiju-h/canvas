@@ -94,7 +94,7 @@ export default function ReferenceLibrary({accountId,store,offline,categories,onC
       doc.attachments=[attachment];doc.fixedNote!.html=referenceMarkupForMedia(kind,attachment.id,file.name);
       await latest.current.create(doc,file.name);
     }
-    setAdding(false);setTab('image');
+    setAdding(false);setTab(files.every(f=>f.type.startsWith('video/'))?'video':files.every(f=>f.type.startsWith('image/'))?'image':'all');
   }
   return <dialog ref={dialog} role="dialog" className="kn-reference-library" aria-labelledby="reference-title" onCancel={event=>{event.preventDefault();onClose();}}>
     <header className="kn-reference-header"><button onClick={onClose} aria-label="資料を閉じる"><ArrowLeft size={18}/><span>ノートに戻る</span></button><div><small>MY REFERENCES</small><h1 id="reference-title">画像・動画・メモ</h1></div><button className="kn-reference-add" onClick={()=>setAdding(v=>!v)} aria-expanded={adding}><Plus size={18}/><span>資料を追加</span></button></header>

@@ -59,9 +59,10 @@ export function applyNoteLink(target:NoteLinkTarget,value:string,label:string,re
   }else{
     const range=target.range;if(!range||!range.startContainer.isConnected||!root.contains(range.commonAncestorContainer))throw new Error('入力位置が変わりました。もう一度選択してください');
     root.focus();const selection=window.getSelection();selection?.removeAllRanges();selection?.addRange(range);
-    if(!range.collapsed&&label===target.label){document.execCommand('createLink',false,href!);}
-    else{const anchor=document.createElement('a');anchor.href=href!;anchor.textContent=label.trim()||href!;range.deleteContents();range.insertNode(anchor);range.setStartAfter(anchor);range.collapse(true);selection?.removeAllRanges();selection?.addRange(range);}
-    for(const anchor of root.querySelectorAll('a[href]')){anchor.setAttribute('target','_blank');anchor.setAttribute('rel','noopener noreferrer');}
+    const anchor=document.createElement('a');anchor.href=href!;anchor.target='_blank';anchor.rel='noopener noreferrer';
+    if(!range.collapsed&&label===target.label){const contents=range.extractContents();for(const nested of contents.querySelectorAll('a'))nested.replaceWith(...Array.from(nested.childNodes));anchor.append(contents);}
+    else{anchor.textContent=label.trim()||href!;range.deleteContents();}
+    range.insertNode(anchor);range.setStartAfter(anchor);range.collapse(true);selection?.removeAllRanges();selection?.addRange(range);
   }
   for(const video of root.querySelectorAll('video'))video.controls=!video.closest('a[href]');
   root.dispatchEvent(new Event('input',{bubbles:true}));

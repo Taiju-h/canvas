@@ -10,10 +10,11 @@ import {getLocalImage} from '@/lib/local-docs';
 type Props={docId:string;block:NoteBlock;opacity?:number;zIndex?:number;readOnly?:boolean;focused:boolean;selected:boolean;onFocus:()=>void;onChange:(html:string,height:number)=>void;
   onDrag:(event:ReactPointerEvent,resize?:boolean)=>void;onSize:(height:number)=>void;onPaste:(files:File[])=>void;onNavigate:(id:string)=>void;onDownloadFile:(id:string,name:string)=>void};
 export default function EditableBlock({docId,block,opacity=1,zIndex,readOnly,focused,selected,onFocus,onChange,onDrag,onSize,onPaste,onNavigate,onDownloadFile}:Props){
-  const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);const callback=useRef(onSize);callback.current=onSize;
+  const ref=useRef<HTMLDivElement>(null);const composing=useRef(false),renderedDocument=useRef('');const callback=useRef(onSize);callback.current=onSize;
   useLayoutEffect(()=>{const el=ref.current;if(!el)return;const html=linkifyNoteHTML(cleanHTML(block.html));
-    if(document.activeElement!==el && el.innerHTML!==html)el.innerHTML=html;
-  },[block.html]);
+    if((renderedDocument.current!==docId||document.activeElement!==el)&&el.innerHTML!==html)el.innerHTML=html;
+    renderedDocument.current=docId;
+  },[block.html,docId]);
   useOfflineNoteImages(ref,docId,block.html);
   useEffect(()=>{if(focused&&!readOnly)ref.current?.focus({preventScroll:true});},[focused,readOnly]);
   useEffect(()=>{const el=ref.current;if(!el)return;const observer=new ResizeObserver(()=>callback.current(Math.max(140,el.scrollHeight+54)));observer.observe(el);return()=>observer.disconnect();},[]);

@@ -34,11 +34,12 @@ export function displayCell(sheet:SheetData,key:string,seen=new Set<string>()):s
 }
 
 export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,onNavigate,onDownloadFile,opacity=1,width,viewportHeight,onHeight,scale=1,zIndex,height}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;onNavigate:(id:string)=>void;onDownloadFile:(id:string,name:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void;scale?:number;zIndex?:number;height?:number}){
-  const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);
+  const ref=useRef<HTMLDivElement>(null);const composing=useRef(false),renderedDocument=useRef('');
   useEffect(()=>{
     const el=ref.current;if(!el)return;
     const safe=linkifyNoteHTML(cleanHTML(html));
-    if(!composing.current&&document.activeElement!==el&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
+    if(!composing.current&&(renderedDocument.current!==docId||document.activeElement!==el)&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
+    renderedDocument.current=docId;
   },[html,visible,docId]);
   useOfflineNoteImages(ref,docId,html,visible);
   useEffect(()=>{const el=ref.current;if(!el||!onHeight)return;const measure=()=>onHeight(el.scrollHeight);const observer=new ResizeObserver(measure);observer.observe(el);measure();return()=>observer.disconnect();},[docId,visible,onHeight]);
