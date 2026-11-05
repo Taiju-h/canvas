@@ -1,12 +1,12 @@
 import type {NoteRecord} from './notes';
 import {noteAssets,type NoteAsset} from './note-files';
+import {crmLinks,type CRMLink} from './crm-links';
+import {safeReferenceURL} from './note-links';
+export {safeReferenceURL} from './note-links';
 
-export type ReferenceKind='note'|'image'|'youtube'|'link';
+export type ReferenceKind='note'|'image'|'video'|'youtube'|'link';
 export type ReferenceEntry={id:string;key:string;kind:ReferenceKind;documentId:string;title:string;parentTitle:string;
-  category:string;tags:string[];pinned:boolean;updatedAt:number;excerpt:string;searchText?:string;url?:string;asset?:NoteAsset};
-export function safeReferenceURL(value:string):string|undefined{
-  try{const url=new URL(value.trim());return ['https:','http:'].includes(url.protocol)&&!url.username&&!url.password?url.href:undefined;}catch{return;}
-}
+  category:string;tags:string[];pinned:boolean;updatedAt:number;excerpt:string;searchText?:string;url?:string;targetURL?:string;asset?:NoteAsset;crmLinks?:CRMLink[]};
 export function youtubeVideoId(value:string):string|undefined{
   try{
     const url=new URL(value),host=url.hostname.toLowerCase().replace(/^www\./,'');
@@ -29,23 +29,28 @@ export function noteReferenceEntries(record:NoteRecord):ReferenceEntry[]{
   function add(kind:ReferenceKind,key:string,title:string,extra:Partial<ReferenceEntry>={}){
     if(rows.has(key))return;
     rows.set(key,{id:record.id+':'+key,key,kind,documentId:record.id,title:title||record.title,parentTitle:record.title,
-      category:meta?.category||'',tags:meta?.tags||[],pinned:referencePinned(record,key),updatedAt:record.updated_at,excerpt,searchText:fullText,...extra});
+      category:meta?.category||'',tags:meta?.tags||[],pinned:referencePinned(record,key),updatedAt:record.updated_at,excerpt,searchText:fullText,crmLinks:crmLinks(meta?.crmLinks),...extra});
   }
   add('note','note',record.title);
-  const assets=noteAssets(record),imageNames=new Map<string,string>();
-  for(const image of root.content.querySelectorAll('img')){
-    const local=image.getAttribute('data-kn-local-image')||image.getAttribute('data-kn-local-file');
-    if(local&&image.alt)imageNames.set(local,image.alt);
+  const assets=noteAssets(record),mediaInfo=new Map<string,{title:string;targetURL?:string}>();
+  for(const image of root.content.querySelectorAll<HTMLImageElement|HTMLVideoElement>('img,video')){
+    const src=image.getAttribute('data-kn-offline-src')||image.getAttribute('src')||image.querySelector('source')?.getAttribute('src')||'';
+    let local=image.getAttribute('data-kn-local-image')||image.getAttribute('data-kn-local-file');
+    try{const url=new URL(src,location.href);if(url.origin===location.origin&&url.pathname==='/canvas/api.php')local=(url.searchParams.get('path')||'').match(/^\/api\/documents\/[a-f0-9]{32}\/(?:files|images)\/([a-zA-Z0-9-]+)$/)?.[1]||local;}catch{}
+    const title=image instanceof HTMLImageElement?image.alt:image.title,targetURL=safeReferenceURL(image.closest('a[href]')?.getAttribute('href')||'');
+    if(local)mediaInfo.set(local,{title,targetURL});
     if(local)continue;
-    const src=image.getAttribute('data-kn-offline-src')||image.getAttribute('src')||'';
     if(/^data:image\/(?:png|jpe?g|gif|webp|avif);base64,/i.test(src)||safeReferenceURL(src)){
       const url=safeReferenceURL(src)||src;
       if(new URL(url,location.href).pathname==='/canvas/api.php')continue;
-      add('image',referenceKey('image',url),image.alt||'本文の画像',{url});
+      const kind=image.tagName==='VIDEO'?'video':'image';
+      add(kind,referenceKey(kind,url),title||'本文の'+(kind==='video'?'動画':'画像'),{url,targetURL});
     }
   }
-  for(const asset of assets)if(asset.mime?.startsWith('image/')||asset.kind==='image'||/\.(?:png|jpe?g|webp|gif|svg|avif|bmp)$/i.test(asset.name))
-    add('image',referenceKey('image',asset.id),imageNames.get(asset.id)||asset.name,{asset});
+  for(const asset of assets){
+    const kind=asset.mime?.startsWith('video/')||/\.(?:mp4|webm|mov|m4v|ogv)$/i.test(asset.name)?'video':asset.mime?.startsWith('image/')||asset.kind==='image'||/\.(?:png|jpe?g|webp|gif|svg|avif|bmp)$/i.test(asset.name)?'image':undefined;
+    if(kind){const info=mediaInfo.get(asset.id);add(kind,referenceKey(kind,asset.id),info?.title||asset.name,{asset,targetURL:info?.targetURL});}
+  }
   function link(value:string,label='',context=''){
     const url=safeReferenceURL(value);if(!url)return;
     const parsed=new URL(url);
@@ -57,7 +62,7 @@ export function noteReferenceEntries(record:NoteRecord):ReferenceEntry[]{
   for(const a of root.content.querySelectorAll('a[href]')){
     let previous=a.previousSibling;
     while(previous&&!previous.textContent?.trim())previous=previous.previousSibling;
-    link(a.getAttribute('href')||'',a.textContent?.trim(),previous?.textContent||a.parentElement?.previousElementSibling?.textContent||'');
+    link(a.getAttribute('href')||'',a.textContent?.trim()||a.querySelector('img')?.alt||a.querySelector('video')?.title,previous?.textContent||a.parentElement?.previousElementSibling?.textContent||'');
   }
   // Older imported notes sometimes retain bare URLs instead of anchors.
   for(const match of fullText.matchAll(/https?:\/\/[^\s<>"']+/g))link(match[0].replace(/[.,;、。)\]]+$/,''),'',fullText.slice(Math.max(0,match.index-100),match.index));
@@ -69,9 +74,11 @@ export function referenceMarkup(entry:ReferenceEntry){
     ?'/canvas/api.php?path='+encodeURIComponent(`/api/documents/${entry.asset.documentId||entry.documentId}/${entry.asset.kind==='file'?'files':'images'}/${entry.asset.id}`)
     :safeReferenceURL(entry.url||'')||(entry.kind==='image'&&/^data:image\/(?:png|jpe?g|gif|webp|avif);base64,/i.test(entry.url||'')?entry.url:undefined);
   if(!href)return '';
-  if(entry.kind==='image'){
+  if(entry.kind==='image'||entry.kind==='video'){
     const attr=entry.asset?` data-kn-local-${entry.asset.kind==='file'?'file':'image'}="${escape(entry.asset.id)}"`:'';
-    return `<p><img src="${escape(href)}" alt="${escape(entry.title)}"${attr} style="max-width:100%;height:auto"></p>`;
+    const target=safeReferenceURL(entry.targetURL||'');
+    const media=entry.kind==='image'?`<img src="${escape(href)}" alt="${escape(entry.title)}"${attr} style="max-width:100%;height:auto">`:`<video src="${escape(href)}" title="${escape(entry.title)}"${attr}${target?'':' controls'} preload="metadata" playsinline style="max-width:100%;height:auto"></video>`;
+    return `<p>${target?`<a href="${escape(target)}" target="_blank" rel="noopener noreferrer">${media}</a>`:media}</p>`;
   }
   return `<p><a href="${escape(href)}"${entry.kind==='note'?'':' target="_blank" rel="noopener noreferrer"'}>${escape(entry.title)}</a></p>`;
 }

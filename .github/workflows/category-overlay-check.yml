@@ -33,7 +33,7 @@ jobs:
       - name: Install test dependencies
         run: |
           npm install --package-lock=false
-          npm install --no-save --package-lock=false playwright
+          npm install --no-save --package-lock=false playwright@1.64.1
           npx playwright install --with-deps chromium
       - name: Web build
         run: npm run build

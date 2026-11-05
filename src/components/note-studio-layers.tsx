@@ -1,6 +1,7 @@
 import {useOfflineNoteImages} from '@/lib/offline-note-images';
 import {flowNoteColumns} from '@/lib/rich-note-commands';
 import {noteEditorKeyDown,noteCheckboxClick} from '@/lib/rich-editor-dom';
+import {linkifyNoteHTML,noteLinkClick} from '@/lib/note-links';
 import {getLocalImage} from '@/lib/local-docs';
 import {fileURL} from '@/lib/notes';
 import { useEffect, useRef, useState } from 'react';
@@ -32,12 +33,13 @@ export function displayCell(sheet:SheetData,key:string,seen=new Set<string>()):s
   try{const value=Function('"use strict";return ('+expr+')')();return Number.isFinite(value)?String(Math.round(value*1e8)/1e8):'#ERR!';}catch{return '#ERR!';}
 }
 
-export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,onDownloadFile,opacity=1,width,viewportHeight,onHeight,scale=1,zIndex,height}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;onDownloadFile:(id:string,name:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void;scale?:number;zIndex?:number;height?:number}){
-  const ref=useRef<HTMLDivElement>(null);const composing=useRef(false);
+export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPaste,onNavigate,onDownloadFile,opacity=1,width,viewportHeight,onHeight,scale=1,zIndex,height}:{docId:string;html:string;visible:boolean;locked:boolean;active:boolean;onPaste:(files:File[])=>void;onChange:(html:string)=>void;onNavigate:(id:string)=>void;onDownloadFile:(id:string,name:string)=>void;opacity?:number;width?:number;viewportHeight?:number;onHeight?:(height:number)=>void;scale?:number;zIndex?:number;height?:number}){
+  const ref=useRef<HTMLDivElement>(null);const composing=useRef(false),renderedDocument=useRef('');
   useEffect(()=>{
     const el=ref.current;if(!el)return;
-    const safe=cleanHTML(html);
-    if(!composing.current&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
+    const safe=linkifyNoteHTML(cleanHTML(html));
+    if(!composing.current&&(renderedDocument.current!==docId||document.activeElement!==el)&&cleanHTML(el.innerHTML)!==safe)el.innerHTML=safe;
+    renderedDocument.current=docId;
   },[html,visible,docId]);
   useOfflineNoteImages(ref,docId,html,visible);
   useEffect(()=>{const el=ref.current;if(!el||!onHeight)return;const measure=()=>onHeight(el.scrollHeight);const observer=new ResizeObserver(measure);observer.observe(el);measure();return()=>observer.disconnect();},[docId,visible,onHeight]);
@@ -46,16 +48,12 @@ export function FixedNoteLayer({docId,html,visible,locked,active,onChange,onPast
   return <div className={'notes-fixed-layer '+(active?'active':'')+(locked?' locked':'')} aria-label="固定ノートレイヤー" style={{opacity,width,height,zIndex,transform:`scale(${1/scale})`,transformOrigin:'0 0'}}>
     <div ref={ref} className="notes-fixed-editor" style={{minHeight:viewportHeight||400}} role="textbox" aria-label="固定ノート本文" aria-multiline="true" contentEditable={active&&!locked} suppressContentEditableWarning spellCheck
       onPaste={e=>{e.preventDefault();if(e.clipboardData.files.length){onPaste(Array.from(e.clipboardData.files));return;}
-        const html=e.clipboardData.getData('text/html');document.execCommand(html?'insertHTML':'insertText',false,html?cleanHTML(html):e.clipboardData.getData('text/plain'));emit();}}
+        const html=e.clipboardData.getData('text/html');if(html)document.execCommand('insertHTML',false,linkifyNoteHTML(cleanHTML(html)));else{const el=document.createElement('div');el.textContent=e.clipboardData.getData('text/plain');document.execCommand('insertHTML',false,linkifyNoteHTML(el.innerHTML.replace(/\n/g,'<br>')));}emit();}}
       data-placeholder="ここに本文を入力します。文字サイズはズームから独立し、上下スクロールはCanvasと連動します。"
       onInput={()=>{if(!composing.current)emit();}} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;emit();}} onKeyDown={e=>noteEditorKeyDown(e,emit)} onClick={e=>{
         noteCheckboxClick(e,emit);
-        const link=(e.target as Element).closest<HTMLAnchorElement>('a[data-kn-local-file]');
-        const fileId=link?.dataset.knLocalFile;
-        if(!link||!fileId)return;
-        e.preventDefault();
-        onDownloadFile(fileId,link.textContent||'attachment');
-      }} onBlur={emit}/>
+        if(!composing.current)noteLinkClick(e,onNavigate,onDownloadFile);
+      }} onBlur={e=>{if(!(e.relatedTarget as Element)?.closest?.('.kn-note-link-dialog,.kn-workspace-popup,.notes-toolbar')){const el=ref.current;if(el){const next=linkifyNoteHTML(el.innerHTML);if(el.innerHTML!==next)el.innerHTML=next;}}emit();}}/>
   </div>;
 }
 

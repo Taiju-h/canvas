@@ -13,7 +13,7 @@ export function noteAssets(record:NoteRecord){
   }
   for(const id of [...record.content.items.map(x=>x.imageId),...record.content.layers.map(x=>x.rasterImageId)])if(id)image(id);
   const template=document.createElement('template');template.innerHTML=[record.content.fixedNote?.html,...(record.content.blocks||[]).map(b=>b.html),record.content.legacyNoteBody?.block.html].filter(Boolean).join('\n');
-  for(const node of template.content.querySelectorAll('[data-kn-local-image],[data-kn-local-file],img,a[href]')){
+  for(const node of template.content.querySelectorAll('[data-kn-local-image],[data-kn-local-file],img,video,source,a[href]')){
     const localImage=node.getAttribute('data-kn-local-image'),localFile=node.getAttribute('data-kn-local-file');
     if(localImage)image(localImage);
     if(localFile&&!assets.has(localFile))assets.set(localFile,{id:localFile,kind:'file',name:localFile});
