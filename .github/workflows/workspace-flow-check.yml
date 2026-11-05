@@ -19,10 +19,11 @@ jobs:
           node-version: '22'
       - run: |
           npm install --package-lock=false
-          npm install --no-save --package-lock=false playwright@1.62.1
+          npm install --no-save --package-lock=false playwright@1.64.1
           npx playwright install --with-deps chromium
       - run: npm test
       - run: VITE_APP_COMMIT=1111111 npm run build
+      - run: node tests/note-links.cjs
       - run: node tests/workspace-flow.cjs
       - run: node tests/tablet-ink.cjs
       - run: node tests/drawing-modes.cjs
@@ -32,7 +33,6 @@ jobs:
       - run: node tests/note-offline.cjs
       - run: node tests/offline-startup.cjs
       - run: node tests/web-update-check.cjs
-      - run: node tests/note-links.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -266,7 +266,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
   },[categoryBrowserOpen]);
   // Manual navigation is the new default, including devices with the old ON preference.
   const [sidebarAutoClose,setSidebarAutoClose]=useState(()=>preference('kn-navigation-autoclose','off')==='on');
-  const [workspaceMenu,setWorkspaceMenu]=useState<{x:number;y:number;noteId:string;range:Range|null;copyText:string}|null>(null);
+  const [workspaceMenu,setWorkspaceMenu]=useState<{x:number;y:number;noteId:string;range:Range|null;copyText:string;element?:HTMLElement}|null>(null);
   const [relatedPanel,setRelatedPanel]=useState(false);
   const [sheetDependents,setSheetDependents]=useState<{id:string;title:string}[]>([]);
   const [aiConfigured,setAiConfigured]=useState<boolean|null>(null);
@@ -1036,13 +1036,13 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     const fixed=el?.closest?.('.notes-fixed-editor') as HTMLElement|null;
     if(fixed)updateFixedNote(fixed.innerHTML);
   }
-  function openNoteLink(){
+  function openNoteLink(contextElement?:HTMLElement){
     const latest=current.current;if(!latest||notes.busy||organizing||importing||attaching||latest.content.note?.trashedAt)return;
     const live=window.getSelection();let range=selectedNoteRoot()&&live?.rangeCount?live.getRangeAt(0).cloneRange():formatCaret.current?.cloneRange()||null;
-    let element=lastLinkElement.current?.docId===latest.id&&lastLinkElement.current.element.isConnected?lastLinkElement.current.element:null;
+    let element=contextElement||(lastLinkElement.current?.docId===latest.id&&lastLinkElement.current.element.isConnected?lastLinkElement.current.element:null);
     const rangeNode=range?.commonAncestorContainer,rangeElement=rangeNode instanceof HTMLElement?rangeNode:rangeNode?.parentElement;
     const pointedMedia=element?.closest('img,video')||element?.closest('a')?.querySelector('img,video');
-    if(range&&!range.collapsed&&!pointedMedia)element=rangeElement||null;
+    if(!contextElement&&range&&!range.collapsed&&(!pointedMedia||!!range.toString().trim()))element=rangeElement||null;
     let root=element?.closest<HTMLElement>('.notes-fixed-editor,.note-content')||rangeElement?.closest<HTMLElement>('.notes-fixed-editor,.note-content');
     if(!root){root=plane.current?.querySelector<HTMLElement>('.notes-fixed-editor[contenteditable="true"]');element=root||null;range=null;}
     if(!root||root.getAttribute('contenteditable')!=='true'){notes.setError('編集する本文・画像・動画を選んでください');return;}
@@ -1073,7 +1073,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
     if(target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement)copyText=target.value.slice(target.selectionStart||0,target.selectionEnd||0);
     const graphicId=target.closest('[data-stroke]')?.getAttribute('data-stroke');
     if(graphicId&&!selectedIds.includes(graphicId))selectGraphic(graphicId);
-    setWorkspaceMenu({x,y,noteId:record?.id||'',range,copyText});
+    setWorkspaceMenu({x,y,noteId:record?.id||'',range,copyText,element:root?target as HTMLElement:undefined});
   }
   async function clipboardWorkspace(action:'copy'|'cut'|'paste'){
     const menu=workspaceMenu;if(!menu)return;
@@ -1107,7 +1107,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
       {id:'cut',label:'切り取り',disabled:!editable||!menu.range||!menu.copyText,onSelect:()=>void clipboardWorkspace('cut')});
     if(menu.range||workspaceMode!=='note')items.push({id:'paste',label:'貼り付け',disabled:!editable,onSelect:()=>void clipboardWorkspace('paste')});
     if(menu.range)items.push({id:'bold',label:'太字',icon:<Bold size={16}/>,disabled:!editable,onSelect:()=>{formatCaret.current=menu.range;format('bold');}});
-    if(menu.range||lastLinkElement.current?.element.closest('.notes-fixed-editor,.note-content'))items.push({id:'link',label:'リンクを設定・変更',icon:<Link size={16}/>,disabled:!editable,onSelect:openNoteLink});
+    if(menu.range||lastLinkElement.current?.element.closest('.notes-fixed-editor,.note-content'))items.push({id:'link',label:'リンクを設定・変更',icon:<Link size={16}/>,disabled:!editable,onSelect:()=>openNoteLink(menu.element)});
     items.push(
       {id:'undo',label:'元に戻す',icon:<Undo2 size={16}/>,separatorBefore:true,disabled:!editable||!undoStack.current.length,onSelect:undo},
       {id:'redo',label:'やり直す',icon:<Redo2 size={16}/>,disabled:!editable||!redoStack.current.length,onSelect:redo},
@@ -1635,7 +1635,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
               <button title="段組みの表組みレイアウト" onClick={()=>openTableSettings('columns')}><Columns3 size={17}/><span>表組み</span></button>
               <button title="ノートにファイルを添付" onClick={()=>fileInput.current?.click()}><Paperclip size={17}/><span>添付</span></button>
               <button title="画像をノートに挿入" onClick={()=>imageInput.current?.click()}><ImagePlus size={17}/>画像</button>
-              <button title="選んだ文字・画像・動画のリンクを設定・変更" aria-label="リンクを設定・変更" onClick={openNoteLink}><Link size={17}/>リンク</button>
+              <button title="選んだ文字・画像・動画のリンクを設定・変更" aria-label="リンクを設定・変更" onClick={()=>openNoteLink()}><Link size={17}/>リンク</button>
               {!sharedAccess&&<button title="このメモに顧客・案件のCRMページを関連付ける" aria-label="CRMとの関連付け" onClick={openCRM}><Building2 size={17}/>CRM{meta.crmLinks?.length?' '+meta.crmLinks.length:''}</button>}
               <button title="ノートの作業エリアを拡大" onClick={toggleFocusMode}><Maximize2 size={17}/></button>
 
