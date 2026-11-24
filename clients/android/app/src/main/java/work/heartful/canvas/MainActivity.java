@@ -146,6 +146,12 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
+    @Override
+    protected void onPause() {
+        CookieManager.getInstance().flush();
+        super.onPause();
+    }
+
     private void applyViewportInsets(View view, WindowInsetsCompat insets) {
         androidx.core.graphics.Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
         androidx.core.graphics.Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
@@ -424,6 +430,9 @@ public final class MainActivity extends ComponentActivity {
     private final class CanvasBridge {
         @JavascriptInterface public boolean isFullscreen() { return fullscreenEnabled; }
         @JavascriptInterface public String getAppVersion() { return BuildConfig.VERSION_NAME; }
+        @JavascriptInterface public int getAppVersionCode() { return BuildConfig.VERSION_CODE; }
+        @JavascriptInterface public boolean requiresDeviceRegistration() { return true; }
+        @JavascriptInterface public void persistDeviceRegistration() { CookieManager.getInstance().flush(); }
         @JavascriptInterface public void setFullscreen(boolean enabled) { runOnUiThread(() -> setFullscreenEnabled(enabled)); }
 
         @JavascriptInterface

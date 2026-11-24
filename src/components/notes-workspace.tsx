@@ -1,5 +1,7 @@
 import {useDeviceOffline} from '@/lib/use-device-offline';
 import ReferenceLibrary from './reference-library';
+import PrivateDeviceManager from './private-device-manager';
+import type {Session} from '@/lib/offline-session';
 import NoteLinkDialog from './note-link-dialog';
 import NoteCRMDialog from './note-crm-dialog';
 import {applyNoteLink,type NoteLinkTarget} from '@/lib/note-links';
@@ -215,8 +217,9 @@ type Action={shiftToggle?:string;ids?:string[];layerId?:string;selection?:InkSel
 function preference(key:string,fallback:string){try{return localStorage.getItem(key)||fallback;}catch{return fallback;}}
 function savePreference(key:string,value:string){try{localStorage.setItem(key,value);}catch{/* Preferences do not gate editing. */}}
 function storedSidebar(){try{return localStorage.getItem('canvas-notes-sidebar')!=='closed' && innerWidth>760;}catch{return innerWidth>760;}}
-export default function NotesWorkspace({accountId,sharedAccess}:{accountId:string;sharedAccess?:SharedAccess}){
+export default function NotesWorkspace({accountId,sharedAccess,privateSession,onPrivateRevoked}:{accountId:string;sharedAccess?:SharedAccess;privateSession?:Session;onPrivateRevoked?:()=>void}){
   const notes=useNotes(accountId,sharedAccess);const {record}=notes;
+  const [devicesOpen,setDevicesOpen]=useState(false);
   const deviceOffline=useDeviceOffline(notes,accountId,!sharedAccess&&!notes.list.some(n=>n.note?.importState==='pending'));
   const [referenceView,setReferenceView]=useState<'browse'|'downloads'|null>(null);
   const [linkTarget,setLinkTarget]=useState<NoteLinkTarget|null>(null);
@@ -1544,7 +1547,7 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
             <button className="notes-header-icon" onClick={()=>{setSidebar(true);setSearchScope('all');requestAnimationFrame(()=>searchInput.current?.focus());}} aria-label="全メモを横断検索" title="メモを検索"><Search size={18}/></button>
             <button className="kn-reference-open" onClick={()=>showReferences()} aria-label="画像・YouTube・メモの資料を開く" title="画像・YouTube・リンク・メモ"><ImagePlus size={17}/><span>資料</span></button>
             <button className={'kn-offline-indicator'+(deviceOffline.ready?' is-ready':'')} onClick={()=>showReferences('downloads')} aria-label="端末への保存状況を開く" title={deviceOffline.message}><FileDown size={15}/><span>{deviceOffline.working?'端末に保存中':deviceOffline.ready?'端末保存済み':deviceOffline.online?'端末保存':'オフライン'}</span></button>
-            <button className="notes-header-share" disabled={!record||record.id.startsWith('local-')||notes.conflict} onClick={()=>setShareOpen(true)} aria-label="作品を共有" title="リンクを発行して共同編集"><Share2 size={16}/><span>共有</span></button>
+            {privateSession?<button className="notes-header-share" onClick={()=>setDevicesOpen(true)} aria-label="自分の端末を管理" title="個人専用・登録した端末"><Settings2 size={16}/><span>自分の端末</span></button>:<button className="notes-header-share" disabled={!record||record.id.startsWith('local-')||notes.conflict} onClick={()=>setShareOpen(true)} aria-label="作品を共有" title="リンクを発行して共同編集"><Share2 size={16}/><span>共有</span></button>}
           </>}
         <span className="notes-save-status" role="status" title={attaching?'添付を送信中…':notes.status}>{attaching?'添付中':notes.status}</span>
         <button className="notes-header-icon" onClick={()=>void notes.save()} disabled={!record} title="今すぐ保存" aria-label="保存" aria-keyshortcuts="Control+s Meta+s"><Save size={18}/></button>
@@ -1931,7 +1934,8 @@ export default function NotesWorkspace({accountId,sharedAccess}:{accountId:strin
         {meta.sourceNotebook&&<p>元のノートブック<br/>{meta.sourceNotebook}</p>}
       </aside>}
     </div>
-    {!sharedAccess&&shareOpen&&<div className="notes-modal" onMouseDown={e=>{if(e.target===e.currentTarget)setShareOpen(false);}}>
+    {privateSession&&devicesOpen&&<PrivateDeviceManager session={privateSession} onClose={()=>setDevicesOpen(false)} onRevoked={()=>{setDevicesOpen(false);onPrivateRevoked?.();}}/>}
+    {!sharedAccess&&!privateSession&&shareOpen&&<div className="notes-modal" onMouseDown={e=>{if(e.target===e.currentTarget)setShareOpen(false);}}>
       <section role="dialog" aria-modal="true" aria-labelledby="notes-share-title" className="notes-share-dialog">
         <div className="notes-settings-title">
           <h2 id="notes-share-title"><Share2 size={19}/> 作品を共有</h2>

@@ -1,11 +1,12 @@
 import UpdateBadge from "@/components/web-update-badge";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import NotesWorkspace from "@/components/notes-workspace";
 import type { SharedAccess } from "@/lib/use-notes";
 import "./styles.css";
 import "./visitor.css";
-import {readSession,cacheSession,cachedSession,localSession,type Session} from "@/lib/offline-session";
+import {readSession,cacheSession,cachedSession,localSession,requiresPrivateGate,type Session} from "@/lib/offline-session";
+import PrivateDeviceGate from '@/components/private-device-gate';
 import {setLocalMode} from "@/lib/network";
 import {ensureOfflineShell} from "@/lib/offline-shell";
 import {prepareWebUpdate} from "@/lib/web-update";
@@ -64,16 +65,42 @@ function sharedLink():SharedAccess|undefined{
 function App() {
   const shared=sharedLink();
   const [session,setSession]=useState<Session|null>(null),[fatal,setFatal]=useState(''),[connecting,setConnecting]=useState(false);
-  const accept=(next:Session)=>{setLocalMode(!!next.localOnly);window.CanvasCsrf=next.csrfToken||'';setSession(next);setFatal('');};
-  const reconnect=async()=>{if(connecting)return;setConnecting(true);try{const next=await readSession(true);await prepareWebUpdate();accept(next);}catch(error){setFatal(error instanceof Error?error.message:'接続できません。端末内の編集は続けられます');}finally{setConnecting(false);}};
+  const [denied,setDenied]=useState<Session|null>(null);const accepted=useRef<Session|null>(null),checking=useRef(false),generation=useRef(0);
+  const accept=async(next:Session)=>{
+    const turn=++generation.current;
+    if(requiresPrivateGate(next)){
+      // Hide immediately; retain the editor until its local save succeeds.
+      // Registration/revocation never deletes IndexedDB or unsynced work.
+      setDenied(next);setLocalMode(true);window.CanvasCsrf='';
+      if(accepted.current?.authenticated){try{await prepareWebUpdate();}catch{return;}}
+    }else if(accepted.current&&accepted.current.localOnly!==next.localOnly){await prepareWebUpdate();}
+    if(turn!==generation.current)return;
+    accepted.current=next;setLocalMode(!!next.localOnly||requiresPrivateGate(next));window.CanvasCsrf=next.csrfToken||'';setSession(next);setDenied(null);setFatal('');
+  };
+  const reconnect=async()=>{if(checking.current)return;checking.current=true;setConnecting(true);try{await accept(await readSession(true));}catch(error){setFatal(error instanceof Error?error.message:'接続できません。端末内の編集は続けられます');}finally{checking.current=false;setConnecting(false);}};
   useEffect(()=>{void readSession().then(accept).catch(error=>setFatal(error instanceof Error?error.message:'接続できません'));},[]);
   useEffect(()=>{const online=()=>{if(session?.localOnly&&!session.deviceOnly)void reconnect();};addEventListener('online',online);return()=>removeEventListener('online',online);},[session,connecting]);
-  if(!session&&fatal)return <main className="visitor-gate"><section className="visitor-card"><h1>端末でノートを使えます</h1><p>サーバーに接続できません。保存済みのノートを開くか、この端末で新しく書き始められます。</p><p role="status">{fatal}</p><button onClick={()=>accept(localSession())}>{cachedSession()?.authenticated?'端末に保存したノートを開く':'この端末だけで使う'}</button><button onClick={()=>void reconnect()} disabled={connecting}>接続を再確認</button></section></main>;
-  if(!session)return <main className="hybrid-loading"><div className="hybrid-spinner"/>起動しています…</main>;
-  if(shared)return <NotesWorkspace key={'shared:'+shared.id} accountId={'shared:'+shared.id} sharedAccess={shared}/>;
-  if(!session.authenticated)return <><VisitorGate session={session} onReady={accept}/><UpdateBadge floating/></>;
-  const workspace=<NotesWorkspace key={session.accountId+':'+!!session.localOnly} accountId={session.accountId||''}/>;
-  return session.localOnly?<div className="kn-local-shell"><div className="kn-local-status" role="status"><span>{session.deviceOnly?'この端末に保存しています':'端末のノートを編集中・接続後に同期'}{fatal?'：'+fatal:''}</span><button onClick={()=>void reconnect()} disabled={connecting}>{connecting?'接続確認中…':'オンライン接続'}</button></div>{workspace}</div>:workspace;
+  useEffect(()=>{
+    if(!session?.privateAccess)return;
+    const recheck=()=>{if(navigator.onLine)void reconnect();};
+    const visible=()=>{if(document.visibilityState==='visible')recheck();};
+    addEventListener('focus',recheck);addEventListener('online',recheck);addEventListener('kaerunote-device-denied',recheck);document.addEventListener('visibilitychange',visible);
+    const timer=setInterval(recheck,30000);
+    return()=>{clearInterval(timer);removeEventListener('focus',recheck);removeEventListener('online',recheck);removeEventListener('kaerunote-device-denied',recheck);document.removeEventListener('visibilitychange',visible);};
+  },[session?.privateAccess,session?.deviceId]);
+  const workspace=session?.authenticated?<NotesWorkspace key={session.accountId+':'+!!session.localOnly} accountId={session.accountId||''} privateSession={session.privateAccess?session:undefined} onPrivateRevoked={()=>void reconnect()}/>:null;
+  const gate=denied||(session&&requiresPrivateGate(session)?session:null);
+  if(!gate&&!session&&fatal)return <main className="visitor-gate"><section className="visitor-card"><h1>端末でノートを使えます</h1><p>サーバーに接続できません。保存済みのノートを開くか、この端末で新しく書き始められます。</p><p role="status">{fatal}</p><button onClick={()=>void accept(localSession())}>{cachedSession()?.authenticated?'端末に保存したノートを開く':'この端末だけで使う'}</button><button onClick={()=>void reconnect()} disabled={connecting}>接続を再確認</button></section></main>;
+  if(!gate&&!session)return <main className="hybrid-loading"><div className="hybrid-spinner"/>起動しています…</main>;
+  if(!gate&&shared&&!session?.privateAccess)return <NotesWorkspace key={'shared:'+shared.id} accountId={'shared:'+shared.id} sharedAccess={shared}/>;
+  if(!gate&&!session?.authenticated)return <><VisitorGate session={session!} onReady={next=>void accept(next)}/><UpdateBadge floating/></>;
+  return <>
+    {gate&&<PrivateDeviceGate session={{...gate,error:fatal||gate.error}} onReady={next=>void accept(next)} onRetry={()=>void reconnect()} busy={connecting}/>}
+    <div className="kn-authorized-shell" hidden={!!gate} inert={!!gate}>
+      {session?.localOnly?<div className="kn-local-shell"><div className="kn-local-status" role="status"><span>{session.deviceOnly?'この端末に保存しています':'端末のノートを編集中・接続後に同期'}{fatal?'：'+fatal:''}</span><button onClick={()=>void reconnect()} disabled={connecting}>{connecting?'接続確認中…':'オンライン接続'}</button></div>{workspace}</div>:workspace}
+    </div>
+    {gate&&<UpdateBadge floating/>}
+  </>;
 }
 void ensureOfflineShell().catch(error=>console.warn('KaeruNote offline cache registration failed',error));
 createRoot(document.getElementById("root")!).render(<App />);

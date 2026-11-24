@@ -9,6 +9,7 @@ $path = $_GET['path'] ?? '';
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
 if (!is_string($path)) canvas_json(['error' => '経路が不正です'], 400);
+kn_private_api($path, $method);
 
 if ($path === '/api/session') {
     if ($method === 'GET') {
@@ -200,12 +201,12 @@ try {
     $owner = $actor && hash_equals($doc['owner_id'], $actor);
     $token = (string)($_SERVER['HTTP_X_SHARE_TOKEN'] ?? '');
     $shareHash = is_string($doc['share_hash']) ? $doc['share_hash'] : '';
-    $guest = !$owner && preg_match('/^[a-f0-9]{64}$/D', $token) &&
+    $guest = kn_private_policy() === null && !$owner && preg_match('/^[a-f0-9]{64}$/D', $token) &&
         $shareHash !== '' && hash_equals($shareHash, hash('sha256', $token));
     // The guest's first authenticated document GET enables session-scoped access
     // for embedded SVG/HTML images and attachments (which cannot send custom headers).
     // The session grant is always checked against the live hash, so revocation works.
-    if (!$owner && !$guest && $method === 'GET' && in_array($operation, ['images','files'], true)) {
+    if (kn_private_policy() === null && !$owner && !$guest && $method === 'GET' && in_array($operation, ['images','files'], true)) {
         $grant = $_SESSION['canvas_shared_resource_grants'][$id] ?? '';
         $guest = $shareHash !== '' && is_string($grant) && hash_equals($shareHash, $grant);
     }

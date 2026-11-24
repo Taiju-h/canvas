@@ -2,6 +2,9 @@
 declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/server/bootstrap.php';
 canvas_session();
+try {
+    if (kn_private_policy() !== null) { http_response_code(403); exit('個人専用モードでは一般利用者の管理は無効です'); }
+} catch (Throwable $error) { http_response_code(503); exit('個人用設定を読み込めません'); }
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 

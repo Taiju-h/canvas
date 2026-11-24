@@ -78,6 +78,17 @@ public final class WindowLayoutTest {
         });
         await(scenario, activity -> "resume-fixture".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "Window fixture must load");
     }
+    @Test public void privateShellRequiresEnrollmentAndExcludesCredentialBackup() {
+        int flags = ApplicationProvider.getApplicationContext().getApplicationInfo().flags;
+        assertEquals("Device credentials must not enter Android auto backup", 0, flags & android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            showWindowFixture(scenario);
+            AtomicReference<String> bridge = new AtomicReference<>("");
+            scenario.onActivity(activity -> ((WebView) root(activity).getChildAt(0)).evaluateJavascript(
+                "CanvasApp.persistDeviceRegistration(); String(CanvasApp.requiresDeviceRegistration()) + ':' + CanvasApp.getAppVersionCode()", bridge::set));
+            await(scenario, activity -> "\"true:13\"".equals(bridge.get()), "The real Android bridge must require private enrollment");
+        }
+    }
     @Test public void legacyNormalPreferenceDoesNotShowTheClockOnANewLaunch() {
         ApplicationProvider.getApplicationContext().getSharedPreferences("canvas-shell", 0).edit().putBoolean("fullscreen", false).commit();
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
