@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {createHash,randomBytes} from 'node:crypto';
 import {createServer} from 'node:net';
+import {request as httpRequest} from 'node:http';
 import {setTimeout as delay} from 'node:timers/promises';
 
 const scratch=mkdtempSync(join(tmpdir(),'kaeru-private-api-')),config=join(scratch,'config.ini'),stateFile=join(scratch,'state.json');
@@ -32,6 +33,13 @@ function client(userAgent='private-device-test'){
 const status=async(promise,expected)=>{const r=await promise;assert.equal(r.status,expected,r.text);return r;};
 const activate=async(c,inviteCode,name='My device')=>{const s=await status(c.request('/api/session'),200);return c.request('/api/private/activate',{method:'POST',csrf:s.data.csrfToken,body:{code:inviteCode,name}});};
 const readState=()=>JSON.parse(readFileSync(stateFile,'utf8'));
+const insecureActivation=(c,csrf)=>new Promise((resolve,reject)=>{
+  const body=JSON.stringify({code,name:'no HTTPS'});
+  // Node fetch normalizes Host to its URL; raw HTTP is needed for this boundary check.
+  const request=httpRequest(base+'/canvas/api.php?path=%2Fapi%2Fprivate%2Factivate',{method:'POST',headers:{Host:'example.test',Cookie:[...c.jar].map(([k,v])=>k+'='+v).join(';'),'X-CSRF-Token':csrf,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}},response=>{
+    let text='';response.on('data',chunk=>text+=chunk);response.on('end',()=>resolve({status:response.statusCode,text}));
+  });request.on('error',reject);request.end(body);
+});
 try{
   let ready=false;for(let i=0;i<100;i++){try{await client().request('/api/session');ready=true;break;}catch{await delay(30);}}assert.ok(ready,logs);
   const stranger=client();let session=await status(stranger.request('/api/session'),200);assert.equal(session.data.privateAccess,true);assert.equal(session.data.authenticated,false);
@@ -41,7 +49,7 @@ try{
   await status(stranger.request(`/api/documents/${foreign}/images/${'f'.repeat(32)}`,{headers:{'X-Share-Token':share}}),401);
   await status(stranger.request('/canvas/login.php'),303);await status(stranger.request('/canvas/admin-visitors.php'),403);
   await status(stranger.request('/api/private/activate',{method:'POST',body:{code,name:'no csrf'}}),403);
-  await status(stranger.request('/api/private/activate',{method:'POST',csrf:session.data.csrfToken,body:{code,name:'no HTTPS'},headers:{Host:'example.test'}}),400);
+  await status(insecureActivation(stranger,session.data.csrfToken),400);
   await status(stranger.request('/api/private/activate',{method:'POST',csrf:session.data.csrfToken,body:{code:[],name:'bad input'}}),400);
   const expired=invite(),expiredState=readState();expiredState.invites[hash(expired)]={created_at:1,expires_at:2};writeFileSync(stateFile,JSON.stringify(expiredState));await status(activate(stranger,expired,'expired code'),400);
   await status(activate(stranger,invite(),'wrong code'),400);assert.equal(Object.keys(readState().devices).length,0);
