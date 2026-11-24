@@ -50,15 +50,17 @@ async function operation<T>(storeName: "documents" | "images" | "revisions", mod
 
 export const getLocalDoc = (id: string) => operation<LocalDoc | undefined>("documents", "readonly", store => store.get(id));
 export const listLocalDocs = () => operation<LocalDoc[]>("documents", "readonly", store => store.getAll());
-function preserveForeignDocument(store:IDBObjectStore,doc:LocalDoc){
+function preserveForeignDocument(store:IDBObjectStore,doc:LocalDoc,onError:(error:unknown)=>void){
   const read=store.get(doc.id);
   read.onsuccess=()=>{
-    const old=read.result as LocalDoc|undefined;
-    if(old?.owner&&!old.shareToken&&old.accountId!==doc.accountId&&(old.title!==doc.title||JSON.stringify(old.content)!==JSON.stringify(doc.content))){
-      const original=old.recoverySourceId||old.id;
-      store.put({...old,id:'recovery-'+original+'-'+(old.accountId||'legacy'),recoverySourceId:original});
-    }
-    store.put(doc);
+    try{
+      const old=read.result as LocalDoc|undefined;
+      if(old?.owner&&!old.shareToken&&old.accountId!==doc.accountId&&(old.title!==doc.title||JSON.stringify(old.content)!==JSON.stringify(doc.content))){
+        const original=old.recoverySourceId||old.id;
+        store.put({...old,id:'recovery-'+original+'-'+(old.accountId||'legacy'),recoverySourceId:original});
+      }
+      store.put(doc);
+    }catch(error){onError(error);}
   };
 }
 export async function putLocalDoc(doc:LocalDoc){await putLocalDocs([doc]);return doc.id;}
@@ -66,8 +68,10 @@ export async function putLocalDocs(docs:LocalDoc[]){
   const db=await database();
   await new Promise<void>((resolve,reject)=>{
     const tx=db.transaction('documents','readwrite'),store=tx.objectStore('documents');
-    try{for(const doc of docs)preserveForeignDocument(store,doc);}catch(error){tx.abort();reject(error);return;}
-    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('端末への一括保存を中止しました'));
+    let failure:unknown;
+    const abort=(error:unknown)=>{failure=error;try{tx.abort();}catch{reject(error);}};
+    tx.oncomplete=()=>resolve();tx.onerror=()=>reject(failure||tx.error);tx.onabort=()=>reject(failure||tx.error||new Error('端末への一括保存を中止しました'));
+    try{for(const doc of docs)preserveForeignDocument(store,doc,abort);}catch(error){abort(error);}
   });
 }
 export const deleteLocalDoc = (id: string) => operation<undefined>("documents", "readwrite", store => store.delete(id));
