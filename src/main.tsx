@@ -86,10 +86,14 @@ function App() {
   useEffect(()=>{
     if(!session?.privateAccess)return;
     const recheck=()=>{if(navigator.onLine)void reconnect();};
+    const deviceDenied=()=>{
+      const next:Session={authenticated:false,privateAccess:true,deviceAuthorized:false};
+      cacheSession(next);void accept(next);recheck();
+    };
     const visible=()=>{if(document.visibilityState==='visible')recheck();};
-    addEventListener('focus',recheck);addEventListener('online',recheck);addEventListener('kaerunote-device-denied',recheck);document.addEventListener('visibilitychange',visible);
+    addEventListener('focus',recheck);addEventListener('online',recheck);addEventListener('kaerunote-device-denied',deviceDenied);document.addEventListener('visibilitychange',visible);
     const timer=setInterval(recheck,30000);
-    return()=>{clearInterval(timer);removeEventListener('focus',recheck);removeEventListener('online',recheck);removeEventListener('kaerunote-device-denied',recheck);document.removeEventListener('visibilitychange',visible);};
+    return()=>{clearInterval(timer);removeEventListener('focus',recheck);removeEventListener('online',recheck);removeEventListener('kaerunote-device-denied',deviceDenied);document.removeEventListener('visibilitychange',visible);};
   },[session?.privateAccess,session?.deviceId]);
   const workspace=session?.authenticated?<NotesWorkspace key={session.accountId+':'+!!session.localOnly} accountId={session.accountId||''} privateSession={session.privateAccess?session:undefined} onPrivateRevoked={()=>void reconnect()}/>:null;
   const gate=denied||(session&&requiresPrivateGate(session)?session:null);

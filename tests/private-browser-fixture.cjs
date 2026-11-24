@@ -12,7 +12,7 @@ function createFixture(){
       const device=fixture.devices.get(token),authorized=!!device&&!device.revokedAt;
       const old=/KaeruNoteAndroid\/0\.4\.[0-5](?:\D|$)/.test(req.headers['user-agent']||'');
       const session=()=>fixture.mode==='public'?{authenticated:true,accountId:'legacy',csrfToken:csrf}:{authenticated:authorized&&!old,privateAccess:true,deviceAuthorized:authorized&&!old,accountId:authorized&&!old?owner:null,deviceId:authorized&&!old?device.id:null,deviceName:authorized&&!old?device.name:null,csrfToken:csrf,upgradeRequired:old,minimumAndroidVersion:'0.4.6'};
-      if(api==='/api/session')return json(session());
+      if(api==='/api/session'){if(fixture.hangSessions)return;return json(session());}
       let body={};if(req.method==='POST'||req.method==='PUT'){const chunks=[];for await(const chunk of req)chunks.push(chunk);body=JSON.parse(Buffer.concat(chunks).toString()||'{}');}
       if(api==='/api/private/activate'&&req.method==='POST'){
         if(old)return json({error:'新しいAndroidアプリへ更新してください',privateAccess:true},426);

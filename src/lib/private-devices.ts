@@ -25,4 +25,11 @@ export async function activateDevice(session:Session,code:string,name:string):Pr
 }
 export async function listPrivateDevices():Promise<PrivateDevice[]>{return(await request('/api/private/devices')).devices;}
 export async function invitePrivateDevice(csrf:string){return await request('/api/private/devices',csrf,{action:'invite'}) as {code:string;expiresInMinutes:number};}
-export async function revokePrivateDevice(csrf:string,id:string){return await request('/api/private/devices',csrf,{action:'revoke',id}) as {currentRevoked:boolean};}
+export async function revokePrivateDevice(csrf:string,id:string){
+  const result=await request('/api/private/devices',csrf,{action:'revoke',id}) as {currentRevoked:boolean};
+  if(result.currentRevoked){
+    cacheSession({authenticated:false,privateAccess:true,deviceAuthorized:false});
+    window.dispatchEvent(new Event('kaerunote-device-denied'));
+  }
+  return result;
+}

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'vite';
 const server=await createServer({server:{middlewareMode:true,hmr:false},optimizeDeps:{noDiscovery:true,include:[]}});
 const {readSession,cacheSession,cachedSession,localSession,requiresPrivateGate}=await server.ssrLoadModule('/src/lib/offline-session.ts');
+const {revokePrivateDevice}=await server.ssrLoadModule('/src/lib/private-devices.ts');
 const descriptors=Object.fromEntries(['window','localStorage','navigator','fetch'].map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]));
 let values;
 beforeEach(()=>{
@@ -45,6 +46,12 @@ test('an unconfigured server cannot authenticate the private shell with its old 
 test('old Android upgrade denial also blocks previously cached offline authorization',async()=>{
   cacheSession(enrolled());remote({privateAccess:true,authenticated:false,deviceAuthorized:false,upgradeRequired:true,minimumAndroidVersion:'0.4.6'});
   assert.equal((await readSession()).upgradeRequired,true);assert.equal(localSession().authenticated,false);
+});
+test('confirming this device revocation clears its offline grant before any follow-up request',async()=>{
+  cacheSession(enrolled());const events=[];window.dispatchEvent=e=>events.push(e.type);
+  remote({currentRevoked:true});assert.equal((await revokePrivateDevice('csrf',enrolled().deviceId)).currentRevoked,true);
+  offline();assert.equal(cachedSession().authenticated,false);assert.equal(localSession().authenticated,false);
+  assert.deepEqual(events,['kaerunote-device-denied']);
 });
 test('the existing public deployment retains its previous local-only fallback',async()=>{
   cacheSession({authenticated:true,accountId:'legacy'});remote({authenticated:false});
