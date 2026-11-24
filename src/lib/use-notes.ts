@@ -423,7 +423,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
         if(active.current!==target.id || !records.current.get(target.id)) await open(target.id);
         else if(networkAvailable()&&!target.id.startsWith('local-')) void open(target.id);
       } else if(!active.current){
-        const retained=(await listLocalDocs()).some(n=>n.owner&&n.accountId!==accountId);
+        const retained=networkAvailable()&&(await listLocalDocs()).some(n=>n.owner&&n.accountId!==accountId);
         if(!retained)await create();else setStatus('この端末の保存分をDBへ取り込めます');
       }
       if(networkAvailable())for(const row of records.current.values())if(row.dirty)void save(row.id);
