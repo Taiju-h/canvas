@@ -27,6 +27,7 @@ jobs:
       - run: node tests/private-devices.cjs
       - run: node tests/clipboard-import.cjs
       - run: node tests/device-recovery.cjs
+        if: ${{ !cancelled() }}
       - run: node tests/workspace-flow.cjs
       - run: node tests/tablet-ink.cjs
       - run: node tests/drawing-modes.cjs
