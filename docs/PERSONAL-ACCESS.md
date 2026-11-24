@@ -51,6 +51,7 @@ sudo php bin/personal-access.php revoke <端末ID>
 - 端末秘密は256 bit。サーバーはハッシュだけを保存し、ブラウザにはHTTPSのSecure / HttpOnly / SameSite=Strict Cookieを発行する。JavaScript・localStorage・APK・Gitに秘密や登録コードを恒久保存しない。
 - session API以外の本文・一覧・添付・画像・分類・AI・管理APIをサーバーで一括確認する。文書アクセスは従来のowner_id照合を維持する。以前の共有用セッション許可も無視する。
 - 状態ファイル欠損・不一致・読み書き失敗ではAPIを停止し、一般公開モードへ戻さない。初期設定や復旧にはサーバー管理権限が必要。
+- 登録済みの状態ファイルがある場合、INIの個人専用セクションを消したり無効にしたりしても一般公開へ戻らない。復旧時は同じowner_idの個人専用設定を戻す。
 - `CANVAS_CONFIG_FILE` / `CANVAS_PRIVATE_STATE_FILE` は隔離テスト・管理用のサーバー環境変数。HTTPパラメーターから保存先を変更できない。
 
 ## 検証

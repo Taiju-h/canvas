@@ -94,6 +94,10 @@ try{
   writeFileSync(stateFile,JSON.stringify({...initial,owner_id:'b'.repeat(32)}));await status(stranger.request('/api/session'),503);
   writeFileSync(stateFile,JSON.stringify(initial));const attempts=client();let last;
   for(let i=0;i<14;i++)last=await activate(attempts,'bad-code');assert.equal(last.status,429);
+  const configured=readFileSync(config,'utf8');
+  writeFileSync(config,configured.replace('enabled=true','enabled=false'));await status(stranger.request('/api/session'),503);
+  writeFileSync(config,configured.replace(/\[private_access\][\s\S]*$/,''));await status(stranger.request('/api/session'),503);
+  writeFileSync(config,configured);
   if(db){
     const setupConfig=join(scratch,'setup.ini'),setupState=join(scratch,'setup','state.json'),setupEnv={...env,CANVAS_CONFIG_FILE:setupConfig,CANVAS_PRIVATE_STATE_FILE:setupState};
     writeFileSync(setupConfig,readFileSync(config,'utf8').replace('enabled=true','enabled=false'));

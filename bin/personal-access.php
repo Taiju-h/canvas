@@ -6,12 +6,14 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once dirname(__DIR__) . '/server/bootstrap.php';
 
 function personal_fail(string $message): never { fwrite(STDERR, $message . "\n"); exit(1); }
-function personal_web_owner(): void
+function personal_web_owner(bool $validateOnly = false): void
 {
-    if (!function_exists('posix_geteuid') || posix_geteuid() !== 0) return;
+    if (!function_exists('posix_geteuid')) personal_fail('PHP CLIにPOSIX拡張が必要です。設定は有効にしていません');
+    if (posix_geteuid() !== 0) return;
     $user = (string)(getenv('CANVAS_PHP_USER') ?: 'www-data');
     $entry = posix_getpwnam($user);
     if (!$entry) personal_fail('CANVAS_PHP_USERでPHPの実行ユーザーを指定してください');
+    if ($validateOnly) return;
     $path = kn_private_path();
     foreach ([dirname($path), $path, $path . '.lock'] as $file) {
         if (!chown($file, $entry['uid']) || !chgrp($file, $entry['gid'])) personal_fail('端末登録ファイルの所有者を変更できません: ' . $file);
@@ -19,6 +21,7 @@ function personal_web_owner(): void
 }
 function personal_code(int $minutes): void
 {
+    personal_web_owner(true);
     $code = kn_private_update(static function(array &$state) use ($minutes): string { return kn_private_new_invite($state, $minutes); });
     personal_web_owner();
     echo "登録URL: https://canvas.uzero.style/canvas/\n1端末で1回だけ使える登録コード（{$minutes}分有効）:\n{$code}\n";
@@ -30,6 +33,8 @@ try {
     if ($command === 'setup') {
         if (kn_private_policy() !== null) personal_fail('個人専用設定は有効です。新しい端末は invite で追加してください');
         if (is_file(kn_private_path())) personal_fail('既存の端末登録ファイルがあります。自動で上書きしません');
+        personal_web_owner(true);
+        if (!is_writable(canvas_config_path()) || !is_writable(dirname(canvas_config_path()))) personal_fail('設定の書き込み権限がありません。sudoで実行してください');
         // Choose the actual owner: never guess from an email, merge accounts, or create a new empty owner.
         $users = canvas_db()->query('SELECT u.id, COALESCE(v.nickname, u.email) AS label, '
             . '(SELECT COUNT(*) FROM canvas_documents d WHERE d.owner_id = u.id) AS notes '
@@ -59,7 +64,7 @@ try {
             }
             if (!rename($temporary, $configPath)) personal_fail('設定を置き換えられません');
         } finally { if (is_file($temporary)) unlink($temporary); }
-        // canvas_config() is cached in this process; use the chosen owner explicitly here.
+        canvas_config(true);
         $code = kn_private_update(static function(array &$state): string { return kn_private_new_invite($state, 60); });
         personal_web_owner();
         echo "個人専用を有効にしました。ノート・添付の移動や削除はしていません。\n";

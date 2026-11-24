@@ -12,9 +12,19 @@ final class KnPrivateError extends RuntimeException
 
 function kn_private_policy(): ?array
 {
-    $section = canvas_config()['private_access'] ?? [];
-    $enabled = strtolower(trim((string)($section['enabled'] ?? 'false')));
-    if (in_array($enabled, ['false', '0', 'no'], true)) return null;
+    $config = canvas_config();
+    $section = $config['private_access'] ?? null;
+    // An older/restored INI must never silently reopen an enrolled deployment.
+    if ($section === null) {
+        if (is_file(kn_private_path())) throw new KnPrivateError('個人専用設定が見つかりません。既存の端末登録は保持しています');
+        return null;
+    }
+    if (!is_array($section) || !is_string($section['enabled'] ?? null)) throw new KnPrivateError('個人用設定を確認してください');
+    $enabled = strtolower(trim($section['enabled']));
+    if (in_array($enabled, ['false', '0', 'no'], true)) {
+        if (is_file(kn_private_path())) throw new KnPrivateError('登録済みの保存先を一般公開には切り替えられません');
+        return null;
+    }
     if (!in_array($enabled, ['true', '1', 'yes'], true)) throw new KnPrivateError('個人用設定を確認してください');
     $owner = (string)($section['owner_id'] ?? '');
     if (!preg_match('/^[a-f0-9]{32}$/D', $owner)) throw new KnPrivateError('個人用データの所有者が未設定です');

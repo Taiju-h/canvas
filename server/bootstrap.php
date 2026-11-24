@@ -17,9 +17,10 @@ function canvas_session(): void
     if (!isset($_SESSION['canvas_csrf'])) $_SESSION['canvas_csrf'] = bin2hex(random_bytes(32));
 }
 
-function canvas_config(): array
+function canvas_config(bool $refresh = false): array
 {
     static $config = null;
+    if ($refresh) $config = null;
     if ($config !== null) return $config;
     $path = canvas_config_path();
     if (!is_file($path)) throw new RuntimeException('DB未設定: CONF/canvas-db.ini が必要です');
