@@ -15,6 +15,7 @@ export type LocalDoc = {
   owner: boolean;
   accountId?: string;
   shareToken?: string;
+  recoverySourceId?: string;
 };
 
 const databaseName = "canvas-offline-v1";
@@ -49,12 +50,23 @@ async function operation<T>(storeName: "documents" | "images" | "revisions", mod
 
 export const getLocalDoc = (id: string) => operation<LocalDoc | undefined>("documents", "readonly", store => store.get(id));
 export const listLocalDocs = () => operation<LocalDoc[]>("documents", "readonly", store => store.getAll());
-export const putLocalDoc = (doc: LocalDoc) => operation<IDBValidKey>("documents", "readwrite", store => store.put(doc));
+function preserveForeignDocument(store:IDBObjectStore,doc:LocalDoc){
+  const read=store.get(doc.id);
+  read.onsuccess=()=>{
+    const old=read.result as LocalDoc|undefined;
+    if(old?.owner&&!old.shareToken&&old.accountId!==doc.accountId&&(old.title!==doc.title||JSON.stringify(old.content)!==JSON.stringify(doc.content))){
+      const original=old.recoverySourceId||old.id;
+      store.put({...old,id:'recovery-'+original+'-'+(old.accountId||'legacy'),recoverySourceId:original});
+    }
+    store.put(doc);
+  };
+}
+export async function putLocalDoc(doc:LocalDoc){await putLocalDocs([doc]);return doc.id;}
 export async function putLocalDocs(docs:LocalDoc[]){
   const db=await database();
   await new Promise<void>((resolve,reject)=>{
     const tx=db.transaction('documents','readwrite'),store=tx.objectStore('documents');
-    try{for(const doc of docs)store.put(doc);}catch(error){tx.abort();reject(error);return;}
+    try{for(const doc of docs)preserveForeignDocument(store,doc);}catch(error){tx.abort();reject(error);return;}
     tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||new Error('端末への一括保存を中止しました'));
   });
 }
