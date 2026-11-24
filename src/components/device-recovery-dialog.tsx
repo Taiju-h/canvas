@@ -25,11 +25,12 @@ export default function DeviceRecoveryDialog({accountId,onClose,onArchived,onSet
     <header><h2 id="device-recovery-title"><Database size={21}/>端末のメモをDBへ保存</h2><button ref={close} disabled={busy} onClick={()=>complete?void openSaved():onClose()} aria-label="端末の保存確認を閉じる"><X size={20}/></button></header>
     <p>この端末にあるご自分のメモを、Android・PC・iPadで使う保存先へコピーします。本文・Canvas・レイアウト・画像・添付の原本を保持します。</p>
     {progress&&<p role="status">{progress.phase} · {progress.done} / {progress.total}<br/>{progress.page}</p>}
-    {plan&&<><dl className="kn-recovery-counts"><div><dt>端末にある保存分</dt><dd>{plan.localCount}件</dd></div><div><dt>接続中のDB</dt><dd>{plan.serverCount}件</dd></div><div><dt>保存先に確認済み</dt><dd>{plan.alreadySaved}件</dd></div><div><dt>コピーするメモ</dt><dd>{plan.sources.length}件</dd></div></dl>
+    {plan&&<><p>保存先：<strong>{plan.destinationName}</strong></p><dl className="kn-recovery-counts"><div><dt>端末にある保存分</dt><dd>{plan.localCount}件</dd></div><div><dt>接続中のDB</dt><dd>{plan.serverCount}件</dd></div><div><dt>保存先に確認済み</dt><dd>{complete?plan.alreadySaved+plan.sources.length:plan.alreadySaved}件</dd></div><div><dt>{complete?'今回保存したメモ':'コピーするメモ'}</dt><dd>{plan.sources.length}件</dd></div></dl>
+      <details><summary>サーバー初期設定で同じ保存先を選ぶ場合</summary><p>setupの一覧で、次の保存先IDと一致する行を選びます。</p><input aria-label="初期設定で選ぶ保存先ID" value={plan.accountId} readOnly onFocus={e=>e.target.select()}/></details>
       {!!plan.sources.length&&<details open><summary>保存するメモの確認</summary><ul className="kn-recovery-pages">{plan.sources.map(s=><li key={s.record.id}>{s.record.title}<small>{s.record.content.note?.category||'未分類'}</small></li>)}</ul></details>}
       <p className="visitor-note">すでにDBにある内容を上書きせず、端末で変更した分は新しいメモとして残します。元の端末データと履歴は保持します。中断後も同じ内容の二重取り込みを避けて再開します。</p>
       {!complete&&<button className="kn-device-invite" disabled={busy||!plan.sources.length&&!plan.folderAdditions} onClick={async()=>{
-        cancelled.current=false;setBusy(true);setError('');try{const result=await copyDeviceRecovery(plan,setProgress,()=>cancelled.current,onArchived);firstId.current=result.firstId;setComplete(true);}catch(e){setError(e instanceof Error?e.message:String(e));setPlan(undefined);setReconnect(!!(e as {reconnect?:boolean}).reconnect);}finally{setBusy(false);}
+        cancelled.current=false;setBusy(true);setError('');try{const result=await copyDeviceRecovery(plan,setProgress,()=>cancelled.current,onArchived);firstId.current=result.firstId;setPlan({...plan,serverCount:result.serverCount});setComplete(true);}catch(e){setError(e instanceof Error?e.message:String(e));setPlan(undefined);setReconnect(!!(e as {reconnect?:boolean}).reconnect);}finally{setBusy(false);}
       }}>{plan.sources.length}件・{plan.folderAdditions}フォルダをDBへ保存</button>}
     </>}
     {error&&<p className="visitor-error" role="alert">{error}</p>}

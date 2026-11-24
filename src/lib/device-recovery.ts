@@ -8,7 +8,7 @@ import {fetchWithTimeout,networkAvailable} from './network';
 export type RecoveryProgress={phase:string;done:number;total:number;page:string};
 type RecoveryLocal=LocalDoc&{content:NoteDoc};
 type Source={record:RecoveryLocal;assets:NoteAsset[];fingerprint:string;existing?:NoteIndex};
-export type RecoveryPlan={accountId:string;sources:Source[];localCount:number;serverCount:number;alreadySaved:number;categories:string[];folderAdditions:number};
+export type RecoveryPlan={accountId:string;destinationName:string;sources:Source[];localCount:number;serverCount:number;alreadySaved:number;categories:string[];folderAdditions:number};
 type Marker={sourceId:string;snapshot:string;stage:'pending'|'complete';originalId?:string};
 type Entry={targetId:string;assets:Record<string,{id:string;kind:'file'|'image'}>};
 type Journal={version:1;entries:Record<string,Entry>;categories?:string[]};
@@ -37,7 +37,7 @@ async function destination(account:string){
 }
 /** Read every local original before any remote writes; a missing file stops the operation. */
 export async function prepareDeviceRecovery(accountId:string,progress:(value:RecoveryProgress)=>void,cancelled=()=>false):Promise<RecoveryPlan>{
-  await destination(accountId);const server=await recoveryIndex(),owned=new Map(server.map(n=>[n.id,n]));
+  const connected=await destination(accountId);const server=await recoveryIndex(),owned=new Map(server.map(n=>[n.id,n]));
   const local=(await listLocalDocs()).filter(n=>n.owner&&!n.shareToken&&n.content?.version===1&&!(n.accountId===accountId&&(n.content as NoteDoc).note?.deviceRecovery?.stage==='complete'&&owned.has(n.id)&&!n.dirty)) as RecoveryLocal[];
   const sources:Source[]=[],digests=new Map<string,Promise<string>>(),categories=new Set<string>();let alreadySaved=0,done=0;
   for(const category of journal(accountId).categories||[])categories.add(category);
@@ -62,7 +62,7 @@ export async function prepareDeviceRecovery(accountId:string,progress:(value:Rec
   }
   progress({phase:'確認完了',done,total:local.length,page:''});
   const folders=await(await api('/api/note-workspace')).json();
-  return{accountId,sources,localCount:local.length,serverCount:server.length,alreadySaved,categories:[...categories],folderAdditions:[...categories].filter(c=>!folders.categories.includes(c)).length};
+  return{accountId,destinationName:connected.nickname||connected.deviceName||'接続中の保存先',sources,localCount:local.length,serverCount:server.length,alreadySaved,categories:[...categories],folderAdditions:[...categories].filter(c=>!folders.categories.includes(c)).length};
 }
 
 /** Stable URLs, geometry, metadata and old local originals are all retained. */
@@ -91,7 +91,7 @@ export function recoveryContent(source:NoteDoc,targetId:string,assets:Map<string
   copy.note={category:'',tags:[],...copy.note,deviceRecovery:stamp};
   copy.note.relatedNotes=copy.note.relatedNotes?.map(n=>({...n,id:notes.get(n.id)||n.id}));
   const sheet=(copy as NoteDoc&{sheet?:{cells:Record<string,string>}}).sheet;
-  if(sheet?.cells){sheet.cells=Object.fromEntries(Object.entries(sheet.cells).map(([cell,value])=>{for(const [from,to] of notes)value=value.split('{{'+from+':').join('{{'+to+':');return[cell,value];}));}
+  if(sheet?.cells){sheet.cells=Object.fromEntries(Object.entries(sheet.cells).map(([cell,value])=>{if(typeof value==='string')for(const [from,to] of notes)value=value.split('{{'+from+':').join('{{'+to+':');return[cell,value];}));}
   return copy;
 }
 
@@ -163,5 +163,6 @@ export async function copyDeviceRecovery(plan:RecoveryPlan,progress:(value:Recov
     try{await api('/api/note-workspace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({categories,updates:[],revision:workspace.revision})});break;}
     catch(error){if((error as {status?:number}).status!==409||attempt===1)throw error;}
   }
-  progress({phase:'保存完了',done,total:plan.sources.length,page:''});return{count:done,firstId:mapping.get(plan.sources[0]?.record.id||'')};
+  const serverCount=(await recoveryIndex()).length;
+  progress({phase:'保存完了',done,total:plan.sources.length,page:''});return{count:done,serverCount,firstId:mapping.get(plan.sources[0]?.record.id||'')};
 }

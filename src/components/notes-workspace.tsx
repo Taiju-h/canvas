@@ -543,6 +543,7 @@ export default function NotesWorkspace({accountId,sharedAccess,privateSession,on
     if(workspaceMode==='canvas'){if(!canvasSelection){const value=canvasLayerClipboard(d,r.id,activeLayer);if(!value)return null;value.assets=noteAssets({...r,content:{...d,items:value.items,paintStrokes:value.paintStrokes,blocks:value.blocks,layers:[],fixedNote:undefined,legacyNoteBody:undefined,attachments:[]}});return value;}const split=splitInkSelection(d,canvasSelection,id32);d=split.doc;ids=split.ids;outline=canvasSelection.points;}
     else{ids=layoutSelectedIds(d);outline=selectionOutline(d,ids);}
     if(!ids.length)return null;const value=selectionClipboard(d,r.id,workspaceMode,ids,outline);
+    const layers=[...new Set([...value.items,...value.paintStrokes,...value.blocks].map(i=>i.layerId))];if(layers.length===1)value.layerOpacity=d.layers.find(l=>l.id===layers[0])?.opacity??1;
     const selectedDoc={...d,items:value.items,paintStrokes:value.paintStrokes,blocks:value.blocks,layers:[],attachments:[],fixedNote:{html:'',visible:false,locked:false},legacyNoteBody:undefined};
     value.assets=noteAssets({...r,content:selectedDoc}).map(a=>({...a,...d.attachments?.find(file=>file.id===a.id)}));return value;
   }
@@ -575,7 +576,8 @@ export default function NotesWorkspace({accountId,sharedAccess,privateSession,on
       let d=current.current.content as StudioNoteDoc;const active=d.layers.find(l=>l.id===activeLayer&&(l.studioKind||'canvas')===value.family);
       if(active&&(!active.visible||active.locked))throw new Error('貼り付け先レイヤーを表示し、ロックを解除してください');
       let layer=destination==='canvas'?undefined:active||d.layers.find(l=>(l.studioKind||'canvas')===value.family&&l.visible&&!l.locked);
-      if(!layer){if(destination!=='canvas'&&d.layers.some(l=>(l.studioKind||'canvas')===value.family))throw new Error('貼り付け先レイヤーのロックを解除してください');layer={id:id32(),name:destination==='canvas'?'貼り付け '+(d.layers.filter(l=>(l.studioKind||'canvas')==='canvas').length+1):'レイアウト',studioKind:value.family,visible:true,locked:false,opacity:value.layerOpacity??1};d={...d,layers:[...d.layers,layer]};}
+      if(layer&&value.layerOpacity!==undefined&&value.layerOpacity!==(layer.opacity??1))layer=undefined;
+      if(!layer){if(destination!=='canvas'&&d.layers.some(l=>(l.studioKind||'canvas')===value.family)&&!d.layers.some(l=>(l.studioKind||'canvas')===value.family&&l.visible&&!l.locked))throw new Error('貼り付け先レイヤーのロックを解除してください');layer={id:id32(),name:destination==='canvas'?'貼り付け '+(d.layers.filter(l=>(l.studioKind||'canvas')==='canvas').length+1):'レイアウト',studioKind:value.family,visible:true,locked:false,opacity:value.layerOpacity??1};d={...d,layers:[...d.layers,layer]};}
       const key=JSON.stringify(original);if(clipboardSequence.current.text!==key)clipboardSequence.current={text:key,count:0};const offset=inPlace?0:24*++clipboardSequence.current.count;
       const bounds=selectionOutline({...d,items:value.items,blocks:value.blocks,paintStrokes:value.paintStrokes},[...value.items,...value.blocks,...value.paintStrokes].map(i=>i.id));
       const dx=!inPlace&&value.sourceId!==target.id&&bounds.length?80+(scroll.current?.scrollLeft||0)/scale-bounds[0].x+offset:offset,dy=!inPlace&&value.sourceId!==target.id&&bounds.length?80+(scroll.current?.scrollTop||0)/scale-bounds[0].y+offset:offset;
@@ -659,7 +661,7 @@ export default function NotesWorkspace({accountId,sharedAccess,privateSession,on
       d={...doc,layers:[...doc.layers,layer]};
     }
     const b={...block(x,y,html),background,layerId:layer.id};
-    commit({...d,blocks:[...(d.blocks||[]),b]});setActiveLayer(layer.id);setWorkspaceMode('layout');setSelected(b.id);setFocus(edit?b.id:'');setTool(edit?'text':'select');
+    commit({...d,blocks:[...(d.blocks||[]),b]});setActiveLayer(layer.id);setWorkspaceMode('layout');setSelected(b.id);setMultiSelected([]);setCanvasSelection(null);setFocus(edit?b.id:'');setTool(edit?'text':'select');
   }
   function writableLayer(d:NoteDoc,kind?:'canvas'|'layout'){const layers=(d as StudioNoteDoc).layers;const matches=(l:(typeof layers)[number])=>(!kind||(l.studioKind||'canvas')===kind)&&l.visible&&!l.locked;return layers.find(l=>l.id===activeLayer&&matches(l))||layers.find(matches);}
   function updateFixedNote(html:string){const d=current.current?.content as StudioNoteDoc|undefined;if(!d)return;const state=d.fixedNote||{html:'',visible:true,locked:false};if(cleanHTML(state.html)===html)return;commit({...d,fixedNote:{...state,html}} as NoteDoc,false);}
