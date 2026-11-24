@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.io.File;
 import java.io.FileOutputStream;
 import org.junit.Before;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
@@ -44,7 +45,9 @@ public final class WindowLayoutTest {
             FrameLayout root = root(activity);
             WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
             Rect visible = new Rect(); root.getWindowVisibleDisplayFrame(visible);
-            state.set(" insets=" + (insets == null ? "null" : "status=" + insets.isVisible(WindowInsetsCompat.Type.statusBars()) + " nav=" + insets.isVisible(WindowInsetsCompat.Type.navigationBars()) + " ime=" + insets.isVisible(WindowInsetsCompat.Type.ime()) + " bars=" + insets.getInsets(WindowInsetsCompat.Type.systemBars())) + " flags=" + activity.getWindow().getDecorView().getSystemUiVisibility() + " webHeight=" + root.getChildAt(0).getHeight() + " visible=" + visible);
+            WebView view = (WebView) root.getChildAt(0);
+            android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+            state.set(" url=" + view.getUrl() + " title=" + view.getTitle() + " webview=" + (provider == null ? "unknown" : provider.versionName) + " insets=" + (insets == null ? "null" : "status=" + insets.isVisible(WindowInsetsCompat.Type.statusBars()) + " nav=" + insets.isVisible(WindowInsetsCompat.Type.navigationBars()) + " ime=" + insets.isVisible(WindowInsetsCompat.Type.ime()) + " bars=" + insets.getInsets(WindowInsetsCompat.Type.systemBars())) + " flags=" + activity.getWindow().getDecorView().getSystemUiVisibility() + " webHeight=" + root.getChildAt(0).getHeight() + " visible=" + visible);
             File dir = new File(activity.getCacheDir(), "window-check");dir.mkdirs();screenshot.set(new File(dir,"failure.png"));
         });
         Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
@@ -90,6 +93,9 @@ public final class WindowLayoutTest {
         }
     }
     @Test public void upgradingBypassesLegacyWorkerHtmlAndRetainsLocalData() {
+        android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+        int major = WebVersions.browserMajor(provider == null ? null : provider.versionName);
+        Assume.assumeTrue("Full UI requires the Vite browser baseline; provider=" + (provider == null ? "unknown" : provider.versionName), major == 0 || major >= WebVersions.MIN_WEBVIEW_MAJOR);
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
             AtomicReference<String> loaded = new AtomicReference<>("");
             await(scenario, activity -> {
@@ -108,6 +114,19 @@ public final class WindowLayoutTest {
                 view.evaluateJavascript("Boolean(document.getElementById('private-title')) && localStorage.getItem('private-upgrade-data-marker')==='retained'", upgraded::set);
                 return view.getUrl() != null && view.getUrl().contains(WebAssetPaths.NATIVE_ENTRY) && "true".equals(upgraded.get());
             }, "Upgrading must bypass old worker HTML and keep the user's stored data");
+        }
+    }
+    @Test public void legacyWebViewShowsAnUpdateMessageInsteadOfABlankEditor() {
+        android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+        int major = WebVersions.browserMajor(provider == null ? null : provider.versionName);
+        Assume.assumeTrue("This check needs an older WebView provider", major > 0 && major < WebVersions.MIN_WEBVIEW_MAJOR);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            await(scenario, activity -> {
+                FrameLayout root = root(activity);
+                android.widget.LinearLayout panel = (android.widget.LinearLayout) root.getChildAt(1);
+                for (int i = 0; i < panel.getChildCount(); i++) if (panel.getChildAt(i) instanceof android.widget.TextView && ((android.widget.TextView) panel.getChildAt(i)).getText().toString().contains("WebViewを更新")) return panel.getVisibility() == View.VISIBLE;
+                return false;
+            }, "An unsupported WebView must explain the required update without deleting local data");
         }
     }
     @Test public void legacyNormalPreferenceDoesNotShowTheClockOnANewLaunch() {

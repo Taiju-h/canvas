@@ -16,6 +16,7 @@ sudo php /var/www/canvas.uzero.style/bin/personal-access.php setup
 最初の登録コードがサーバーの端末画面に1回表示される。有効時間は60分、使えるのは1台だけ。コードを公開のIssueやチャットログに貼らない。PHP実行ユーザーがwww-data以外の場合は `sudo CANVAS_PHP_USER=<実行ユーザー> php .../personal-access.php setup` を使う。設定ファイルをPHPが読める既存の権限は保持する。
 
 1. Androidは同じ署名の0.4.6 / versionCode 13を上書きインストールする。アンインストールして端末データを消さない。
+   WebViewは既存Web版の要件と同じ111以降が必要。古い場合は、空白画面の代わりにWebView・Chromeの更新を案内する。
 2. アプリを開き、端末名とコードを入力する。初回登録はオンラインで行う。
 3. PCやiPadを追加するときは、登録済み端末のヘッダー「自分の端末」→「別の自分の端末を追加する」でコードを発行する。
 4. 追加するPC・iPadで https://canvas.uzero.style/canvas/ を開いて入力する。追加コードは15分・1台限り。PCやiPadでAPKをインストールする必要はない。
@@ -59,3 +60,4 @@ sudo php bin/personal-access.php revoke <端末ID>
 `npm test` に登録とオフライン判定の検証を含む。CI `Personal device access` は実際のPHP 8.3/MySQL 8を使い、本文・画像・添付・他の所有者へのアクセス、旧ログイン、共有許可、コードの同時利用・再利用、CSRF、Cookie属性、解除・期限切れ、設定破損、試行上限を検証する。`tests/private-devices.cjs` は合成データで登録、Android/iPad共通の保存先、オフライン編集・再同期、解除時の未同期データ保持を確認する。実際の本人のデータをCIや公開Gitへ含めない。
 
 署名済みAPKのビルド・従来版との証明書一致、Android API 29/36での確認、本番の反映、利用者の実機での確認を別々に記録する。
+古いWebViewを同梱したAPI 29イメージでは、全画面・実際のタップ・端末登録ブリッジ・WebView更新案内を検証する。完全な登録UIと旧Workerのキャッシュを残した起動は、要件を満たすWebViewのAPI 36で検証する。JUnitでWebView要件による対象外を明示し、古いエンジン上で登録UIまで確認済みとは扱わない。

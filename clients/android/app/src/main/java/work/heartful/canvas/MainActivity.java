@@ -330,6 +330,11 @@ public final class MainActivity extends ComponentActivity {
                 Uri uri = Uri.parse(url);
                 if ("https".equals(uri.getScheme()) && CANVAS_HOST.equals(uri.getHost())) {
                     view.evaluateJavascript(downloadScript, null);
+                    android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+                    int major = WebVersions.browserMajor(provider == null ? null : provider.versionName);
+                    if (WebAssetPaths.NATIVE_ENTRY.equals(uri.getPath()) && major > 0 && major < WebVersions.MIN_WEBVIEW_MAJOR) {
+                        showError("Android System WebViewを更新してください。\nGoogle PlayでWebViewとChromeを更新した後、KaeruNoteを開き直してください。保存済みのデータは残っています。");
+                    }
                 }
             }
 

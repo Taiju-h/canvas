@@ -2,6 +2,13 @@ package work.heartful.canvas;
 
 /** Short production revisions and full Actions revisions identify the same bundle. */
 final class WebVersions {
+    // Matches the existing Vite 8 production browser baseline.
+    static final int MIN_WEBVIEW_MAJOR = 111;
+    static int browserMajor(String version) {
+        if (version == null) return 0;
+        try { return Integer.parseInt(version.split("\\.")[0]); }
+        catch (NumberFormatException ignored) { return 0; }
+    }
     static boolean canInstall(long candidateTime, long installedTime, long bundledTime) {
         return candidateTime > 0 && candidateTime >= Math.max(installedTime, bundledTime);
     }
