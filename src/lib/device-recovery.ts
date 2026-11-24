@@ -30,7 +30,7 @@ export async function recoveryIndex():Promise<NoteIndex[]>{
 }
 async function destination(account:string){
   const session=await readSession(true);
-  if(!session.authenticated||!session.accountId||session.localOnly||session.deviceOnly)throw new Error('オンラインの保存先に接続してください');
+  if(!session.authenticated||!session.accountId||session.localOnly||session.deviceOnly)throw Object.assign(new Error('オンラインの保存先に接続してください'),{reconnect:true});
   if(session.accountId!==account)throw Object.assign(new Error('別の利用者への接続に切り替わっています。「保存先を再確認」で接続を揃えてください。端末のメモは保持しています'),{reconnect:true});
   if(!networkAvailable())throw Object.assign(new Error('オンラインの保存先を再確認してください。端末のメモは保持しています'),{reconnect:true});
   window.CanvasCsrf=session.csrfToken||'';return session;
