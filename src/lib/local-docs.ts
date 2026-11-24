@@ -56,8 +56,15 @@ function preserveForeignDocument(store:IDBObjectStore,doc:LocalDoc,onError:(erro
     try{
       const old=read.result as LocalDoc|undefined;
       if(old?.owner&&!old.shareToken&&old.accountId!==doc.accountId&&(old.title!==doc.title||JSON.stringify(old.content)!==JSON.stringify(doc.content))){
-        const original=old.recoverySourceId||old.id;
-        store.put({...old,id:'recovery-'+original+'-'+(old.accountId||'legacy'),recoverySourceId:original});
+        const original=old.recoverySourceId||old.id,backupId='recovery-'+original+'-'+(old.accountId||'legacy'),backup=store.get(backupId);
+        backup.onsuccess=()=>{try{
+          const previous=backup.result as LocalDoc|undefined;
+          if(!previous||previous.title!==old.title||JSON.stringify(previous.content)!==JSON.stringify(old.content)){
+            store.put({...old,id:previous?backupId+'-'+crypto.randomUUID():backupId,recoverySourceId:original});
+          }
+          store.put(doc);
+        }catch(error){onError(error);}};
+        return;
       }
       store.put(doc);
     }catch(error){onError(error);}

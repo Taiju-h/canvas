@@ -773,7 +773,7 @@ export default function NotesWorkspace({accountId,sharedAccess,privateSession,on
       }
       const latest=current.current;if(!latest||latest.id!==notes.resolveId(r.id))throw new Error('読み込み先ノートが切り替わりました');
       const added=working.items.filter(i=>!r.content.items.some(old=>old.id===i.id));
-      commit({...latest.content,layers:latest.content.layers.some(l=>l.id===layer!.id)?latest.content.layers:[...latest.content.layers,layer],items:[...latest.content.items,...added]} as NoteDoc);setSelected(added.at(-1)?.id||'');setTool('select');
+      commit({...latest.content,layers:latest.content.layers.some(l=>l.id===layer!.id)?latest.content.layers:[...latest.content.layers,layer],items:[...latest.content.items,...added]} as NoteDoc);setSelected(added.at(-1)?.id||'');setMultiSelected([]);setCanvasSelection(null);setFocus('');setTool('select');
       if(networkAvailable())void notes.save();
     }catch(err){notes.setError(err instanceof Error?err.message:'画像を配置できません');}
     finally{setAttaching(false);}

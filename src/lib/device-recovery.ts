@@ -47,8 +47,8 @@ export async function prepareDeviceRecovery(accountId:string,progress:(value:Rec
     for(const category of loadOfflineWorkspace((record.accountId||'').replace(/^recovery-backup:/,'')).categories)categories.add(category);
     if(record.content.note?.category)categories.add(record.content.note.category);
     progress({phase:'原本を確認',done,total:local.length,page:record.title});
-    if(remote&&!record.dirty&&record.revision<=remote.revision){alreadySaved++;done++;continue;}
-    if(remote&&record.dirty){const saved=await(await api('/api/documents/'+record.id)).json() as NoteRecord;if(saved.title===record.title&&JSON.stringify(saved.content)===JSON.stringify(record.content)){alreadySaved++;done++;continue;}}
+    if(remote&&record.accountId===accountId&&!record.dirty&&record.revision<=remote.revision){alreadySaved++;done++;continue;}
+    if(remote){const saved=await(await api('/api/documents/'+record.id)).json() as NoteRecord;if(saved.title===record.title&&JSON.stringify(saved.content)===JSON.stringify(record.content)){alreadySaved++;done++;continue;}}
     const assets=noteAssets({...record,content:record.content as NoteDoc}),fingerprints:string[]=[];
     for(const asset of assets){
       const key=(asset.documentId||record.id)+':'+asset.id;
