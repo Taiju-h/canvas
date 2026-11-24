@@ -12,6 +12,9 @@ import {ensureOfflineShell} from "@/lib/offline-shell";
 import {prepareWebUpdate} from "@/lib/web-update";
 
 const API = "/canvas/api.php?path=";
+if(location.pathname==='/canvas/native-shell.html'&&!(window as Window&{CanvasApp?:unknown}).CanvasApp){
+  history.replaceState(null,'','/canvas/'+location.search+location.hash);
+}
 function stored(key: string) { try { return localStorage.getItem(key) || ""; } catch { return ""; } }
 function store(key: string, value: string) { try { localStorage.setItem(key, value); } catch {} }
 function VisitorGate({ session, onReady }: { session: Session; onReady: (next: Session) => void }) {

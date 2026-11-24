@@ -2,12 +2,16 @@ package work.heartful.canvas;
 
 /** URL-to-asset mapping shared by WebView and Service Worker requests. */
 final class WebAssetPaths {
+    // Legacy workers cache-first their known editor routes. This separate native
+    // entry always reaches the APK/downloaded bundle, including after an upgrade.
+    static final String NATIVE_ENTRY = "/canvas/native-shell.html";
     static boolean isEditorPath(String path) {
         return "/".equals(path) || "/index.html".equals(path) || "/canvas".equals(path) ||
-            "/canvas/".equals(path) || "/canvas/index.html".equals(path);
+            "/canvas/".equals(path) || "/canvas/index.html".equals(path) || NATIVE_ENTRY.equals(path);
     }
     static String relative(String path) {
         if (path == null) return null;
+        if (NATIVE_ENTRY.equals(path)) return "index.html";
         String value;
         if (path.equals("/") || path.equals("/index.html") || path.equals("/canvas")) return "index.html";
         if (path.startsWith("/canvas/")) value = path.substring(8);

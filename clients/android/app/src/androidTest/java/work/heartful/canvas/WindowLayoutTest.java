@@ -89,6 +89,27 @@ public final class WindowLayoutTest {
             await(scenario, activity -> "\"true:13\"".equals(bridge.get()), "The real Android bridge must require private enrollment");
         }
     }
+    @Test public void upgradingBypassesLegacyWorkerHtmlAndRetainsLocalData() {
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            AtomicReference<String> loaded = new AtomicReference<>("");
+            await(scenario, activity -> {
+                WebView view = (WebView) root(activity).getChildAt(0);
+                view.evaluateJavascript("Boolean(document.getElementById('private-title'))", loaded::set);
+                return "true".equals(loaded.get());
+            }, "The bundled private UI must start");
+            scenario.onActivity(activity -> ((WebView) root(activity).getChildAt(0)).evaluateJavascript(
+                "(async()=>{await navigator.serviceWorker.ready;const keys=(await caches.keys()).filter(k=>k.startsWith('uzero-canvas-shell-'));if(!keys.length)throw Error('no shell');for(const k of keys)await(await caches.open(k)).put('/canvas/index.html',new Response('<title>legacy-cached-ui</title><p>Old cached HTML</p>',{headers:{'Content-Type':'text/html'}}));localStorage.setItem('private-upgrade-data-marker','retained');localStorage.setItem('canvasSessionCache',JSON.stringify({authenticated:true,accountId:'legacy-cache'}));document.title='legacy-cache-ready';})().catch(()=>document.title='legacy-cache-failed')", null));
+            await(scenario, activity -> "legacy-cache-ready".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "A legacy cached editor must be installed before the upgrade");
+            scenario.onActivity(activity -> activity.getSharedPreferences("canvas-shell",0).edit().putInt("installedVersion",12).commit());
+            scenario.recreate();
+            AtomicReference<String> upgraded = new AtomicReference<>("");
+            await(scenario, activity -> {
+                WebView view = (WebView) root(activity).getChildAt(0);
+                view.evaluateJavascript("Boolean(document.getElementById('private-title')) && localStorage.getItem('private-upgrade-data-marker')==='retained'", upgraded::set);
+                return view.getUrl() != null && view.getUrl().contains(WebAssetPaths.NATIVE_ENTRY) && "true".equals(upgraded.get());
+            }, "Upgrading must bypass old worker HTML and keep the user's stored data");
+        }
+    }
     @Test public void legacyNormalPreferenceDoesNotShowTheClockOnANewLaunch() {
         ApplicationProvider.getApplicationContext().getSharedPreferences("canvas-shell", 0).edit().putBoolean("fullscreen", false).commit();
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {

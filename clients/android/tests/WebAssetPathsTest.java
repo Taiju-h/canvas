@@ -3,6 +3,8 @@ public final class WebAssetPathsTest {
     public static void main(String[] args) {
         expect("/", "index.html"); expect("/canvas", "index.html"); expect("/canvas/", "index.html");
         expect("/index.html", "index.html"); expect("/canvas/index.html", "index.html");
+        expect("/canvas/native-shell.html", "index.html");
+        if (!WebAssetPaths.isEditorPath(WebAssetPaths.NATIVE_ENTRY)) throw new AssertionError("Native entry must preserve editor deep links");
         expect("/assets/app.js", "assets/app.js"); expect("/canvas/assets/app.js", "assets/app.js");
         expect("/canvas/sw.js", "sw.js"); expect("/sw.js", "sw.js");
         for (String path : new String[]{null,"/api.php","/canvas/api.php","/canvas/login.php","/canvas-other/","/canvas/../secret","/assets/../../secret","/canvas/assets\\secret","/canvas//index.html","/CONF/canvas-db.ini","/canvas/assets/app.js\0"}) expect(path,null);
