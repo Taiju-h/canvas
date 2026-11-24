@@ -24,6 +24,7 @@ jobs:
       - run: npm test
       - run: VITE_APP_COMMIT=1111111 npm run build
       - run: node tests/note-links.cjs
+      - run: node tests/private-devices.cjs
       - run: node tests/workspace-flow.cjs
       - run: node tests/tablet-ink.cjs
       - run: node tests/drawing-modes.cjs
@@ -46,4 +47,5 @@ jobs:
             /tmp/kaeru-canvas-toolbox-*.png
             /tmp/kaeru-shortcuts-*.png
             /tmp/kaeru-links-*.png
+            /tmp/kaeru-private-*.png
           if-no-files-found: ignore

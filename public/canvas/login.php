@@ -2,6 +2,9 @@
 declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/server/bootstrap.php';
 canvas_session();
+try {
+    if (kn_private_policy() !== null) { header('Location: /canvas/', true, 303); exit; }
+} catch (Throwable $error) { http_response_code(503); exit('個人用設定を読み込めません。管理者へ確認してください'); }
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');

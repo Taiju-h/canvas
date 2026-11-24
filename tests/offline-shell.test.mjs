@@ -40,3 +40,8 @@ test('private API, login and write requests never use the app shell cache',async
   for(const [path,mode,method] of [['/canvas/api.php?path=session','cors','GET'],['/canvas/login.php','navigate','GET'],['/canvas/','navigate','POST']])assert.equal(await w.request(path,mode,method),undefined);
   for(const store of w.stores.values())for(const url of store.keys())assert.ok(!url.includes('.php'));
 });
+test('native startup bypasses cached editor HTML so an APK upgrade reaches its bundled registration UI',async()=>{
+  const w=worker();await w.lifecycle('install');
+  assert.equal(await w.request('/canvas/native-shell.html?app=0.4.6-private'),undefined);
+  assert.equal(await(await w.request('/canvas/')).text(),'/canvas/index.html');
+});

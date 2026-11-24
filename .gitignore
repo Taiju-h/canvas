@@ -9,6 +9,7 @@ CONF/canvas-db.ini
 public/canvas/assets/
 public/canvas/.vite/
 public/canvas/index.html
+public/canvas/native-shell.html
 public/canvas/offline-assets.json
 public/canvas/sw.js
 public/canvas/favicon.svg

@@ -1,5 +1,8 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/private-access.php';
+
+function canvas_config_path(): string { return (string)(getenv('CANVAS_CONFIG_FILE') ?: dirname(__DIR__) . '/CONF/canvas-db.ini'); }
 
 function canvas_session(): void
 {
@@ -14,11 +17,12 @@ function canvas_session(): void
     if (!isset($_SESSION['canvas_csrf'])) $_SESSION['canvas_csrf'] = bin2hex(random_bytes(32));
 }
 
-function canvas_config(): array
+function canvas_config(bool $refresh = false): array
 {
     static $config = null;
+    if ($refresh) $config = null;
     if ($config !== null) return $config;
-    $path = dirname(__DIR__) . '/CONF/canvas-db.ini';
+    $path = canvas_config_path();
     if (!is_file($path)) throw new RuntimeException('DB未設定: CONF/canvas-db.ini が必要です');
     $parsed = parse_ini_file($path, true, INI_SCANNER_RAW);
     if (!is_array($parsed) || empty($parsed['mysql']['database']) || empty($parsed['mysql']['user']) ||
@@ -76,6 +80,7 @@ function canvas_current_visitor(): ?string
 
 function canvas_current_actor(): ?string
 {
+    if (kn_private_policy() !== null) return kn_private_actor();
     return canvas_current_user() ?? canvas_current_visitor();
 }
 

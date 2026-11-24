@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.io.File;
 import java.io.FileOutputStream;
 import org.junit.Before;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
@@ -44,7 +45,9 @@ public final class WindowLayoutTest {
             FrameLayout root = root(activity);
             WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(root);
             Rect visible = new Rect(); root.getWindowVisibleDisplayFrame(visible);
-            state.set(" insets=" + (insets == null ? "null" : "status=" + insets.isVisible(WindowInsetsCompat.Type.statusBars()) + " nav=" + insets.isVisible(WindowInsetsCompat.Type.navigationBars()) + " ime=" + insets.isVisible(WindowInsetsCompat.Type.ime()) + " bars=" + insets.getInsets(WindowInsetsCompat.Type.systemBars())) + " flags=" + activity.getWindow().getDecorView().getSystemUiVisibility() + " webHeight=" + root.getChildAt(0).getHeight() + " visible=" + visible);
+            WebView view = (WebView) root.getChildAt(0);
+            android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+            state.set(" url=" + view.getUrl() + " title=" + view.getTitle() + " webview=" + (provider == null ? "unknown" : provider.versionName) + " insets=" + (insets == null ? "null" : "status=" + insets.isVisible(WindowInsetsCompat.Type.statusBars()) + " nav=" + insets.isVisible(WindowInsetsCompat.Type.navigationBars()) + " ime=" + insets.isVisible(WindowInsetsCompat.Type.ime()) + " bars=" + insets.getInsets(WindowInsetsCompat.Type.systemBars())) + " flags=" + activity.getWindow().getDecorView().getSystemUiVisibility() + " webHeight=" + root.getChildAt(0).getHeight() + " visible=" + visible);
             File dir = new File(activity.getCacheDir(), "window-check");dir.mkdirs();screenshot.set(new File(dir,"failure.png"));
         });
         Bitmap bitmap = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
@@ -77,6 +80,54 @@ public final class WindowLayoutTest {
             WindowCompat.getInsetsController(activity.getWindow(), activity.getWindow().getDecorView()).hide(WindowInsetsCompat.Type.ime());
         });
         await(scenario, activity -> "resume-fixture".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "Window fixture must load");
+    }
+    @Test public void privateShellRequiresEnrollmentAndExcludesCredentialBackup() {
+        int flags = ApplicationProvider.getApplicationContext().getApplicationInfo().flags;
+        assertEquals("Device credentials must not enter Android auto backup", 0, flags & android.content.pm.ApplicationInfo.FLAG_ALLOW_BACKUP);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            showWindowFixture(scenario);
+            AtomicReference<String> bridge = new AtomicReference<>("");
+            scenario.onActivity(activity -> ((WebView) root(activity).getChildAt(0)).evaluateJavascript(
+                "CanvasApp.persistDeviceRegistration(); String(CanvasApp.requiresDeviceRegistration()) + ':' + CanvasApp.getAppVersionCode()", bridge::set));
+            await(scenario, activity -> "\"true:13\"".equals(bridge.get()), "The real Android bridge must require private enrollment");
+        }
+    }
+    @Test public void upgradingBypassesLegacyWorkerHtmlAndRetainsLocalData() {
+        android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+        int major = WebVersions.browserMajor(provider == null ? null : provider.versionName);
+        Assume.assumeTrue("Full UI requires the Vite browser baseline; provider=" + (provider == null ? "unknown" : provider.versionName), major == 0 || major >= WebVersions.MIN_WEBVIEW_MAJOR);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            AtomicReference<String> loaded = new AtomicReference<>("");
+            await(scenario, activity -> {
+                WebView view = (WebView) root(activity).getChildAt(0);
+                view.evaluateJavascript("Boolean(document.getElementById('private-title'))", loaded::set);
+                return "true".equals(loaded.get());
+            }, "The bundled private UI must start");
+            scenario.onActivity(activity -> ((WebView) root(activity).getChildAt(0)).evaluateJavascript(
+                "(async()=>{await navigator.serviceWorker.ready;const keys=(await caches.keys()).filter(k=>k.startsWith('uzero-canvas-shell-'));if(!keys.length)throw Error('no shell');for(const k of keys)await(await caches.open(k)).put('/canvas/index.html',new Response('<title>legacy-cached-ui</title><p>Old cached HTML</p>',{headers:{'Content-Type':'text/html'}}));localStorage.setItem('private-upgrade-data-marker','retained');localStorage.setItem('canvasSessionCache',JSON.stringify({authenticated:true,accountId:'legacy-cache'}));document.title='legacy-cache-ready';})().catch(()=>document.title='legacy-cache-failed')", null));
+            await(scenario, activity -> "legacy-cache-ready".equals(((WebView) root(activity).getChildAt(0)).getTitle()), "A legacy cached editor must be installed before the upgrade");
+            scenario.onActivity(activity -> activity.getSharedPreferences("canvas-shell",0).edit().putInt("installedVersion",12).commit());
+            scenario.recreate();
+            AtomicReference<String> upgraded = new AtomicReference<>("");
+            await(scenario, activity -> {
+                WebView view = (WebView) root(activity).getChildAt(0);
+                view.evaluateJavascript("Boolean(document.getElementById('private-title')) && localStorage.getItem('private-upgrade-data-marker')==='retained'", upgraded::set);
+                return view.getUrl() != null && view.getUrl().contains(WebAssetPaths.NATIVE_ENTRY) && "true".equals(upgraded.get());
+            }, "Upgrading must bypass old worker HTML and keep the user's stored data");
+        }
+    }
+    @Test public void legacyWebViewShowsAnUpdateMessageInsteadOfABlankEditor() {
+        android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+        int major = WebVersions.browserMajor(provider == null ? null : provider.versionName);
+        Assume.assumeTrue("This check needs an older WebView provider", major > 0 && major < WebVersions.MIN_WEBVIEW_MAJOR);
+        try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(MainActivity.class)) {
+            await(scenario, activity -> {
+                FrameLayout root = root(activity);
+                android.widget.LinearLayout panel = (android.widget.LinearLayout) root.getChildAt(1);
+                for (int i = 0; i < panel.getChildCount(); i++) if (panel.getChildAt(i) instanceof android.widget.TextView && ((android.widget.TextView) panel.getChildAt(i)).getText().toString().contains("WebViewを更新")) return panel.getVisibility() == View.VISIBLE;
+                return false;
+            }, "An unsupported WebView must explain the required update without deleting local data");
+        }
     }
     @Test public void legacyNormalPreferenceDoesNotShowTheClockOnANewLaunch() {
         ApplicationProvider.getApplicationContext().getSharedPreferences("canvas-shell", 0).edit().putBoolean("fullscreen", false).commit();

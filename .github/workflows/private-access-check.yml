@@ -1,0 +1,39 @@
+name: Personal device access
+on:
+  pull_request:
+    paths: ['server/**', 'public/canvas/*.php', 'bin/personal-access.php', 'tests/private-access*', '.github/workflows/private-access-check.yml']
+  push:
+    branches: [main]
+    paths: ['server/**', 'public/canvas/*.php', 'bin/personal-access.php', 'tests/private-access*', '.github/workflows/private-access-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  private-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: fixture-only
+          MYSQL_DATABASE: canvas_private_test
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h localhost -pfixture-only" --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_mysql
+      - name: PHP syntax and CLI entry point
+        run: |
+          for file in server/*.php public/canvas/*.php bin/personal-access.php tests/private-access-*.php; do php -l "$file"; done
+          php bin/personal-access.php help
+      - name: Real PHP and MySQL access boundary regression
+        env:
+          CANVAS_PRIVATE_TEST_DB: '1'
+        run: node tests/private-access-api.mjs

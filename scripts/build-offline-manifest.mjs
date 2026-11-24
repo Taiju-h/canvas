@@ -34,6 +34,9 @@ await writeFile(join(output, "offline-assets.json"), JSON.stringify(files));
 const serviceWorker = await readFile(join(root, "src", "service-worker.js"), "utf8");
 const buildId = createHash("sha256").update(JSON.stringify(files)).update(serviceWorker).digest("hex").slice(0, 12);
 await writeFile(join(output, "build-version.json"), JSON.stringify({ buildId, commitTime:commitTime(), commit: process.env.VITE_APP_COMMIT || "" }));
+// Also resolves an Android URL copied into a regular browser. Native WebViews
+// intercept this path before network; workers deliberately do not cache it as navigation.
+await copyFile(join(output, "index.html"), join(output, "native-shell.html"));
 await writeFile(join(output, "sw.js"), serviceWorker.replace("__BUILD_ID__", buildId));
 await copyFile(join(root, "public", "favicon.svg"), join(output, "favicon.svg"));
 const webManifest = JSON.parse(await readFile(join(root, "public", "manifest.webmanifest"), "utf8"));

@@ -57,7 +57,7 @@ import java.nio.charset.StandardCharsets;
 
 public final class MainActivity extends ComponentActivity {
     private static final String CANVAS_ROOT = "https://canvas.uzero.style/canvas/";
-    private static final String CANVAS_URL = CANVAS_ROOT + "?app=" + BuildConfig.VERSION_NAME;
+    private static final String CANVAS_URL = "https://canvas.uzero.style" + WebAssetPaths.NATIVE_ENTRY + "?app=" + BuildConfig.VERSION_NAME;
     private static final String CANVAS_HOST = "canvas.uzero.style";
     private static final int FILE_CHOOSER_REQUEST = 701;
     private static final String FULLSCREEN_STATE = "canvas.fullscreen";
@@ -86,8 +86,9 @@ public final class MainActivity extends ComponentActivity {
         // the next launch. Preserve an explicit toggle only across recreation.
         fullscreenEnabled = savedInstanceState == null || savedInstanceState.getBoolean(FULLSCREEN_STATE, true);
         String bundledCommit = readWebVersion(null).optString("commit", "");
-        if (shell.getInt("installedVersion", 0) != BuildConfig.VERSION_CODE ||
-            !shell.getString("bundledCommit", "").equals(bundledCommit)) {
+        boolean shellUpdated = shell.getInt("installedVersion", 0) != BuildConfig.VERSION_CODE ||
+            !shell.getString("bundledCommit", "").equals(bundledCommit);
+        if (shellUpdated) {
             deleteTree(new File(getFilesDir(), "canvas-web"));
             deleteTree(new File(getFilesDir(), "canvas-web-next"));
             deleteTree(new File(getFilesDir(), "canvas-web-old"));
@@ -141,9 +142,15 @@ public final class MainActivity extends ComponentActivity {
 
         // Start immediately from the bundled/downloaded local UI. Static requests for
         // this HTTPS origin are intercepted below, while API requests still use network.
-        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
+        if (shellUpdated || savedInstanceState == null || webView.restoreState(savedInstanceState) == null) {
             webView.loadUrl(canvasUrlFromIntent(getIntent()));
         }
+    }
+
+    @Override
+    protected void onPause() {
+        CookieManager.getInstance().flush();
+        super.onPause();
     }
 
     private void applyViewportInsets(View view, WindowInsetsCompat insets) {
@@ -212,7 +219,7 @@ public final class MainActivity extends ComponentActivity {
             && CANVAS_HOST.equalsIgnoreCase(host)
             && (uri.getPort() == -1 || uri.getPort() == 443)
             && WebAssetPaths.isEditorPath(path)) {
-            return uri.toString();
+            return uri.buildUpon().path(WebAssetPaths.NATIVE_ENTRY).build().toString();
         }
         return CANVAS_URL;
     }
@@ -303,6 +310,10 @@ public final class MainActivity extends ComponentActivity {
                 String scheme = uri.getScheme();
                 String host = uri.getHost();
                 if ("https".equalsIgnoreCase(scheme) && CANVAS_HOST.equalsIgnoreCase(host)) {
+                    if (WebAssetPaths.isEditorPath(uri.getPath()) && !WebAssetPaths.NATIVE_ENTRY.equals(uri.getPath())) {
+                        webView.loadUrl(uri.buildUpon().path(WebAssetPaths.NATIVE_ENTRY).build().toString());
+                        return true;
+                    }
                     return false;
                 }
                 openExternal(uri);
@@ -319,6 +330,11 @@ public final class MainActivity extends ComponentActivity {
                 Uri uri = Uri.parse(url);
                 if ("https".equals(uri.getScheme()) && CANVAS_HOST.equals(uri.getHost())) {
                     view.evaluateJavascript(downloadScript, null);
+                    android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
+                    int major = WebVersions.browserMajor(provider == null ? null : provider.versionName);
+                    if (WebAssetPaths.NATIVE_ENTRY.equals(uri.getPath()) && major > 0 && major < WebVersions.MIN_WEBVIEW_MAJOR) {
+                        showError("Android System WebViewを更新してください。\nGoogle PlayでWebViewとChromeを更新した後、KaeruNoteを開き直してください。保存済みのデータは残っています。");
+                    }
                 }
             }
 
@@ -424,6 +440,9 @@ public final class MainActivity extends ComponentActivity {
     private final class CanvasBridge {
         @JavascriptInterface public boolean isFullscreen() { return fullscreenEnabled; }
         @JavascriptInterface public String getAppVersion() { return BuildConfig.VERSION_NAME; }
+        @JavascriptInterface public int getAppVersionCode() { return BuildConfig.VERSION_CODE; }
+        @JavascriptInterface public boolean requiresDeviceRegistration() { return true; }
+        @JavascriptInterface public void persistDeviceRegistration() { CookieManager.getInstance().flush(); }
         @JavascriptInterface public void setFullscreen(boolean enabled) { runOnUiThread(() -> setFullscreenEnabled(enabled)); }
 
         @JavascriptInterface
