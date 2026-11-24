@@ -25,6 +25,9 @@ jobs:
       - run: VITE_APP_COMMIT=1111111 npm run build
       - run: node tests/note-links.cjs
       - run: node tests/private-devices.cjs
+      - run: node tests/clipboard-import.cjs
+      - run: node tests/device-recovery.cjs
+        if: ${{ !cancelled() }}
       - run: node tests/workspace-flow.cjs
       - run: node tests/tablet-ink.cjs
       - run: node tests/drawing-modes.cjs
@@ -48,4 +51,6 @@ jobs:
             /tmp/kaeru-shortcuts-*.png
             /tmp/kaeru-links-*.png
             /tmp/kaeru-private-*.png
+            /tmp/kaeru-clipboard-*.png
+            /tmp/kaeru-device-recovery*.png
           if-no-files-found: ignore

@@ -11,6 +11,7 @@ import type {CRMLink} from './crm-links';
 export type NoteBlock = { id: string; x: number; y: number; w: number; h: number; html: string; background?: string; layerId?: string };
 export type Attachment = { id: string; name: string; mime: string; size: number; sourceId?: string; pending?: boolean };
 export type NoteMeta = { category: string; tags: string[]; alias?: string; relatedNotes?: {id:string;reason:string}[]; pinned?: boolean; referencePins?:string[]; crmLinks?:CRMLink[]; sourceId?: string; sourceNotebook?: string;
+  deviceRecovery?:{sourceId:string;snapshot:string;stage?:'pending'|'complete';originalId?:string};
   sourceCreated?: string; sourceUpdated?: string; sourceMarkdown?: string; sourceFormat?: string; sourceTitle?: string;
   trashedAt?: string; importState?: 'pending' | 'complete'; isTodo?: boolean; completed?: boolean; due?: string;
   organizationLog?: { at: string; category: string; tags: string[] }[] };

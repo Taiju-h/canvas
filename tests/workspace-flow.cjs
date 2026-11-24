@@ -302,6 +302,7 @@ const {chromium}=require(process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES?process.
   const mobileTogglePoint={x:mobileToggleBounds.x+mobileToggleBounds.width/2,y:mobileToggleBounds.y+mobileToggleBounds.height/2};
   for(const open of [true,false,true]){
    await mp.touchscreen.tap(mobileTogglePoint.x,mobileTogglePoint.y);
+   await mp.waitForFunction(open=>document.querySelector('.notes-sidebar-toggle')?.getAttribute('aria-expanded')===String(open),open);
    assert.equal(await mobileToggle.getAttribute('aria-expanded'),String(open));assert.equal(await mp.locator('.notes-sidebar').count(),Number(open));
    assert.deepEqual(await mobileToggle.boundingBox(),mobileToggleBounds,'touch opens and closes from the same point');
   }

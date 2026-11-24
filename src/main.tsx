@@ -76,12 +76,13 @@ function App() {
       // Registration/revocation never deletes IndexedDB or unsynced work.
       setDenied(next);setLocalMode(true);window.CanvasCsrf='';
       if(accepted.current?.authenticated){try{await prepareWebUpdate();}catch{return;}}
-    }else if(accepted.current&&accepted.current.localOnly!==next.localOnly){await prepareWebUpdate();}
+    }else if(accepted.current&&(accepted.current.localOnly!==next.localOnly||accepted.current.accountId!==next.accountId)){await prepareWebUpdate();}
     if(turn!==generation.current)return;
     accepted.current=next;setLocalMode(!!next.localOnly||requiresPrivateGate(next));window.CanvasCsrf=next.csrfToken||'';setSession(next);setDenied(null);setFatal('');
   };
   const reconnect=async()=>{if(checking.current)return;checking.current=true;setConnecting(true);try{await accept(await readSession(true));}catch(error){setFatal(error instanceof Error?error.message:'接続できません。端末内の編集は続けられます');}finally{checking.current=false;setConnecting(false);}};
   useEffect(()=>{void readSession().then(accept).catch(error=>setFatal(error instanceof Error?error.message:'接続できません'));},[]);
+  useEffect(()=>{const requested=()=>void reconnect();addEventListener('kaerunote-reconnect-request',requested);return()=>removeEventListener('kaerunote-reconnect-request',requested);},[]);
   useEffect(()=>{const online=()=>{if(session?.localOnly&&!session.deviceOnly)void reconnect();};addEventListener('online',online);return()=>removeEventListener('online',online);},[session,connecting]);
   useEffect(()=>{
     if(!session?.privateAccess)return;

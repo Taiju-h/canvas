@@ -8,6 +8,7 @@ import { api, blankNote, id32, indexOf, normalizeNote, uploadAttachment, fileURL
 import { mergeSharedNotes, mergeSharedTitle } from './shared-merge';
 import {inCategory,movedCategory} from './note-organization';
 import {loadOfflineWorkspace} from './offline-workspace';
+import {noteSyncPaused} from './note-sync-pause';
 import type {CategoryOperation} from '../components/note-categories';
 
 export type SharedAccess={id:string;token:string};
@@ -152,6 +153,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     for(const key of changed)if(key!==id){clearTimeout(timers.current.get(key));timers.current.set(key,setTimeout(()=>void save(key),700));}
   }
   function save(id = active.current): Promise<void> {
+    if(noteSyncPaused()){report('端末の原本を確認中',id);return Promise.resolve();}
     if (jobs.current.has(id)) return jobs.current.get(id)!;
     const jobKeys=new Set([id]);
     let job!:Promise<void>;
@@ -170,7 +172,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       }
       let attempts=0;
       let key=id;
-      while (networkAvailable()) {
+      while (networkAvailable()&&!noteSyncPaused()) {
         if(!shared&&loadOfflineWorkspace(accountId).pending.length)break;
         let sent=records.current.get(key); if (!sent?.dirty||sent.content.note?.importState==='pending') break;
         report('同期中…',key);
@@ -420,7 +422,10 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
       if(target){
         if(active.current!==target.id || !records.current.get(target.id)) await open(target.id);
         else if(networkAvailable()&&!target.id.startsWith('local-')) void open(target.id);
-      } else if(!active.current) await create();
+      } else if(!active.current){
+        const retained=networkAvailable()&&(await listLocalDocs()).some(n=>n.owner&&n.accountId!==accountId);
+        if(!retained)await create();else setStatus('この端末の保存分をDBへ取り込めます');
+      }
       if(networkAvailable())for(const row of records.current.values())if(row.dirty)void save(row.id);
     })().catch(err=>setError(String(err)));
     const online=()=>{
@@ -439,7 +444,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     // A concurrent write is merged only if the affected objects do not overlap.
     let refreshing=false;
     const poll=window.setInterval(async()=>{
-      if(!live||refreshing||!networkAvailable())return;
+      if(!live||refreshing||!networkAvailable()||noteSyncPaused())return;
       const id=active.current,local=records.current.get(id);
       if(!id||id.startsWith('local-')||!local||local.dirty||blocked.current.has(id)||jobs.current.has(id))return;
       if((document.activeElement as HTMLElement|null)?.closest?.('[contenteditable=true]'))return;
@@ -470,6 +475,7 @@ export function useNotes(accountId: string, sharedAccess?:SharedAccess) {
     }
   }
   async function resumeSync(){await refresh();for(const row of records.current.values())if(row.dirty)void save(row.id);}
-  return {resolveId:(id:string)=>promoted.current.get(id)||id,readForExport,pinReference,indexReady,persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
+  function forgetRecoverySource(id:string){clearTimeout(timers.current.get(id));timers.current.delete(id);records.current.delete(id);synced.current.delete(id);blocked.current.delete(id);setList(rows=>rows.filter(n=>n.id!==id));if(active.current===id){active.current='';setRecord(null);setConflict(false);}}
+  return {forgetRecoverySource,resolveId:(id:string)=>promoted.current.get(id)||id,readForExport,pinReference,indexReady,persistPending,settleSaves,hasUnsynced,reconcileClassification,resumeSync,record,list,status,error,setError,busy,conflict,change,save,open,create,refresh,flushAll,applyOfflineCategory,prepareOffline,refreshReferences,applyLocalMetadata,acceptMetadata,
     recover:()=>record && create(structuredClone(record.content),record.title+'（競合から復元）')};
 }
