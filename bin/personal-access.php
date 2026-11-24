@@ -33,7 +33,7 @@ try {
         // Choose the actual owner: never guess from an email, merge accounts, or create a new empty owner.
         $users = canvas_db()->query('SELECT u.id, COALESCE(v.nickname, u.email) AS label, '
             . '(SELECT COUNT(*) FROM canvas_documents d WHERE d.owner_id = u.id) AS notes '
-            . 'FROM canvas_users u LEFT JOIN canvas_visitors v ON v.id = u.id ORDER BY notes DESC, u.created_at')->fetchAll();
+            . 'FROM canvas_users u LEFT JOIN canvas_visitors v ON v.id = u.id ORDER BY notes DESC, u.created_at, u.id')->fetchAll();
         if (!$users) personal_fail('既存の利用者が見つかりません。個人データの保存先を確認してください');
         echo "既存データの所有者を選びます。他の利用者のデータは統合・削除しません。\n";
         foreach ($users as $i => $user) printf("%d: %s / %d件 / %s\n", $i + 1, $user['label'], $user['notes'], $user['id']);

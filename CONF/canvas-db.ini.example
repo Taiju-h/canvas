@@ -9,3 +9,9 @@ unix_socket =
 [auth]
 ; Generate with: php -r 'echo bin2hex(random_bytes(32)), PHP_EOL;'
 pepper = REPLACE_WITH_64_RANDOM_HEX_CHARACTERS
+
+; Personal Android/PC/iPad deployment: run bin/personal-access.php setup.
+; It selects an existing owner and creates one-use registration codes.
+; [private_access]
+; enabled = true
+; owner_id = EXISTING_32_HEX_USER_ID

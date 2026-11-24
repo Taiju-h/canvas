@@ -5,13 +5,19 @@ import type {Session} from '@/lib/offline-session';
 
 export default function PrivateDeviceManager({session,onClose,onRevoked}:{session:Session;onClose:()=>void;onRevoked:()=>void}){
   const [devices,setDevices]=useState<PrivateDevice[]>([]),[error,setError]=useState(''),[busy,setBusy]=useState(true),[code,setCode]=useState(''),[expires,setExpires]=useState(0),[confirm,setConfirm]=useState('');
-  const close=useRef<HTMLButtonElement>(null);
-  useEffect(()=>{close.current?.focus();let live=true;void listPrivateDevices().then(d=>{if(live)setDevices(d);}).catch(e=>{if(live)setError(e.message);}).finally(()=>{if(live)setBusy(false);});const key=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};addEventListener('keydown',key);return()=>{live=false;removeEventListener('keydown',key);};},[]);
+  const close=useRef<HTMLButtonElement>(null),dialog=useRef<HTMLElement>(null);
+  useEffect(()=>{close.current?.focus();let live=true;void listPrivateDevices().then(d=>{if(live)setDevices(d);}).catch(e=>{if(live)setError(e.message);}).finally(()=>{if(live)setBusy(false);});const key=(e:KeyboardEvent)=>{
+    if(e.key==='Escape')onClose();
+    if(e.key==='Tab'){
+      const items=Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input,a[href]')||[]),first=items[0],last=items[items.length-1];
+      if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}
+    }
+  };addEventListener('keydown',key);return()=>{live=false;removeEventListener('keydown',key);};},[]);
   useEffect(()=>{if(!code)return;const timer=setTimeout(()=>{setCode('');setExpires(0);},Math.max(0,expires-Date.now()));return()=>clearTimeout(timer);},[code,expires]);
   async function revoke(device:PrivateDevice){
     setBusy(true);setError('');try{const result=await revokePrivateDevice(session.csrfToken||'',device.id);setConfirm('');if(result.currentRevoked){onRevoked();return;}setDevices(await listPrivateDevices());}catch(e){setError(e instanceof Error?e.message:'解除できません');}finally{setBusy(false);}
   }
-  return <div className="kn-devices-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="devices-title" className="kn-devices">
+  return <div className="kn-devices-backdrop"><section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="devices-title" className="kn-devices">
     <header><h2 id="devices-title"><LockKeyhole size={21}/>自分の端末</h2><button ref={close} onClick={onClose} aria-label="端末管理を閉じる"><X size={20}/></button></header>
     <p>登録したAndroid・PC・iPadから、同じ個人用データを使えます。</p>
     <button className="kn-device-invite" disabled={busy} onClick={async()=>{setBusy(true);setError('');try{const invite=await invitePrivateDevice(session.csrfToken||'');setCode(invite.code);setExpires(Date.now()+invite.expiresInMinutes*60000);}catch(e){setError(e instanceof Error?e.message:'コードを発行できません');}finally{setBusy(false);}}}>別の自分の端末を追加する</button>

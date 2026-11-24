@@ -36,6 +36,20 @@ function kn_private_read(?string $owner = null): array
         ($owner !== null && !hash_equals($owner, $state['owner_id']))) {
         throw new KnPrivateError('端末登録の設定を読み込めません。保存データは保持しています');
     }
+    foreach ($state['devices'] as $id => $device) {
+        if (!preg_match('/^[a-f0-9]{32}$/D', (string)$id) || !is_array($device) || !is_string($device['name'] ?? null) ||
+            !preg_match('/^[a-f0-9]{64}$/D', (string)($device['token_hash'] ?? '')) ||
+            !is_int($device['created_at'] ?? null) || !is_int($device['expires_at'] ?? null) ||
+            !array_key_exists('revoked_at', $device) || ($device['revoked_at'] !== null && !is_int($device['revoked_at']))) {
+            throw new KnPrivateError('端末登録の設定が不完全です。保存データは保持しています');
+        }
+    }
+    foreach ($state['invites'] as $hash => $invite) {
+        if (!preg_match('/^[a-f0-9]{64}$/D', (string)$hash) || !is_array($invite) ||
+            !is_int($invite['created_at'] ?? null) || !is_int($invite['expires_at'] ?? null)) {
+            throw new KnPrivateError('登録コードの設定が不完全です。保存データは保持しています');
+        }
+    }
     return $state;
 }
 
@@ -179,6 +193,7 @@ function kn_private_api(string $path, string $method): void
             if (kn_private_device() !== null) throw new KnPrivateError('この端末は登録済みです', 409);
             if (!canvas_csrf_valid()) throw new KnPrivateError('登録画面を再読み込みしてください', 403);
             $body = canvas_body();
+            if (!is_string($body['code'] ?? null) || !is_string($body['name'] ?? null)) throw new KnPrivateError('端末名と登録コードを入力してください', 400);
             $result = kn_private_enroll((string)($body['code'] ?? ''), (string)($body['name'] ?? ''));
             if (isset($result['error'])) throw new KnPrivateError($result['error'], $result['status']);
             kn_private_set_cookie($result['cookie'], intdiv($result['expires_at'], 1000));

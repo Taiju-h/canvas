@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
-import {mkdtempSync,readFileSync,writeFileSync,rmSync,mkdirSync} from 'node:fs';
+import {mkdtempSync,readFileSync,writeFileSync,rmSync,mkdirSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {createHash,randomBytes} from 'node:crypto';
@@ -41,6 +41,9 @@ try{
   await status(stranger.request(`/api/documents/${foreign}/images/${'f'.repeat(32)}`,{headers:{'X-Share-Token':share}}),401);
   await status(stranger.request('/canvas/login.php'),303);await status(stranger.request('/canvas/admin-visitors.php'),403);
   await status(stranger.request('/api/private/activate',{method:'POST',body:{code,name:'no csrf'}}),403);
+  await status(stranger.request('/api/private/activate',{method:'POST',csrf:session.data.csrfToken,body:{code,name:'no HTTPS'},headers:{Host:'example.test'}}),400);
+  await status(stranger.request('/api/private/activate',{method:'POST',csrf:session.data.csrfToken,body:{code:[],name:'bad input'}}),400);
+  const expired=invite(),expiredState=readState();expiredState.invites[hash(expired)]={created_at:1,expires_at:2};writeFileSync(stateFile,JSON.stringify(expiredState));await status(activate(stranger,expired,'expired code'),400);
   await status(activate(stranger,invite(),'wrong code'),400);assert.equal(Object.keys(readState().devices).length,0);
 
   const old=client('KaeruNoteAndroid/0.4.5-web-shell');assert.equal((await old.request('/api/session')).data.upgradeRequired,true);await status(activate(old,code),426);
@@ -80,8 +83,18 @@ try{
   // Expiry and revocation are checked from live server state on every request.
   const state=readState();state.devices[registered.data.deviceId].expires_at=Date.now()-1;writeFileSync(stateFile,JSON.stringify(state));await status(first.request('/test/actor'),401);
   writeFileSync(stateFile,'incomplete');await status(stranger.request('/api/session'),503);await status(first.request('/test/actor'),503);
+  writeFileSync(stateFile,JSON.stringify({...initial,owner_id:'b'.repeat(32)}));await status(stranger.request('/api/session'),503);
   writeFileSync(stateFile,JSON.stringify(initial));const attempts=client();let last;
   for(let i=0;i<14;i++)last=await activate(attempts,'bad-code');assert.equal(last.status,429);
+  if(db){
+    const setupConfig=join(scratch,'setup.ini'),setupState=join(scratch,'setup','state.json'),setupEnv={...env,CANVAS_CONFIG_FILE:setupConfig,CANVAS_PRIVATE_STATE_FILE:setupState};
+    writeFileSync(setupConfig,readFileSync(config,'utf8').replace('enabled=true','enabled=false'));
+    const invalid=spawnSync('php',['bin/personal-access.php','setup'],{env:setupEnv,input:'999\n',encoding:'utf8'});assert.equal(invalid.status,1);assert.equal(existsSync(setupState),false);
+    const setup=spawnSync('php',['bin/personal-access.php','setup'],{env:setupEnv,input:'1\n',encoding:'utf8'});assert.equal(setup.status,0,setup.stderr);
+    const selected=JSON.parse(readFileSync(setupState,'utf8'));assert.equal(selected.owner_id,owner);assert.equal(Object.keys(selected.invites).length,1);assert.match(readFileSync(setupConfig,'utf8'),new RegExp('pepper='+ '0'.repeat(64)));
+    const previous=readFileSync(setupState,'utf8'),repeat=spawnSync('php',['bin/personal-access.php','setup'],{env:setupEnv,encoding:'utf8'});assert.equal(repeat.status,1);assert.equal(readFileSync(setupState,'utf8'),previous);
+    const extra=spawnSync('php',['bin/personal-access.php','invite'],{env:setupEnv,encoding:'utf8'});assert.equal(extra.status,0,extra.stderr);assert.equal(Object.keys(JSON.parse(readFileSync(setupState,'utf8')).invites).length,2);
+  }
   console.log('PASS private API: stranger/legacy/share denial, one-use concurrent enrollment, CSRF, cookie flags, owner mapping, expiry, revocation, rate limiting, corrupt-state denial'+(db?', MySQL note/image/attachment isolation':''));
 }finally{
   php.kill('SIGTERM');await new Promise(r=>{if(php.exitCode!==null)r();else php.once('exit',r);});rmSync(scratch,{recursive:true,force:true});
